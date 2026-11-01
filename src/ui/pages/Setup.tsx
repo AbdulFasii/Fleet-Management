@@ -9,7 +9,7 @@ import type { Difficulty } from '../../engine/types'
 export function SetupScreen() {
   const g = useGame()
   const startNew = g.startNew
-  const [name, setName] = useState('Royal Travels')
+  const [name, setName] = useState('')
   const [diff, setDiff] = useState<Difficulty>('malik')
   const [route, setRoute] = useState(starterRoutes()[0])
   const [saveFiles, setSaveFiles] = useState<{ name: string; size: number; mtime: string }[]>([])
@@ -62,7 +62,7 @@ export function SetupScreen() {
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Deccan Queen Travels"
+          placeholder="Enter company name..."
           style={{ width: 260 }}
           maxLength={28}
         />

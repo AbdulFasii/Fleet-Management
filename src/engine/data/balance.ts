@@ -1032,8 +1032,16 @@ export const BAL = {
   layoverMinHaulHours: 6,
   /** Layover scaling slope per route hour above threshold. */
   layoverSlope: 0.48,
-  /** Max vehicle cooldown after any haul (8 hours). */
-  layoverMaxMin: 480,
+  /**
+   * Vehicle cooldown by haul length (delay counts inside this window).
+   * UI shows ceil hours (4 / 6 / 8 / 10 / 12).
+   * default 3.9h; ≥18 → 5.9h; ≥24 → 7.9h; ≥28 → 9.9h; ≥34 → 11.9h.
+   */
+  layoverDefaultMin: 234,
+  layoverAt18Min: 354,
+  layoverAt24Min: 474,
+  layoverAt28Min: 594,
+  layoverAt34Min: 714,
   /** Terminal + rest turnaround uses corridor km / this speed. */
   pairAvgSpeedKmh: 35,
   /** Floor on turnaround even for short hops. */
@@ -1170,7 +1178,7 @@ export interface DifficultyPreset {
 export const DIFFICULTIES: DifficultyPreset[] = [
   {
     id: 'seth',
-    label: 'Seth (Easy)',
+    label: 'Easy',
     desc: 'Family money. ₹1 Cr seed, good credit, forgiving demand.',
     seedCapital: L(100),
     startCredit: 720,
@@ -1179,7 +1187,7 @@ export const DIFFICULTIES: DifficultyPreset[] = [
   },
   {
     id: 'malik',
-    label: 'Malik (Normal)',
+    label: 'Normal',
     desc: 'Sold the family land. ₹40 L seed, average credit.',
     seedCapital: L(40),
     startCredit: 660,
@@ -1188,7 +1196,7 @@ export const DIFFICULTIES: DifficultyPreset[] = [
   },
   {
     id: 'sahukar',
-    label: 'Sahukar (Hard)',
+    label: 'Hard',
     desc: 'Borrowed from everyone you know. ₹15 L seed, thin credit, cruel market.',
     seedCapital: L(15),
     startCredit: 610,
