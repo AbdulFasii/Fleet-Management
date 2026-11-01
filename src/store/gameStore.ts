@@ -1,0 +1,1747 @@
+import { create } from 'zustand'
+import { immer } from 'zustand/middleware/immer'
+import type { BusDuty, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost } from '../engine/types'
+import { type Money, fmtCompact } from '../engine/core/money'
+import { advanceDay, needsAttention } from '../engine/tick'
+import { newGame, SAVE_VERSION, initialBrandCode } from '../engine/newGame'
+import { nextId } from '../engine/core/ids'
+import * as groups from '../engine/sim/groups'
+import * as fleet from '../engine/sim/fleet'
+import * as banking from '../engine/sim/banking'
+import * as staffing from '../engine/sim/staffing'
+import * as schedules from '../engine/sim/schedules'
+import * as maintenance from '../engine/sim/maintenance'
+import * as channels from '../engine/sim/channels'
+import * as cover from '../engine/sim/cover'
+import * as insurance from '../engine/sim/insurance'
+import * as cargoSim from '../engine/sim/cargo'
+import * as depot from '../engine/sim/depot'
+import * as crm from '../engine/sim/crm'
+import * as tax from '../engine/sim/tax'
+import * as festival from '../engine/sim/festival'
+import { pushLog } from '../engine/sim/log'
+import { retainDay } from '../engine/sim/retain'
+import { BUS_MODELS, RETIRED_MODEL_MAP, canonicalizeLayoutKey, layoutKey, isCargoModel } from '../engine/data/busModels'
+import { ROUTES, ROUTE_LIST, RIVALS, routeName } from '../engine/data/routes'
+import { cityName } from '../engine/data/cities'
+import { RIVALS_DATA, seedRouteShare } from '../engine/data/rivals'
+import { BAL, getDirectionalOccupancyRange } from '../engine/data/balance'
+import { emptyChannelSold, normalizeChannels } from '../engine/data/channels'
+import { foldHybridLayouts } from '../engine/sim/finance'
+import { applyDecision } from '../engine/sim/events'
+import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
+import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
+import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
+import {
+  clearSaveStores,
+  decodeSaveString,
+  encodeSaveString,
+  hasSaveBlob,
+  hydratePackedState,
+  readSave,
+  writeSave,
+} from './saveCodec'
+
+export interface Toast {
+  id: number
+  text: string
+  kind: 'info' | 'good' | 'bad'
+}
+
+export interface UiPrefs {
+  fleetGroupId: 'all' | 'none' | ID
+}
+
+function loadUiPrefs(): UiPrefs {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem('busraj_ui_prefs')
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed.fleetGroupId === 'string') {
+          return { fleetGroupId: parsed.fleetGroupId }
+        }
+      }
+    }
+  } catch {}
+  return { fleetGroupId: 'all' }
+}
+
+function saveUiPrefs(prefs: UiPrefs): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('busraj_ui_prefs', JSON.stringify(prefs))
+    }
+  } catch {}
+}
+
+export function sanitizeUiPrefs(prefs: UiPrefs, s: GameState | null): UiPrefs {
+  if (prefs.fleetGroupId !== 'all' && prefs.fleetGroupId !== 'none') {
+    if (!s?.groups || !s.groups[prefs.fleetGroupId] || s.groups[prefs.fleetGroupId].status === 'retired') {
+      return { fleetGroupId: 'all' }
+    }
+  }
+  return prefs
+}
+
+let toastSeq = 1
+/** A multi-day skip is slicing its work across tasks; ignore further advances. */
+let skipInFlight = false
+
+interface GameStore {
+  state: GameState | null
+  toasts: Toast[]
+  busy: boolean
+  skipStopReason: string | null
+  uiPrefs: UiPrefs
+  setFleetGroupFilter: (id: 'all' | 'none' | ID) => void
+
+  createGroup: (input: { name: string; code: string; color?: string; cargoBrand?: boolean }) => { id: ID } | { error: string }
+  updateGroup: (id: ID, patch: Partial<Omit<BusGroup, 'id'>>) => string | null
+  retireGroup: (id: ID, moveTo: ID | undefined) => string | null
+  restoreGroup: (id: ID) => string | null
+  deleteGroup: (id: ID) => string | null
+  assignBusToGroup: (busId: ID, groupId: ID | undefined) => string | null
+  assignScheduleToGroup: (schId: ID, groupId: ID | undefined) => string | null
+
+  startNew: (name: string, difficulty: Difficulty, homeRouteId: string) => void
+  loadSave: () => boolean
+  /** Parse a JSON export and load it. Returns whether browser storage accepted a write. */
+  importSaveJson: (text: string) => { ok: boolean; persisted: boolean; error?: string }
+  hasSave: () => boolean
+  save: () => boolean
+  /**
+   * Fold old history into the compact form and rewrite the save: drops seat
+   * maps from finished trips, keeps three weeks of trip detail, 90 days of
+   * route-days and a shorter ledger. Returns whether the write succeeded.
+   */
+  compactSave: () => boolean
+  /** Compacted JSON string for download (does not mutate live state). */
+  exportSaveJson: () => string | null
+  abandon: () => void
+  /** Clears all stored save data from browser storage and returns to company setup screen. */
+  resetToNewGame: () => void
+
+  advance: (days: number, stopOnAttention?: boolean) => void
+
+  /** run an engine intent; returns true on success, toasts the error otherwise */
+  intent: (fn: (s: GameState) => string | null, successMsg?: string) => boolean
+  toast: (text: string, kind?: Toast['kind']) => void
+  dismissToast: (id: number) => void
+
+  // convenience wrappers used across pages
+  inspectListing: (id: ID) => void
+  buyUsed: (id: ID, plan: fleet.FinancePlan, groupId?: ID) => void
+  orderNewBus: (modelId: string, plan: fleet.FinancePlan, groupId?: ID) => void
+  startLease: (id: ID, groupId?: ID) => void
+  endLease: (busId: ID) => boolean
+  signAttach: (id: ID, groupId?: ID) => void
+  releaseAttach: (busId: ID) => void
+  sellBus: (busId: ID) => void
+  forecloseLoan: (loanId: ID) => void
+  takeCashLoan: (slabId: string) => void
+  rescueWithLoan: (slabId: string) => void
+  hire: (candId: ID) => void
+  fire: (staffId: ID) => void
+  assignStaff: (staffId: ID, busId: ID | undefined) => void
+  trainStaff: (staffId: ID) => void
+  raiseSalary: (staffId: ID, salary: number) => void
+  applyForPermit: (routeId: string) => void
+  applySeasonalPermit: (routeId: string, seasonId?: SeasonId) => void
+  renewSeasonalPermit: (routeId: string) => void
+  withdrawSeasonalPermit: (routeId: string) => void
+  openCargoPermit: (routeId: string) => void
+  renewCargoPermit: (routeId: string) => void
+  closeCargoPermit: (routeId: string) => void
+  discontinueRoute: (routeId: string) => void
+  createSchedule: (input: schedules.ScheduleInput, busId?: ID) => boolean
+  updateSchedule: (schId: ID, patch: Partial<schedules.ScheduleInput> & { active?: boolean }) => void
+  assignBus: (schId: ID, busId: ID) => void
+  unassignBus: (schId: ID, busId: ID) => void
+  deleteSchedule: (schId: ID) => void
+  duplicateSchedule: (schId: ID, slot?: schedules.DuplicateSlot) => boolean
+  makeFestivalFull: (schId: ID) => void
+  appointScheduleManager: (staffId: ID | undefined) => void
+  setScheduleAutoAcceptCharters: (auto: boolean) => void
+  serviceBus: (busId: ID, tier?: ServiceTierId, opts?: { outside?: boolean }) => void
+  repairSubsystem: (busId: ID, sub: SubsystemId) => void
+  replaceTyres: (busId: ID, axleOrRetread?: TyreAxle | boolean, brand?: TyreBrand, opts?: { outside?: boolean }) => void
+  setTyrePressure: (busId: ID) => void
+  setWorkshopTyreBrand: (brand: 'oem' | 'tier2') => void
+  rebodyBus: (busId: ID) => void
+  refurbishSeats: (busId: ID) => void
+  upgradeWorkshop: () => void
+  expandDepot: () => void
+  leaseYard: (cityId: string) => void
+  cancelYard: (cityId: string) => void
+  payGarageClaim: (claimId: ID) => void
+  settleInsuranceClaim: (claimId: ID) => void
+  appointFleetManager: (staffId: ID | undefined) => void
+  appointBayMechanic: (staffId: ID | undefined) => void
+  unappointBayMechanic: (staffId: ID) => void
+  appointHr: (staffId: ID | undefined) => void
+  appointOps: (staffId: ID | undefined) => void
+  setOpsAutoStaff: (enabled: boolean) => void
+  setHrAutoHire: (patch: staffing.HrAutoHirePatch) => void
+  setHrAutoRaise: (enabled: boolean) => void
+  setHrAutoFire: (patch: staffing.HrAutoFirePatch) => void
+  appointSpareDriver: (staffId: ID) => void
+  setBusDuty: (busId: ID, duty: BusDuty) => void
+  buildAppTier: (tier: 1 | 2 | 3) => void
+  setMarketingBudget: (monthly: number) => void
+  decide: (decisionId: ID, optionId: string) => void
+  markInboxRead: (id: ID) => void
+  markAllInboxRead: () => void
+  repriceTrip: (tripId: ID, fare: number) => void
+  setOdoHighlightKm: (km: number) => void
+  setAutoRenewDocs: (enabled: boolean) => void
+  setCargoBaseRate: (rs: number) => void
+  setCargoPricingType: (type: CargoPricingType) => void
+  setCargoCargoType: (type: CargoCargoType) => void
+  setCargoAcceptFragile: (accept: boolean) => void
+  setCargoAutoSignContracts: (enabled: boolean) => void
+  signCargoContract: (proposal: any) => void
+  cancelCargoContract: (contractId: ID) => void
+  acceptSpotCargoOffer: (offerId: ID) => void
+  acceptAllSpotOffers: () => void
+  setDedicatedCargoSubsidiary: (on: boolean) => void
+  deepCleanBus: (busId: ID) => void
+  payRoadTax: (busId: ID) => void
+  renewPuc: (busId: ID) => void
+  fitGps: (busId: ID) => void
+  retestFitness: (busId: ID) => void
+  takeMsmeLoan: (lenderId: string, amount: Money, months: number) => void
+  setScheduleDefaults: (patch: Partial<ScheduleDefaults>) => void
+  appointCargoManager: (staffId: ID | undefined) => void
+  appointDocsManager: (staffId: ID | undefined) => void
+  appointCrm: (staffId: ID | undefined) => void
+  setCrmPolicy: (policy: 'ask' | 'refund' | 'dispute' | 'suggest_refund') => void
+  resolveGrievance: (grievanceId: ID, action: 'refund' | 'dispute') => void
+  appointAccountant: (staffId: ID | undefined) => void
+  appointDeskAssistant: (desk: DeskPost, staffId: ID) => void
+  unappointDeskAssistant: (desk: DeskPost, staffId: ID) => void
+  retrainDriver: (staffId: ID) => void
+  upgradeLicence: (staffId: ID) => void
+  runTripAnyway: (tripId: ID) => void
+  updatePlayerConfig: (patch: Partial<PlayerConfig>) => void
+  setWelfareConfig: (patch: Partial<Pick<PlayerConfig, 'mealAllowance' | 'healthCoverage' | 'festivalBonus'>>) => void
+  renewInsurance: (busId: ID) => void
+  renewFitness: (busId: ID) => void
+  setDepreciationDefault: (method: DepreciationMethod) => void
+  setDepreciationRate: (ratePct: number | null) => void
+  remitGst: () => void
+  fileTds: () => void
+  takeHpLoan: (productId: string, busId: ID, months: number) => void
+  setServiceTier: (schId: ID, tier: ServiceTier, amenities?: PassengerAmenities) => void
+  setDefaultAmenities: (amenities: PassengerAmenities) => void
+  setDefaultServiceTier: (tier: ServiceTier) => void
+  retrofitBus: (busId: ID, feature: string) => void
+  setFuelContract: (partner: FuelPartner) => void
+  installDepotFuelTank: () => void
+  orderDepotFuelRefill: (litres?: number) => void
+  toggleAutoRefillDepotTank: (enabled?: boolean) => void
+  toggleEcoIncentive: (enabled?: boolean) => void
+  triggerFlashDeal: (tripId: ID) => void
+  triggerSurgeDeal: (tripId: ID) => void
+}
+
+let pendingSave: GameState | null = null
+let pendingSaveMutable = false
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+
+function dropPendingSave(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  pendingSave = null
+}
+
+/** Write a deferred autosave now (page hide, explicit save, load/import). */
+export function flushPendingSave(): boolean {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  const s = pendingSave
+  const mutable = pendingSaveMutable
+  pendingSave = null
+  if (!s) return true
+  return persist(s, { alreadyMutable: mutable })
+}
+
+/**
+ * Defer the autosave that follows a clock advance by a beat. Encoding a save
+ * (zlib + base64 over a multi-MB state) is one of the most expensive things a
+ * click does, and clicking through days would otherwise pay it every day. The
+ * newest state wins, and any immediate save / page hide flushes it.
+ */
+function persistSoon(s: GameState | null, opts?: { alreadyMutable?: boolean }): void {
+  if (!s) return
+  pendingSave = s
+  pendingSaveMutable = opts?.alreadyMutable ?? false
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => { flushPendingSave() }, 500)
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => { flushPendingSave() })
+  window.addEventListener('beforeunload', () => { flushPendingSave() })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingSave()
+  })
+}
+
+function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): boolean {
+  if (!s) return false
+  // An immediate write supersedes anything still waiting on the timer.
+  dropPendingSave()
+  // Hot path: encode straight off the live state. `encodeSaveString` only reads
+  // (trips are packed into a DTO), so a full deep clone here just doubled the
+  // working set of a long game on every click. Retention runs daily in the
+  // engine, so the clone is only needed when we must shrink for a full store.
+  const tryWrite = (state: GameState): boolean => {
+    try {
+      return writeSave(encodeSaveString(state), state.day)
+    } catch {
+      return false
+    }
+  }
+  if (tryWrite(s)) return true
+
+  // Storage refused the payload: make a private copy to trim, never mutating
+  // the live state the UI is rendering from.
+  const draft = opts?.alreadyMutable ? s : structuredClone(s) as GameState
+  compactTrips(draft)
+  draft.txns = draft.txns.slice(-400)
+  if (tryWrite(draft)) return true
+  shrinkForStorage(draft, 'medium')
+  if (tryWrite(draft)) return true
+  shrinkForStorage(draft, 'hard')
+  return tryWrite(draft)
+}
+
+
+/** Aggressive shrink for full localStorage / smaller export files. */
+function shrinkForStorage(s: GameState, level: 'medium' | 'hard'): GameState {
+  compactTrips(s)
+  const keepOpen = level === 'hard' ? 10 : BAL.bookingWindowDays
+  const keepDone = level === 'hard' ? 7 : Math.min(BAL.completedTripKeepDays, 21)
+  for (const [id, t] of Object.entries(s.trips ?? {})) {
+    if (t.status === 'open') {
+      if (t.day > s.day + keepOpen) {
+        delete s.trips[id]
+        continue
+      }
+      continue
+    }
+    if (t.day < s.day - keepDone) delete s.trips[id]
+    else {
+      if (t.seats?.length) t.seats = []
+      delete t.seatSales
+    }
+  }
+  s.openTripIds = (s.openTripIds ?? []).filter((id) => s.trips[id]?.status === 'open')
+  s.txns = (s.txns ?? []).slice(level === 'hard' ? -200 : -500)
+  s.monthly = (s.monthly ?? []).slice(level === 'hard' ? -24 : -48)
+  if (s.routeHistory) {
+    for (const [rid, days] of Object.entries(s.routeHistory)) {
+      const keep = level === 'hard' ? 30 : 90
+      s.routeHistory[rid] = (days ?? []).filter((d) => d.day >= s.day - keep)
+    }
+  }
+
+  for (const sch of Object.values(s.schedules ?? {})) {
+    if (sch.occRecent?.length > 30) sch.occRecent = sch.occRecent.slice(-30)
+    if (sch.occRecentReturn && sch.occRecentReturn.length > 30) {
+      sch.occRecentReturn = sch.occRecentReturn.slice(-30)
+    }
+  }
+  return s
+}
+
+/** Backfill seatCount and drop seat maps on old finished trips (save size). */
+function compactTrips(s: GameState): void {
+  const keep = BAL.completedTripKeepDays
+  for (const [id, t] of Object.entries(s.trips ?? {})) {
+    if (!t.seatCount) t.seatCount = t.seats?.length || 0
+    if (t.status === 'open') continue
+    if (t.day < s.day - keep) {
+      delete s.trips[id]
+      continue
+    }
+    if (t.seats?.length) t.seats = []
+    delete t.seatSales
+  }
+  s.openTripIds = (s.openTripIds ?? []).filter((id) => {
+    const t = s.trips[id]
+    return t !== undefined && (t.status === 'open' || t.day >= s.day - keep)
+  })
+  if (s.txns.length > BAL.txnMaxCount) s.txns = s.txns.slice(-BAL.txnMaxCount)
+}
+
+function mergeByLayoutKeys(byLayout: Record<string, RouteLayoutStats> | undefined): void {
+  if (!byLayout) return
+  for (const key of Object.keys(byLayout)) {
+    const canon = canonicalizeLayoutKey(key)
+    if (canon === key) continue
+    const src = byLayout[key]!
+    delete byLayout[key]
+    const dst = (byLayout[canon] ??= { revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0 })
+    dst.revenue += src.revenue
+    dst.cost += src.cost
+    dst.trips += src.trips
+    dst.paxKm += src.paxKm
+    dst.seatKm += src.seatKm
+  }
+  foldHybridLayouts(byLayout)
+}
+
+function migrateLegacyRouteIds(s: GameState): void {
+  // Migrate legacy and inverted route IDs to canonical IDs in ROUTE_LIST
+  const routeRenames: [string, string][] = [
+    ['blr-maa', 'maa-blr'],
+    ['mdu-maa', 'maa-mdu'],
+    ['mdu-maa-ecr', 'maa-mdu-ecr'],
+    ['mdu-blr', 'blr-mdu'],
+    ['cbe-mdu', 'mdu-cbe'],
+  ]
+  for (const [oldId, newId] of routeRenames) {
+    if (s.permits && s.permits[oldId]) {
+      if (!s.permits[newId] || s.permits[newId].status !== 'active') {
+        s.permits[newId] = {
+          ...s.permits[oldId],
+          routeId: newId,
+        }
+      }
+      delete s.permits[oldId]
+    }
+    for (const sch of Object.values(s.schedules ?? {})) {
+      if (sch.routeId === oldId) {
+        sch.routeId = newId
+      }
+    }
+    for (const t of Object.values(s.trips ?? {})) {
+      if (t.routeId === oldId) {
+        t.routeId = newId
+      }
+    }
+    if (s.world) {
+      if (s.world.share?.[oldId]) {
+        if (!s.world.share[newId]) s.world.share[newId] = s.world.share[oldId]
+        delete s.world.share[oldId]
+      }
+      if (s.world.shareHistory?.[oldId]) {
+        if (!s.world.shareHistory[newId]) s.world.shareHistory[newId] = s.world.shareHistory[oldId]
+        delete s.world.shareHistory[oldId]
+      }
+      if (s.world.fareIndex?.[oldId]) {
+        if (s.world.fareIndex[newId] === undefined) s.world.fareIndex[newId] = s.world.fareIndex[oldId]
+        delete s.world.fareIndex[oldId]
+      }
+      if (s.world.priceWars?.[oldId]) {
+        if (!s.world.priceWars[newId]) s.world.priceWars[newId] = s.world.priceWars[oldId]
+        delete s.world.priceWars[oldId]
+      }
+      if (s.world.closures?.[oldId]) {
+        if (!s.world.closures[newId]) s.world.closures[newId] = s.world.closures[oldId]
+        delete s.world.closures[oldId]
+      }
+      if (s.world.demandShock?.[oldId]) {
+        if (!s.world.demandShock[newId]) s.world.demandShock[newId] = s.world.demandShock[oldId]
+        delete s.world.demandShock[oldId]
+      }
+    }
+    if (s.routeStats?.[oldId]) {
+      if (!s.routeStats[newId]) s.routeStats[newId] = s.routeStats[oldId]
+      delete s.routeStats[oldId]
+    }
+    if (s.routeHistory?.[oldId]) {
+      if (!s.routeHistory[newId]) s.routeHistory[newId] = s.routeHistory[oldId]
+      delete s.routeHistory[oldId]
+    }
+  }
+}
+
+function migrate(raw: unknown): GameState | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as GameState
+  if (typeof s.version !== 'number' || s.version > SAVE_VERSION) return null
+
+  migrateLegacyRouteIds(s)
+
+  if (!s.groups || Object.keys(s.groups).length === 0) {
+    const initCode = initialBrandCode(s.company?.name ?? 'Main')
+    const grpId = nextId(s.ids, 'grp')
+    const primaryBrand: BusGroup = {
+      id: grpId,
+      name: s.company?.name ?? 'Main Brand',
+      code: initCode,
+      color: groups.GROUP_PALETTE[0],
+      foundedDay: s.day,
+      status: 'active',
+      rating: s.company?.rating ?? 3.4,
+      ratingCount: s.company?.ratingCount ?? 0,
+      cancelRate: s.company?.cancelRate ?? 0,
+      primo: !!s.company?.primo,
+      primoOffered: !!s.company?.primoOffered,
+      primoSinceDay: s.company?.primoSinceDay,
+      defaultAmenities: s.company?.defaultAmenities ? { ...s.company.defaultAmenities } : undefined,
+      defaultServiceTier: s.company?.defaultServiceTier,
+    }
+    s.groups = { [grpId]: primaryBrand }
+
+    for (const sch of Object.values(s.schedules ?? {})) {
+      if ((sch as any).amenities && !primaryBrand.defaultAmenities) {
+        primaryBrand.defaultAmenities = { ...(sch as any).amenities }
+      }
+      delete (sch as any).amenities
+      sch.groupId = grpId
+    }
+
+    for (const b of Object.values(s.buses ?? {})) {
+      b.groupId = grpId
+    }
+  } else {
+    for (const g of Object.values(s.groups)) {
+      if (!g.status) g.status = 'active'
+    }
+    for (const sch of Object.values(s.schedules ?? {})) {
+      delete (sch as any).amenities
+    }
+  }
+
+  const primaryBrandId = Object.keys(s.groups)[0]
+
+  for (const b of Object.values(s.buses ?? {})) {
+    if (!b.duty) b.duty = 'line'
+    if (b.groupId === undefined && primaryBrandId) b.groupId = primaryBrandId
+    if (b.busCleanliness === undefined) b.busCleanliness = 85
+    if (b.roadTaxPayableDay === undefined) b.roadTaxPayableDay = s.day + 365
+    if (b.lastMajorServiceOdo === undefined) b.lastMajorServiceOdo = b.lastServiceOdo
+    if (b.lastOverhaulDay === undefined) b.lastOverhaulDay = b.acquiredDay
+    if (b.lastOverhaulOdo === undefined) b.lastOverhaulOdo = b.lastServiceOdo
+    if (b.gpsDeviceFitted === undefined) b.gpsDeviceFitted = true
+    if (b.pucExpiryDay === undefined) b.pucExpiryDay = s.day + 180
+    if (b.fitnessFailed === undefined) b.fitnessFailed = false
+    const m = BUS_MODELS[b.modelId]
+    const isSleeper = m?.cls === 'sleeper' || m?.sleeper || m?.layout?.kind === 'sleeper' || m?.layout?.kind === 'hybrid' || m?.cls === 'AC_HYBRID' || m?.cls === 'AC_SLEEPER'
+    if (b.tyreCount === undefined) b.tyreCount = isSleeper ? 10 : 6
+    if (b.frontTyreKm === undefined) b.frontTyreKm = b.tyreKm ?? 0
+    if (b.rearTyreKm === undefined) b.rearTyreKm = b.tyreKm ?? 0
+    if (b.frontBrand === undefined) b.frontBrand = 'oem'
+    if (b.rearBrand === undefined) b.rearBrand = b.tyresRetreaded ? 'retread' : 'oem'
+    if (b.tyrePressure === undefined) b.tyrePressure = 'ok'
+    if (b.parkedCityId === undefined) b.parkedCityId = s.company?.homeCityId ?? 'maa'
+    if (b.ownership === 'owned' && !b.depreciationMethod) b.depreciationMethod = 'SLM'
+    if (b.cargoVolumeCbm === undefined) {
+      const seats = m?.seats ?? 36
+      b.cargoVolumeCbm = m?.cargoVolumeCbm ?? (seats < 30 ? 4 : seats < 45 ? 8 : 12)
+    } else if (m?.cargoVolumeCbm && isCargoModel(m.id) && b.cargoVolumeCbm < m.cargoVolumeCbm) {
+      b.cargoVolumeCbm = m.cargoVolumeCbm
+    }
+    delete (b as any).reefer
+    if ((b.status as string) === 'charter') {
+      b.status = 'active'
+      delete (b as { charterKind?: unknown }).charterKind
+      delete (b as { charterUntilDay?: unknown }).charterUntilDay
+    }
+    if (RETIRED_MODEL_MAP[b.modelId]) b.modelId = RETIRED_MODEL_MAP[b.modelId]
+  }
+  for (const o of s.busOrders ?? []) {
+    if (RETIRED_MODEL_MAP[o.modelId]) o.modelId = RETIRED_MODEL_MAP[o.modelId]
+  }
+  s.usedMarket = (s.usedMarket ?? []).filter((l) => Boolean(BUS_MODELS[l.modelId]))
+  s.leaseOffers = (s.leaseOffers ?? []).filter((o) => Boolean(BUS_MODELS[o.modelId]))
+  s.attachOffers = (s.attachOffers ?? []).filter((o) => Boolean(BUS_MODELS[o.modelId]))
+  delete (s as { charterJobs?: unknown }).charterJobs
+  delete (s as { charterRefreshDay?: unknown }).charterRefreshDay
+  for (const l of Object.values(s.loans ?? {})) {
+    if (!l.kind) l.kind = 'vehicle'
+  }
+  if (!s.workshop) s.workshop = { level: 0, bays: 0, mechanicIds: [] }
+  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+  if (!s.yards) s.yards = []
+  if (!s.company.lenderRelations) s.company.lenderRelations = {}
+  if (!s.company.serviceSpendByTier) s.company.serviceSpendByTier = { a: 0, b: 0, overhaul: 0 }
+  if (!s.company.serviceCountByTier) s.company.serviceCountByTier = { a: 0, b: 0, overhaul: 0 }
+  if (!s.company.workshopTyreBrand) s.company.workshopTyreBrand = 'oem'
+  // Idle buses are the cover pool — drop legacy "designate as spare" duty
+  for (const b of Object.values(s.buses ?? {})) {
+    if (b.duty === 'spare') b.duty = 'line'
+    // Auto-link any takeover coach that was acquired without schedule assignment
+    if ((b.nickname?.includes('Takover') || b.nickname?.includes('Takeover')) && !b.scheduleId) {
+      const unassignedSch = Object.values(s.schedules ?? {}).find((sc) => sc.busIds.length === 0 && s.permits[sc.routeId]?.status === 'active')
+      if (unassignedSch) {
+        unassignedSch.busIds.push(b.id)
+        b.scheduleId = unassignedSch.id
+        b.status = 'active'
+        b.duty = 'line'
+        for (const st of Object.values(s.staff ?? {})) {
+          if (st.name?.includes('Rival Ex-') && !st.busId) {
+            st.busId = b.id
+            if (st.role === 'driver' || st.role === 'co_driver') st.duty = 'line'
+          }
+        }
+      }
+    }
+  }
+  for (const st of Object.values(s.staff ?? {})) {
+    if (st.role === 'driver' && !st.duty) st.duty = st.busId ? 'line' : 'spare'
+  }
+  // Ensure bidirectional parked cities and fix open trips for 2-bus paired services
+  for (const sch of Object.values(s.schedules ?? {})) {
+    if (!sch.paired || (sch.busIds?.length ?? 0) < 2) continue
+    const route = ROUTES[sch.routeId]
+    if (!route) continue
+    const b0 = s.buses[sch.busIds[0]]
+    const b1 = s.buses[sch.busIds[1]]
+    if (b0 && !b0.parkedCityId) b0.parkedCityId = route.from
+    if (b1) {
+      if (!b1.parkedCityId || b1.parkedCityId === route.from) {
+        b1.parkedCityId = route.to
+      }
+      for (const t of Object.values(s.trips ?? {})) {
+        if (t.busId === b1.id && t.scheduleId === sch.id && t.status === 'open') {
+          if (t.depHour === sch.depHour && (t.depMin ?? 0) === (sch.depMin ?? 0) && t.direction === 'AB') {
+            delete s.trips[t.id]
+            t.direction = 'BA'
+            t.id = `tr_${sch.id}_${b1.id}_${t.day}_BA`
+            s.trips[t.id] = t
+          } else if (sch.returnDepHour !== undefined && t.depHour === sch.returnDepHour && (t.depMin ?? 0) === (sch.returnDepMin ?? 0) && t.direction === 'BA') {
+            delete s.trips[t.id]
+            t.direction = 'AB'
+            t.id = `tr_${sch.id}_${b1.id}_${t.day}_AB`
+            s.trips[t.id] = t
+          }
+        }
+      }
+    }
+  }
+  s.openTripIds = Object.values(s.trips ?? {}).filter((t) => t.status === 'open').map((t) => t.id)
+  pruneInvalidSeasonalTrips(s)
+  generateTrips(s)
+  staffing.migrateStaffRoles(s)
+  if (!s.company.deskAssistants) s.company.deskAssistants = {}
+  if (s.version < 2) {
+    for (const st of Object.values(s.staff ?? {})) {
+      if (st.role === 'driver') st.salary = Math.round(st.salary / 2)
+    }
+    for (const c of s.hiringPool ?? []) {
+      if (c.role === 'driver') c.salary = Math.round(c.salary / 2)
+    }
+    s.migrationImmunityUntilDay = s.day + 7
+    s.pendingMigrationNotice = 'Game Updated: Driver salary scales have been rebalanced. Review your payroll in the Staff tab.'
+    s.pendingMigrationInboxEntry = true
+  }
+  if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+  if (typeof s.config.odoHighlightKm !== 'number' || !Number.isFinite(s.config.odoHighlightKm)) {
+    s.config.odoHighlightKm = BAL.odoHighlightDefaultKm
+  }
+  if (s.config.autoRenewDocs === undefined) s.config.autoRenewDocs = true
+  if (typeof s.config.cargoBaseRateRs !== 'number' || !Number.isFinite(s.config.cargoBaseRateRs)) {
+    s.config.cargoBaseRateRs = BAL.cargoBaseRateDefaultRs
+  }
+  s.config.odoHighlightKm = Math.round(Math.max(50_000, Math.min(2_000_000, s.config.odoHighlightKm)))
+  s.config.cargoBaseRateRs = Math.round(Math.max(0.5, Math.min(15, s.config.cargoBaseRateRs)) * 10) / 10
+  if (s.company.cargoManagerId && !s.staff[s.company.cargoManagerId]) {
+    s.company.cargoManagerId = undefined
+  }
+  if (!s.company.hrAutoHire) {
+    s.company.hrAutoHire = { enabled: false, byRole: { driver: [4, 5, 6, 7, 8, 9, 10] } }
+  } else {
+    staffing.ensureHrAutoHire(s)
+  }
+  if (!s.company.hrAutoFire) {
+    s.company.hrAutoFire = staffing.defaultHrAutoFire()
+  } else {
+    staffing.ensureHrAutoFire(s)
+  }
+  if (s.company.opsAutoStaff === undefined) s.company.opsAutoStaff = true
+  if (s.company.hrAutoRaise === undefined) s.company.hrAutoRaise = false
+  if (s.company.cmvrOffenceCount === undefined) s.company.cmvrOffenceCount = 0
+  if (s.company.cmvrSuspendUntilDay === undefined) s.company.cmvrSuspendUntilDay = -1
+  if (!s.company.grievances) s.company.grievances = []
+  if (s.company.grievanceCount === undefined) s.company.grievanceCount = 0
+  if (!s.company.crmPolicy) s.company.crmPolicy = 'ask'
+  if (s.company.crmRefundTotal === undefined) s.company.crmRefundTotal = 0
+  if (s.company.crmRefundCount === undefined) s.company.crmRefundCount = 0
+  if (s.company.grievanceWarnedDay === undefined) s.company.grievanceWarnedDay = -1
+  if (s.company.depreciationDefault === undefined) s.company.depreciationDefault = 'SLM'
+  if (s.company.gstInputCredit === undefined) s.company.gstInputCredit = 0
+  if (s.company.tdsPayable === undefined) s.company.tdsPayable = 0
+  // Income tax is provided and paid monthly; these carry the running FY figures.
+  if (s.company.taxProvision === undefined) s.company.taxProvision = 0
+  if (s.company.advanceTaxPaid === undefined) s.company.advanceTaxPaid = 0
+  if (s.company.fyProfit === undefined) s.company.fyProfit = 0
+  if (!s.world.rivals) s.world.rivals = { ...RIVALS_DATA }
+  if (!s.world.share) {
+    s.world.share = Object.fromEntries(
+      ROUTE_LIST.map((r) => [
+        r.id,
+        seedRouteShare(
+          r.id,
+          r.competition,
+          RIVALS[r.id],
+          s.permits[r.id]?.status === 'active' ? Math.round((1 - r.competition) * 40) : 0,
+        ),
+      ]),
+    )
+  } else {
+    // Reset player share to 0 on routes where player holds no active permit
+    for (const r of ROUTE_LIST) {
+      const permit = s.permits[r.id]
+      if (permit?.status !== 'active') {
+        const curShare = s.world.share[r.id]
+        if (curShare && curShare.player > 0) {
+          curShare.player = 0
+          const remaining = 100
+          const rEntries = Object.entries(curShare.byRival)
+          const shareEach = Math.floor(remaining / Math.max(1, rEntries.length))
+          let rem = remaining - shareEach * rEntries.length
+          for (const [rid] of rEntries) {
+            const extra = rem > 0 ? 1 : 0
+            if (rem > 0) rem--
+            curShare.byRival[rid] = shareEach + extra
+          }
+        }
+      }
+    }
+  }
+  if (!s.world.shareHistory) s.world.shareHistory = {}
+  for (const st of Object.values(s.staff ?? {})) {
+    if (st.cmvrHoursToday === undefined) st.cmvrHoursToday = 0
+    if (st.role === 'driver' || st.role === 'co_driver') {
+      if (!st.licenceClass || (st.licenceClass as string) === 'HMV') {
+        st.licenceClass = 'HMV_PSV'
+      }
+      if (!st.drivingStyle || (st.drivingStyle as string) === 'normal') {
+        st.drivingStyle = 'cautious'
+      }
+    }
+    if (st.role === 'mechanic' && !st.mechanicTrade) {
+      st.mechanicTrade = 'general'
+    }
+  }
+  for (const c of s.hiringPool ?? []) {
+    if (c.role === 'driver' || c.role === 'co_driver') {
+      if (!c.licenceClass || (c.licenceClass as string) === 'HMV') {
+        c.licenceClass = 'HMV_PSV'
+      }
+      if (!c.drivingStyle || (c.drivingStyle as string) === 'normal') {
+        c.drivingStyle = 'cautious'
+      }
+    }
+    if (c.role === 'mechanic' && !c.mechanicTrade) {
+      c.mechanicTrade = 'general'
+    }
+  }
+  if (s.company?.hrAutoHire) {
+    if (s.company.hrAutoHire.drivingStyle) {
+      s.company.hrAutoHire.drivingStyle = s.company.hrAutoHire.drivingStyle.filter((x: string) => x !== 'normal') as any
+    }
+    if (s.company.hrAutoHire.licenceClass) {
+      s.company.hrAutoHire.licenceClass = s.company.hrAutoHire.licenceClass.filter((x: string) => x !== 'HMV') as any
+    }
+  }
+  if (s.company?.cargoCargoType && (s.company.cargoCargoType as string) === 'pharma_dairy') {
+    s.company.cargoCargoType = 'mixed'
+  }
+  // Purge any legacy competitor dissolve / rival route exit buyout decisions
+  s.decisions = (s.decisions ?? []).filter((d) => d.kind !== 'rival_route_exit')
+  if (s.config) {
+    if (s.config.mealAllowance === undefined) s.config.mealAllowance = false
+    if (s.config.healthCoverage === undefined) s.config.healthCoverage = false
+    if (s.config.festivalBonus === undefined) s.config.festivalBonus = true
+  }
+  for (const sch of Object.values(s.schedules ?? {})) {
+    if (sch.festivalOnly) {
+      if (!sch.outboundDuty) sch.outboundDuty = 'festival'
+      if (!sch.returnDuty) sch.returnDuty = 'festival'
+    } else {
+      if (!sch.outboundDuty) sch.outboundDuty = 'daily'
+      if (!sch.returnDuty) sch.returnDuty = 'daily'
+    }
+    sch.festivalOnly = sch.paired ? (sch.outboundDuty === 'festival' && sch.returnDuty === 'festival') : (sch.outboundDuty === 'festival')
+  }
+  if (s.version < 3) {
+    fleet.refreshMarkets(s)
+  }
+  for (const st of Object.values(s.routeStats ?? {})) {
+    if (!st.byLayout) st.byLayout = {}
+  }
+  if (s.version < 4) {
+    // Seed layout occupancy from trips still in memory; apportion route P&L by seat-km share.
+    for (const [rid, rst] of Object.entries(s.routeStats ?? {})) {
+      const hasLayTrips = Object.values(rst.byLayout).some((l) => l.trips > 0)
+      if (hasLayTrips) continue
+      const route = ROUTES[rid]
+      if (!route) continue
+      for (const t of Object.values(s.trips ?? {})) {
+        if (t.status !== 'completed' || t.routeId !== rid) continue
+        const bus = s.buses[t.busId]
+        if (!bus) continue
+        const key = layoutKey(bus.modelId)
+        const lay = (rst.byLayout[key] ??= { revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0 })
+        const cap = t.seatCount || t.seats.length
+        lay.trips++
+        lay.seatKm += cap * route.km
+        lay.paxKm += t.sold * route.km
+      }
+      let seatTotal = 0
+      for (const lay of Object.values(rst.byLayout)) seatTotal += lay.seatKm
+      if (seatTotal <= 0) continue
+      for (const lay of Object.values(rst.byLayout)) {
+        const share = lay.seatKm / seatTotal
+        lay.revenue = Math.round(rst.revenue * share)
+        lay.cost = Math.round(rst.cost * share)
+      }
+    }
+  }
+  // Legacy distress lot decisions migration (BF-08): ensure items[] is populated
+  for (const d of s.decisions ?? []) {
+    if (d.kind === 'distress_lot' && d.data?.lot) {
+      const lot = d.data.lot as { modelId?: string; items?: { modelId: string; count: number; age: number }[]; count: number; age: number }
+      if ((!lot.items || lot.items.length === 0) && lot.modelId) {
+        lot.items = [{ modelId: lot.modelId, count: lot.count, age: lot.age }]
+      }
+    }
+  }
+
+  for (const sch of Object.values(s.schedules ?? {})) {
+    if (!sch.occRecent) sch.occRecent = []
+    if (sch.paired && !sch.occRecentReturn) sch.occRecentReturn = []
+    // Old festivalUntilDay mounts → festival-only services
+    if (!sch.festivalOnly && (sch.festivalUntilDay ?? 0) >= s.day) {
+      sch.festivalOnly = true
+      sch.festivalUntilDay = undefined
+    }
+    delete sch.slotLockedUntilDay
+  }
+  // Fleet-wide sell-on: normalize flags (RedBus / AbhiBus / app / counter) and sync.
+  if (s.config?.scheduleDefaults?.channels) {
+    s.config.scheduleDefaults.channels = normalizeChannels(s.config.scheduleDefaults.channels)
+  }
+  schedules.syncScheduleChannels(s)
+  for (const t of Object.values(s.trips ?? {})) {
+    t.channelSold = { ...emptyChannelSold(), ...t.channelSold }
+  }
+  if (s.version < 5) {
+    for (const t of Object.values(s.trips ?? {})) {
+      if (t.status !== 'completed') continue
+      const cap = t.seatCount || t.seats.length
+      if (cap <= 0) continue
+      schedules.recordScheduleOcc(s, t.scheduleId, t.day, t.sold, cap, t.direction, t.depHour, t.depMin)
+    }
+  }
+  if (!s.routeHistory) s.routeHistory = {}
+  if (s.version < 6) {
+    // Seed recent history from txns (rev/cost) and completed trips (trips/occ).
+    for (const t of s.txns ?? []) {
+      if (!t.routeId) continue
+      const day = t.day
+      const list = (s.routeHistory[t.routeId] ??= [])
+      let row = list.find((r) => r.day === day)
+      if (!row) {
+        row = { day, revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0, byLayout: {} }
+        list.push(row)
+      }
+      if (t.kind === 'income') row.revenue += t.amount
+      else if (t.kind === 'expense') row.cost += t.amount
+      if (t.busId && s.buses[t.busId]) {
+        const key = layoutKey(s.buses[t.busId]!.modelId)
+        const lay = (row.byLayout[key] ??= { revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0 })
+        if (t.kind === 'income') lay.revenue += t.amount
+        else if (t.kind === 'expense') lay.cost += t.amount
+      }
+    }
+    for (const t of Object.values(s.trips ?? {})) {
+      if (t.status !== 'completed') continue
+      const route = ROUTES[t.routeId]
+      const bus = s.buses[t.busId]
+      if (!route || !bus) continue
+      const cap = t.seatCount || t.seats.length
+      const list = (s.routeHistory[t.routeId] ??= [])
+      let row = list.find((r) => r.day === t.day)
+      if (!row) {
+        row = { day: t.day, revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0, byLayout: {} }
+        list.push(row)
+      }
+      row.trips++
+      row.seatKm += cap * route.km
+      row.paxKm += t.sold * route.km
+      const key = layoutKey(bus.modelId)
+      const lay = (row.byLayout[key] ??= { revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0 })
+      lay.trips++
+      lay.seatKm += cap * route.km
+      lay.paxKm += t.sold * route.km
+    }
+    for (const list of Object.values(s.routeHistory)) {
+      list.sort((a, b) => a.day - b.day)
+    }
+  }
+  if (s.version < 7) {
+    for (const st of Object.values(s.routeStats ?? {})) mergeByLayoutKeys(st.byLayout)
+    for (const list of Object.values(s.routeHistory ?? {})) {
+      for (const day of list) mergeByLayoutKeys(day.byLayout)
+    }
+  }
+  if (s.version < 8) {
+    if (s.depotSlots == null) s.depotSlots = BAL.depot.baseSlots
+    if (!s.insuranceClaims) s.insuranceClaims = []
+    if (!s.festivalSpecials) s.festivalSpecials = []
+  }
+  if (s.version < 9) {
+    if (!s.company.homeCityId) {
+      const firstPermitRouteId = Object.keys(s.permits ?? {})[0]
+      s.company.homeCityId = firstPermitRouteId && ROUTES[firstPermitRouteId]
+        ? ROUTES[firstPermitRouteId].from
+        : 'maa'
+    }
+    if (!s.company.crmPolicy) s.company.crmPolicy = 'ask'
+  if (s.company.crmRefundTotal === undefined) s.company.crmRefundTotal = 0
+  if (s.company.crmRefundCount === undefined) s.company.crmRefundCount = 0
+    if (s.company.grievanceCount === undefined) s.company.grievanceCount = 0
+    if (s.company.gstInputCredit === undefined) s.company.gstInputCredit = 0
+    if (s.company.tdsPayable === undefined) s.company.tdsPayable = 0
+    if (s.company.tdsFiledThroughDay === undefined) s.company.tdsFiledThroughDay = 0
+    if (s.company.cmvrOffenceCount === undefined) s.company.cmvrOffenceCount = 0
+    if (s.company.cmvrSuspendUntilDay === undefined) s.company.cmvrSuspendUntilDay = -1
+    if (!s.company.depreciationDefault) s.company.depreciationDefault = 'SLM'
+    if (s.company.safeTripStreak === undefined) s.company.safeTripStreak = 0
+    if (s.company.cargoLifeRevenue === undefined) s.company.cargoLifeRevenue = 0
+    if (s.config) {
+      if (s.config.mealAllowance === undefined) s.config.mealAllowance = false
+      if (s.config.healthCoverage === undefined) s.config.healthCoverage = false
+      if (s.config.festivalBonus === undefined) s.config.festivalBonus = true
+    }
+    for (const m of s.inbox ?? []) {
+      if (m.read === undefined) m.read = true
+    }
+  }
+  for (const st of Object.values(s.routeStats ?? {})) mergeByLayoutKeys(st.byLayout)
+  for (const list of Object.values(s.routeHistory ?? {})) {
+    for (const day of list) mergeByLayoutKeys(day.byLayout)
+  }
+  if ((s.hiringPool ?? []).filter((c) => c.role === 'driver').length > 6) {
+    staffing.refreshHiringPool(s)
+  }
+  if (!s.seasonalStats) {
+    s.seasonalStats = {
+      lifetime: { trips: 0, revenue: 0, expenses: 0, profit: 0, pax: 0, seatKm: 0, paxKm: 0 },
+      history: [],
+    }
+  }
+  if (s.version < 10) {
+    // Re-evaluate schedule load factor history to reflect realistic haul-clock appeal
+    const hasCompleted = Object.values(s.trips ?? {}).some((t) => t.status === 'completed')
+    if (hasCompleted) {
+      for (const sch of Object.values(s.schedules ?? {})) {
+        sch.occRecent = []
+        if (sch.paired) sch.occRecentReturn = []
+      }
+      for (const t of Object.values(s.trips ?? {})) {
+        if (t.status !== 'completed') continue
+        const cap = t.seatCount || t.seats.length
+        if (cap <= 0) continue
+        schedules.recordScheduleOcc(s, t.scheduleId, t.day, t.sold, cap, t.direction, t.depHour, t.depMin)
+      }
+    } else {
+      for (const sch of Object.values(s.schedules ?? {})) {
+        const route = ROUTES[sch.routeId]
+        if (!route) continue
+        const outFit = departureTimeFit(route, sch.depHour, sch.depMin)
+        if (outFit.isOffPeak && sch.occRecent?.length) {
+          for (const row of sch.occRecent) {
+            row.sold = Math.max(1, Math.round(row.sold * Math.max(0.28, Math.min(0.95, outFit.appeal / 1.05))))
+          }
+        }
+        if (sch.paired && sch.returnDepHour !== undefined) {
+          const retFit = departureTimeFit(route, sch.returnDepHour, sch.returnDepMin)
+          if (retFit.isOffPeak && sch.occRecentReturn?.length) {
+            for (const row of sch.occRecentReturn) {
+              row.sold = Math.max(1, Math.round(row.sold * Math.max(0.28, Math.min(0.95, retFit.appeal / 1.05))))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (s.version < 11) {
+    // Re-evaluate schedule load factor history to reflect realistic layout duration preference
+    // (e.g. 13h long haul semi-sleeper dropped from 90% down to ~28-34%)
+    for (const sch of Object.values(s.schedules ?? {})) {
+      const route = ROUTES[sch.routeId]
+      const bus = s.buses[sch.busId]
+      const model = bus ? BUS_MODELS[bus.modelId] : undefined
+      if (!route || !model) continue
+      const layoutMult = haulLayoutAppeal(model.cls, route.hours)
+      if (layoutMult < 0.75) {
+        const scaleDown = Math.pow(layoutMult, 1.25)
+        if (sch.occRecent?.length) {
+          for (const row of sch.occRecent) {
+            row.sold = Math.max(1, Math.min(row.sold, Math.round(row.sold * scaleDown)))
+          }
+        }
+        if (sch.occRecentReturn?.length) {
+          for (const row of sch.occRecentReturn) {
+            row.sold = Math.max(1, Math.min(row.sold, Math.round(row.sold * scaleDown)))
+          }
+        }
+      }
+    }
+  }
+
+  if (s.version < 12) {
+    // Re-evaluate schedule load factor history & completed trips to reflect realistic day-type occupancy ranges
+    // (normal weekdays vs weekends vs festivals)
+    for (const sch of Object.values(s.schedules ?? {})) {
+      const route = ROUTES[sch.routeId]
+      const bus = s.buses[sch.busId]
+      const model = bus ? BUS_MODELS[bus.modelId] : undefined
+      if (!route || !model) continue
+      const qScore = bus.qualityScore ?? 3.5
+
+      const rescaleBucket = (rows: { day: number; sold: number; seats: number }[], dir: 'AB' | 'BA') => {
+        for (const row of rows) {
+          const cap = row.seats || 30
+          if (cap <= 0) continue
+          const [minLf, maxLf] = getDirectionalOccupancyRange(model.cls, qScore, route, dir, row.day)
+          const curSold = row.sold
+          const curLf = curSold / cap
+          if (curLf > maxLf) {
+            row.sold = Math.max(1, Math.min(cap, Math.round(cap * (minLf + (maxLf - minLf) * 0.55))))
+          } else if (curLf < minLf) {
+            row.sold = Math.max(1, Math.min(cap, Math.round(cap * minLf)))
+          }
+        }
+      }
+
+      if (sch.occRecent?.length) rescaleBucket(sch.occRecent, 'AB')
+      if (sch.occRecentReturn?.length && sch.returnDepHour !== undefined) {
+        rescaleBucket(sch.occRecentReturn, 'BA')
+      }
+    }
+
+    for (const t of Object.values(s.trips ?? {})) {
+      if (t.status !== 'completed') continue
+      const cap = t.seatCount || t.seats?.length || 30
+      if (cap <= 0) continue
+      const route = ROUTES[t.routeId]
+      const bus = s.buses[t.busId]
+      const model = bus ? BUS_MODELS[bus.modelId] : undefined
+      if (!route || !model) continue
+      const qScore = bus.qualityScore ?? 3.5
+      const [minLf, maxLf] = getDirectionalOccupancyRange(model.cls, qScore, route, t.direction, t.day)
+      const curLf = t.sold / cap
+      if (curLf > maxLf) {
+        t.sold = Math.max(1, Math.min(cap, Math.round(cap * (minLf + (maxLf - minLf) * 0.55))))
+      } else if (curLf < minLf) {
+        t.sold = Math.max(1, Math.min(cap, Math.round(cap * minLf)))
+      }
+    }
+  }
+
+  // Migrate legacy route IDs
+  migrateLegacyRouteIds(s)
+
+  if (s.version < 13) {
+    cargoSim.migrateCargoContracts(s)
+    cargoSim.backfillCargoLaneHistory(s)
+  }
+  if (s.version < 14) cargoSim.migrateCargoLoadingBreakdown(s)
+  if (s.version < 15 && Math.abs((s.config?.cargoBaseRateRs ?? 0) - 2) < 1e-6) {
+    // The parcel desk was priced below the corridor market. Saves still on the old
+    // ₹2.00 default move with the new one; a rate the player chose is left alone.
+    s.config.cargoBaseRateRs = BAL.cargoBaseRateDefaultRs
+    s.pendingMigrationNotice =
+      `Game Updated: Cargo demand is deeper and the default parcel rate is now ₹${BAL.cargoBaseRateDefaultRs.toFixed(2)}/kg per 100 km. Check the Cargo tab.`
+    s.pendingMigrationInboxEntry = true
+  }
+  if (s.version < 17) cargoSim.migrateSpotRates(s)
+  if (s.version < 18) cargoSim.migrateCargoPermits(s)
+  if (s.version < 19) {
+    // One vehicle, one service. Older saves could list the same truck on two
+    // schedules so it ran both directions at the same clock time.
+    const fixed = schedules.sanitizeScheduleAssignments(s)
+    if (fixed > 0) {
+      s.pendingMigrationNotice =
+        'Game Updated: a vehicle was listed on more than one departure at the same time — the extra duty has been released and its un-run trips cancelled. Re-assign a second vehicle if you want both directions running.'
+      s.pendingMigrationInboxEntry = true
+    }
+  }
+  if (s.version < 20) {
+    // Ladies seats are held for ladies on every service — the per-schedule
+    // toggle and its violation bookkeeping are gone.
+    for (const sch of Object.values(s.schedules ?? {})) {
+      delete (sch as { strictLadiesPolicy?: unknown }).strictLadiesPolicy
+    }
+    for (const b of Object.values(s.buses ?? {})) {
+      delete (b as { ladiesComplaints?: unknown }).ladiesComplaints
+    }
+  }
+
+  const fromVersion = s.version
+  compactTrips(s)
+  hydratePackedState(s)
+  if (fromVersion < 22) {
+    // Two board defects were fixed here: a paired service whose return cleared
+    // midnight only sold one direction, and swapping a coach left its stale or
+    // cancelled leg blocking the replacement's bookings.
+    const changed = schedules.repairTripBoards(s)
+    if (changed > 0) {
+      s.pendingMigrationNotice =
+        'Game Updated: trip boards have been rebuilt. Every schedule now offers the departures its current coaches can actually run — including coaches swapped in since the last save.'
+      s.pendingMigrationInboxEntry = true
+    }
+  }
+  if (fromVersion < 23) {
+    // Freight services are one-way: drop any 2nd trip an older save had paired
+    // onto a cargo run, then rebuild the board so the phantom return closes.
+    const unpicked = schedules.unpairCargoSchedules(s)
+    if (unpicked > 0) {
+      schedules.repairTripBoards(s)
+      s.pendingMigrationNotice =
+        'Game Updated: cargo services are one-way now — the 2nd trip has been removed from your freight schedules and any return departures closed.'
+      s.pendingMigrationInboxEntry = true
+    }
+  }
+  if (fromVersion < 24) {
+    // Cargo boards carry a single truck each — older saves listed two, which read
+    // as the same freight option offered twice.
+    if (s.company.dedicatedCargoSubsidiary) fleet.syncCargoListings(s)
+  }
+
+  // Re-quote any pending festival charter decisions with corrected profitable tariffs
+  for (const d of s.decisions ?? []) {
+    if (d.kind === 'festival_charter') {
+      const busId = d.data?.busId as ID | undefined
+      const routeId = (d.data?.routeId as string | undefined) || ROUTE_LIST[0]?.id
+      const bus = busId ? s.buses?.[busId] : undefined
+      const route = routeId ? ROUTES[routeId] : undefined
+      if (bus && route) {
+        const q = festival.calculateCharterQuote(s, bus, route)
+        d.data = { ...d.data, ...q }
+        d.title = `Festival Group Charter Request (${bus.reg})`
+        const coachKindStr = q.coachType === 'semi' ? 'Semi-sleeper' : q.coachType === 'hybrid' ? 'Hybrid' : 'Sleeper'
+        d.body = `A private tour group in our depot city (${cityName(route.from)}) wants to hire ${bus.reg} (${bus.modelId}, ${q.seats} seats) for a return charter to ${cityName(route.to)} (${routeName(route.id)}, ${q.roundTripKm} km roundtrip).\n\nContract Value: ${fmtCompact(q.fee)} · Est. Operating Costs (Diesel, Tolls, Bata): ${fmtCompact(q.totalExpenses)} · Net Profit: +${fmtCompact(q.profit)} (Rate: ₹${q.ratePerKm}/km). (${coachKindStr} coach). An appointed Schedules & Festivals Manager auto-accepts these charters.`
+        d.options = [
+          { id: 'accept', key: 'accept', label: `Accept charter (+${fmtCompact(q.profit)} net)` },
+          { id: 'refuse', key: 'refuse', label: 'Refuse charter' },
+        ]
+      }
+    }
+  }
+
+  // Backfill realistic operating expenses for existing charter records that have expenses === 0
+  if (s.seasonalStats?.history) {
+    for (const r of s.seasonalStats.history) {
+      if (r.kind === 'charter' && r.expenses === 0 && r.revenue > 0) {
+        const route = ROUTES[r.routeId]
+        const roundTripKm = (route ? route.km : 400) * 2
+        const bus = s.buses?.[r.busId]
+        const model = bus ? BUS_MODELS[bus.modelId] : undefined
+        const mileage = model?.mileage || 3.5
+        const dieselPaise = s.world?.dieselPaise || 9000
+        const fuelCost = model?.electric ? 0 : Math.round((roundTripKm / mileage) * dieselPaise)
+        const tollCost = Math.round(roundTripKm * (route?.tollPerKm || 0))
+        const bata = 250_000 // rs(2500)
+        const otherCosts = Math.round(fuelCost * 0.05) + 60_000 // rs(600)
+        const estExp = Math.min(Math.round(r.revenue * 0.52), fuelCost + tollCost + bata + otherCosts)
+        r.expenses = estExp
+        r.fuelCost = fuelCost
+        r.tollCost = tollCost
+        r.bata = bata
+        r.otherCosts = otherCosts
+        r.profit = Math.max(500_000, r.revenue - estExp)
+      }
+    }
+    s.seasonalStats.lifetime.expenses = s.seasonalStats.history.reduce((sum, r) => sum + r.expenses, 0)
+    s.seasonalStats.lifetime.profit = s.seasonalStats.history.reduce((sum, r) => sum + r.profit, 0)
+  }
+
+  s.version = SAVE_VERSION
+  return s
+}
+
+export const useGame = create<GameStore>()(
+  immer((set, get) => ({
+    state: null,
+    toasts: [],
+    busy: false,
+    skipStopReason: null,
+    uiPrefs: loadUiPrefs(),
+
+    startNew: (name, difficulty, homeRouteId) => {
+      const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0
+      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed)
+      const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
+      dropPendingSave()
+      set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
+      persist(s)
+    },
+
+    hasSave: () => hasSaveBlob(),
+
+    loadSave: () => {
+      try {
+        const raw = readSave()
+        if (!raw) return false
+        const s = migrate(decodeSaveString(raw))
+        if (!s) return false
+        schedules.pruneRetiredRoutes(s)
+        // A save written before the data budget existed can carry years of
+        // ledger rows and resolved claims; trim it as soon as it is loaded.
+        retainDay(s)
+        const notice = s.pendingMigrationNotice
+        if (notice) {
+          s.pendingMigrationNotice = undefined
+          setTimeout(() => get().toast(notice, 'warn'), 300)
+        }
+        const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
+        dropPendingSave()
+        set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
+        return true
+      } catch {
+        return false
+      }
+    },
+
+    importSaveJson: (text) => {
+      try {
+        skipInFlight = false
+        const parsed = decodeSaveString(text)
+        const s = migrate(parsed)
+        if (!s) return { ok: false, persisted: false, error: 'That file is not a valid save.' }
+        schedules.pruneRetiredRoutes(s)
+        retainDay(s)
+        const notice = s.pendingMigrationNotice
+        if (notice) {
+          s.pendingMigrationNotice = undefined
+          setTimeout(() => get().toast(notice, 'warn'), 300)
+        }
+        const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
+        dropPendingSave()
+        set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
+        // Free the old save slot before writing — storage was often already full
+        clearSaveStores()
+        const persisted = persist(s)
+        return { ok: true, persisted }
+      } catch (e) {
+        const msg = e instanceof SyntaxError
+          ? 'File is not valid JSON.'
+          : 'Could not import that file.'
+        return { ok: false, persisted: false, error: msg }
+      }
+    },
+
+    exportSaveJson: () => {
+      const live = get().state
+      if (!live) return null
+      const clone = shrinkForStorage(structuredClone(live) as GameState, 'medium')
+      return encodeSaveString(clone)
+    },
+
+    save: () => persist(get().state),
+
+    compactSave: () => {
+      const live = get().state
+      if (!live) return false
+      // Copy first: `shrinkForStorage` mutates, and the UI is still rendering
+      // the live object. This is an explicit player action, so the extra copy
+      // is fine — it exists to make every *automatic* save cheap.
+      const compact = shrinkForStorage(structuredClone(live) as GameState, 'medium')
+      set({ state: compact, skipStopReason: null })
+      return persist(compact, { alreadyMutable: true })
+    },
+
+    abandon: () => {
+      clearSaveStores()
+      set({ state: null, skipStopReason: null })
+    },
+
+    resetToNewGame: () => {
+      skipInFlight = false
+      clearSaveStores()
+      set({ state: null, skipStopReason: null })
+    },
+
+    advance: (days, stopOnAttention = false) => {
+      const prev = get().state
+      if (!prev || prev.gameOver) return
+      if (skipInFlight) return
+      // Pending inbox decisions never block the clock — the player answers
+      // them whenever they are ready (see needsAttention).
+      // Tick on a plain clone — immer proxies make 30+ bus booking passes crawl.
+      const draft = structuredClone(prev) as GameState
+      let stop: string | null = null
+      let advanced = 0
+      skipInFlight = true
+
+      const commit = (): void => {
+        skipInFlight = false
+        // A save import / reset while the skip was yielding: drop the stale draft.
+        if (get().state !== prev) {
+          set({ busy: false })
+          return
+        }
+        if (advanced > 0) {
+          set({ state: draft, skipStopReason: stop, busy: false })
+          persistSoon(draft, { alreadyMutable: true })
+          return
+        }
+        set({ busy: false, skipStopReason: stop })
+      }
+
+      // A week skip is a few seconds of simulation. Run it in short slices with
+      // a yield between them so the browser keeps painting instead of freezing
+      // the whole tab. A single day still runs to completion in this same tick.
+      const CHUNK_MS = 120
+      if (days > 1) set({ busy: true })
+      const runChunk = (): void => {
+        const chunkStart = performance.now()
+        try {
+          while (advanced < days) {
+            advanceDay(draft)
+            advanced++
+            if (draft.gameOver) {
+              stop = 'Game Over'
+              break
+            }
+            if (stopOnAttention && advanced < days) {
+              const attn = needsAttention(draft)
+              if (attn) {
+                stop = attn
+                break
+              }
+            }
+            if (performance.now() - chunkStart > CHUNK_MS) break
+          }
+        } catch (err: any) {
+          console.error('advanceDay error:', err)
+          stop = `Error: ${err?.message || err}`
+          get().toast(`Simulation paused: ${err?.message || err}`, 'bad')
+          commit()
+          return
+        }
+        if (advanced < days && !stop) {
+          setTimeout(runChunk, 0)
+          return
+        }
+        commit()
+      }
+      runChunk()
+    },
+
+    toast: (text, kind = 'info') => {
+      const id = toastSeq++
+      set((st) => {
+        st.toasts.push({ id, text, kind })
+        if (st.toasts.length > 4) st.toasts.shift()
+      })
+      setTimeout(() => get().dismissToast(id), 5000)
+    },
+
+    dismissToast: (id) => set((st) => {
+      st.toasts = st.toasts.filter((t) => t.id !== id)
+    }),
+
+    intent: (fn, successMsg) => {
+      let err: string | null = null
+      set((st) => {
+        if (!st.state) return
+        err = fn(st.state as GameState)
+        // A vehicle may only serve one service — repair any legacy double duty
+        // before the action's outcome is persisted.
+        if (err === null) schedules.sanitizeScheduleAssignments(st.state as GameState)
+        // compactTrips must run inside the draft — get().state is frozen after set() exits
+        if (err === null) compactTrips(st.state as GameState)
+      })
+      if (err) {
+        get().toast(err, 'bad')
+        return false
+      }
+      if (successMsg) get().toast(successMsg, 'good')
+      persist(get().state)
+      return true
+    },
+
+
+    inspectListing: (id) => get().intent((s) => fleet.inspectListing(s, id)),
+    buyUsed: (id, plan, groupId) => get().intent((s) => fleet.buyUsed(s, id, plan, groupId)),
+    orderNewBus: (modelId, plan, groupId) => get().intent((s) => fleet.orderNewBus(s, modelId, plan, groupId)),
+    startLease: (id, groupId) => get().intent((s) => fleet.startLease(s, id, groupId)),
+    endLease: (busId) => get().intent((s) => fleet.endLease(s, busId)),
+    signAttach: (id, groupId) => get().intent((s) => fleet.signAttach(s, id, groupId)),
+    releaseAttach: (busId) => get().intent((s) => fleet.releaseAttach(s, busId)),
+
+    setFleetGroupFilter: (id) => {
+      set((st) => {
+        st.uiPrefs.fleetGroupId = id
+      })
+      saveUiPrefs({ fleetGroupId: id })
+    },
+    createGroup: (input) => {
+      let res: { id: ID } | { error: string } = { error: 'No state' }
+      get().intent((s) => {
+        res = groups.createGroup(s, input)
+        return 'error' in res ? res.error : null
+      }, 'Brand created.')
+      return res
+    },
+    updateGroup: (id, patch) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.updateGroup(s, id, patch)
+        if (!err && patch.defaultCancellation !== undefined) {
+          for (const sch of Object.values(s.schedules ?? {})) {
+            if (sch.groupId === id) sch.cancellation = patch.defaultCancellation
+          }
+        }
+        return err
+      }, 'Brand updated.')
+      return err
+    },
+    retireGroup: (id, moveTo) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.retireGroup(s, id, moveTo)
+        return err
+      }, 'Brand closed.')
+      if (!err && get().uiPrefs.fleetGroupId === id) {
+        get().setFleetGroupFilter('all')
+      }
+      return err
+    },
+    restoreGroup: (id) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.restoreGroup(s, id)
+        return err
+      }, 'Brand restored.')
+      return err
+    },
+    deleteGroup: (id) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.deleteGroup(s, id)
+        return err
+      }, 'Brand deleted permanently.')
+      if (!err && get().uiPrefs.fleetGroupId === id) {
+        get().setFleetGroupFilter('all')
+      }
+      return err
+    },
+    assignBusToGroup: (busId, groupId) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.assignBusToGroup(s, busId, groupId)
+        return err
+      }, 'Coach transferred.')
+      return err
+    },
+    assignScheduleToGroup: (schId, groupId) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = groups.assignScheduleToGroup(s, schId, groupId)
+        return err
+      })
+      return err
+    },
+    sellBus: (busId) => get().intent((s) => fleet.sellBus(s, busId)),
+    forecloseLoan: (loanId) => get().intent((s) => banking.forecloseLoan(s, loanId)),
+    takeCashLoan: (slabId) => get().intent((s) => banking.takeCashLoan(s, slabId)),
+    rescueWithLoan: (slabId) => get().intent((s) => banking.takeCashLoan(s, slabId, { rescue: true }), 'Working capital drawn — keep operating.'),
+    hire: (candId) => get().intent((s) => staffing.hire(s, candId)),
+    fire: (staffId) => get().intent((s) => staffing.fire(s, staffId)),
+    assignStaff: (staffId, busId) => get().intent((s) => staffing.assignStaff(s, staffId, busId)),
+    trainStaff: (staffId) => get().intent((s) => staffing.trainStaff(s, staffId)),
+    raiseSalary: (staffId, salary) => get().intent((s) => staffing.raiseSalary(s, staffId, salary)),
+    applyForPermit: (routeId) => get().intent((s) => schedules.applyForPermit(s, routeId)),
+    applySeasonalPermit: (routeId, seasonId) => get().intent((s) => schedules.applySeasonalPermit(s, routeId, seasonId)),
+    renewSeasonalPermit: (routeId) => get().intent((s) => schedules.renewSeasonalPermit(s, routeId)),
+    withdrawSeasonalPermit: (routeId) => get().intent((s) => schedules.withdrawSeasonalPermit(s, routeId)),
+    openCargoPermit: (routeId) => get().intent((s) => cargoSim.openCargoPermit(s, routeId)),
+    renewCargoPermit: (routeId) => get().intent((s) => cargoSim.renewCargoPermit(s, routeId)),
+    closeCargoPermit: (routeId) => get().intent((s) => cargoSim.closeCargoPermit(s, routeId)),
+    discontinueRoute: (routeId) => get().intent((s) => schedules.discontinueRoute(s, routeId)),
+    createSchedule: (input, busId) => get().intent((s) => schedules.launchSchedule(s, input, busId)),
+    updateSchedule: (schId, patch) => get().intent((s) => schedules.updateSchedule(s, schId, patch)),
+    assignBus: (schId, busId) => get().intent((s) => schedules.assignBus(s, schId, busId)),
+    unassignBus: (schId, busId) => get().intent((s) => schedules.unassignBus(s, schId, busId)),
+    deleteSchedule: (schId) => get().intent((s) => schedules.deleteSchedule(s, schId)),
+    duplicateSchedule: (schId, slot = 'hour') => get().intent((s) => schedules.duplicateSchedule(s, schId, slot)),
+    makeFestivalFull: (schId) => get().intent((s) => schedules.makeFestivalFull(s, schId)),
+    appointScheduleManager: (staffId) => get().intent((s) => staffing.appointScheduleManager(s, staffId)),
+    setScheduleAutoAcceptCharters: (auto) => get().intent((s) => {
+      s.company.scheduleAutoAcceptCharters = auto
+      return null
+    }),
+    serviceBus: (busId, tier, opts) => get().intent((s) => maintenance.serviceBus(s, busId, tier, opts)),
+    repairSubsystem: (busId, sub) => get().intent((s) => maintenance.repairSubsystem(s, busId, sub)),
+    replaceTyres: (busId, axleOrRetread, brand, opts) => get().intent((s) => maintenance.replaceTyres(s, busId, axleOrRetread, brand, opts)),
+    setTyrePressure: (busId) => get().intent((s) => maintenance.setTyrePressure(s, busId)),
+    setWorkshopTyreBrand: (brand) => get().intent((s) => { maintenance.setWorkshopTyreBrand(s, brand); return null }),
+    rebodyBus: (busId) => get().intent((s) => maintenance.rebodyBus(s, busId)),
+    refurbishSeats: (busId) => get().intent((s) => maintenance.refurbishSeats(s, busId)),
+    upgradeWorkshop: () => get().intent((s) => maintenance.upgradeWorkshop(s)),
+    expandDepot: () => get().intent((s) => maintenance.expandDepot(s)),
+    leaseYard: (cityId) => get().intent((s) => depot.leaseYard(s, cityId)),
+    cancelYard: (cityId) => get().intent((s) => depot.cancelYard(s, cityId)),
+    payGarageClaim: (claimId) => get().intent((s) => insurance.payGarageNow(s, claimId)),
+    settleInsuranceClaim: (claimId) => get().intent((s) => insurance.settleClaim(s, claimId)),
+    appointFleetManager: (staffId) => get().intent((s) => staffing.appointFleetManager(s, staffId)),
+    appointBayMechanic: (staffId) => get().intent((s) => staffing.appointBayMechanic(s, staffId)),
+    unappointBayMechanic: (staffId) => get().intent((s) => staffing.unappointBayMechanic(s, staffId)),
+    appointHr: (staffId) => get().intent((s) => staffing.appointHr(s, staffId)),
+    appointOps: (staffId) => get().intent((s) => staffing.appointOps(s, staffId)),
+    setOpsAutoStaff: (enabled) => get().intent((s) => staffing.setOpsAutoStaff(s, enabled)),
+    setHrAutoHire: (patch) => get().intent((s) => staffing.setHrAutoHire(s, patch)),
+    setHrAutoRaise: (enabled) => get().intent((s) => staffing.setHrAutoRaise(s, enabled)),
+    setHrAutoFire: (patch) => get().intent((s) => staffing.setHrAutoFire(s, patch)),
+    appointSpareDriver: (staffId) => get().intent((s) => staffing.appointSpareDriver(s, staffId)),
+    setBusDuty: (busId, duty) => get().intent((s) => cover.setBusDuty(s, busId, duty)),
+    buildAppTier: (tier) => get().intent((s) => channels.buildAppTier(s, tier)),
+    setMarketingBudget: (monthly) => get().intent((s) => {
+      channels.setMarketingBudget(s, monthly)
+      return null
+    }),
+    decide: (decisionId, optionId) => get().intent((s) => applyDecision(s, decisionId, optionId)),
+    markInboxRead: (id) => get().intent((s) => {
+      const m = (s.inbox ?? []).find((item) => item.id === id)
+      if (m) m.read = true
+      return null
+    }),
+    markAllInboxRead: () => get().intent((s) => {
+      for (const m of s.inbox ?? []) {
+        m.read = true
+      }
+      return null
+    }),
+    repriceTrip: (tripId, fare) => get().intent((s) => {
+      const t = s.trips[tripId]
+      if (!t || t.status !== 'open') return 'Trip is not open.'
+      t.fare = roundFare(fare)
+      t.fareLocked = true
+      const sch = s.schedules[t.scheduleId]
+      if (sch) {
+        if (isReturnTrip(t, sch)) {
+          if (sch.returnAutoPrice ?? sch.autoPrice) sch.returnAutoPrice = false
+        } else {
+          if (sch.autoPrice) sch.autoPrice = false
+        }
+      }
+      return null
+    }),
+    setOdoHighlightKm: (km) => get().intent((s) => {
+      const n = Math.round(Number(km))
+      if (!Number.isFinite(n) || n <= 0) return 'Enter a kilometre mark.'
+      // Snap to the 25k marks the Settings slider offers.
+      const snapped = Math.round(n / 25_000) * 25_000
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config.odoHighlightKm = Math.max(50_000, Math.min(2_000_000, snapped))
+      return null
+    }),
+    setAutoRenewDocs: (enabled) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config.autoRenewDocs = enabled
+      return null
+    }),
+    setCargoBaseRate: (rate) => get().intent((s) => {
+      const n = Number(rate)
+      if (!Number.isFinite(n) || n <= 0) return 'Enter a cargo rate.'
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config.cargoBaseRateRs = Math.round(Math.max(0.5, Math.min(15, n)) * 10) / 10
+      return null
+    }),
+    setCargoPricingType: (type) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config.cargoPricingType = type
+      return null
+    }),
+    setCargoCargoType: (type) => get().intent((s) => {
+      s.company.cargoCargoType = type
+      return null
+    }),
+    setCargoAcceptFragile: (accept) => get().intent((s) => {
+      s.company.cargoAcceptFragile = accept
+      return null
+    }),
+    setCargoAutoSignContracts: (enabled) => get().intent((s) => {
+      s.company.cargoAutoSignContracts = enabled
+      return null
+    }),
+    signCargoContract: (proposal) => get().intent((s) => cargoSim.signCargoContract(s, proposal)),
+    cancelCargoContract: (contractId) => get().intent((s) => cargoSim.cancelCargoContract(s, contractId)),
+    acceptSpotCargoOffer: (offerId) => get().intent((s) => cargoSim.acceptSpotCargoOffer(s, offerId)),
+    acceptAllSpotOffers: () => get().intent((s) => cargoSim.acceptAllSpotCargoOffers(s)),
+    setDedicatedCargoSubsidiary: (on) => get().intent((s) => {
+      const mgr = staffing.cargoManagerOnDuty(s) ?? (s.company.cargoManagerId ? s.staff[s.company.cargoManagerId] : undefined)
+      if (!mgr) return 'Cannot modify cargo subsidiary without an active Cargo Manager on duty.'
+      s.company.dedicatedCargoSubsidiary = on
+      fleet.syncCargoListings(s)
+      if (on) {
+        pushLog(s, 'good', `Dedicated Cargo Service Subsidiary launched by Cargo Manager ${mgr.name}. Bulk contracts & dedicated freight operations unlocked.`)
+        return null
+      }
+      const ended = cargoSim.suspendCargoContracts(s)
+      pushLog(s, 'info', ended > 0
+        ? `Dedicated Cargo Service Subsidiary turned off. ${ended} freight contract${ended === 1 ? '' : 's'} ended; the desk now waits for spot parcels only.`
+        : 'Dedicated Cargo Service Subsidiary turned off. Contracts are closed; the desk waits for spot parcels only.')
+      return null
+    }, on ? 'Dedicated Cargo Service Subsidiary activated!' : 'Dedicated Cargo Service Subsidiary turned off.'),
+    deepCleanBus: (busId) => get().intent((s) => maintenance.deepCleanBus(s, busId)),
+    payRoadTax: (busId) => get().intent((s) => maintenance.payAnnualRoadTax(s, busId)),
+    renewPuc: (busId) => get().intent((s) => maintenance.renewPuc(s, busId)),
+    fitGps: (busId) => get().intent((s) => maintenance.fitGps(s, busId)),
+    retestFitness: (busId) => get().intent((s) => maintenance.retestFitness(s, busId)),
+    takeMsmeLoan: (lenderId, amount, months) => get().intent((s) => banking.takeMsmeLoan(s, lenderId, amount, months)),
+    setScheduleDefaults: (patch) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      const cur = schedules.getScheduleDefaults(s)
+      s.config.scheduleDefaults = {
+        ...cur,
+        ...patch,
+        channels: { ...cur.channels, ...patch.channels },
+      }
+      // Company default only pushes onto unassigned services; brand schedules keep their own policy.
+      if (patch.cancellation !== undefined) {
+        for (const sch of Object.values(s.schedules ?? {})) {
+          if (!sch.groupId) sch.cancellation = patch.cancellation
+        }
+      }
+      // Sell-on is fleet-wide — keep every service in sync with Config.
+      schedules.syncScheduleChannels(s)
+      return null
+    }),
+    appointCargoManager: (staffId) => get().intent((s) => {
+      const err = staffing.appointCargoManager(s, staffId)
+      // The new manager takes the desk over at once: any spot offer still
+      // waiting on the player is queued by them instead of being asked about.
+      if (!err) {
+        const mgr = staffing.cargoManagerOnDuty(s)
+        if (mgr) cargoSim.cargoAutoQueuePendingOffers(s, mgr.name)
+      }
+      return err
+    }),
+    appointDocsManager: (staffId) => get().intent((s) => staffing.appointDocsManager(s, staffId)),
+    appointCrm: (staffId) => get().intent((s) => staffing.appointCrm(s, staffId)),
+    setCrmPolicy: (policy) => get().intent((s) => {
+      const r = staffing.setCrmPolicy(s, policy)
+      if (policy !== 'ask') crm.dailyCrmPass(s)
+      return r
+    }),
+    resolveGrievance: (grievanceId, action) => get().intent((s) => crm.resolveGrievance(s, grievanceId, action)),
+    appointAccountant: (staffId) => get().intent((s) => staffing.appointAccountant(s, staffId)),
+    appointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.appointDeskAssistant(s, desk, staffId)),
+    unappointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.unappointDeskAssistant(s, desk, staffId)),
+    retrainDriver: (staffId) => get().intent((s) => staffing.retrainDriver(s, staffId)),
+    upgradeLicence: (staffId) => get().intent((s) => staffing.upgradeLicence(s, staffId)),
+    runTripAnyway: (tripId) => get().intent((s) => {
+      const t = s.trips[tripId]
+      if (!t) return 'Trip not found.'
+      t.cmvrRunAnyway = true
+      return null
+    }),
+    updatePlayerConfig: (patch) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config = { ...s.config, ...patch }
+      return null
+    }),
+    setWelfareConfig: (patch) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config = { ...s.config, ...patch }
+      return null
+    }),
+    renewInsurance: (busId) => get().intent((s) => maintenance.renewBusInsurance(s, busId)),
+    renewFitness: (busId) => get().intent((s) => maintenance.renewFitness(s, busId)),
+    setDepreciationDefault: (method) => get().intent((s) => {
+      s.company.depreciationDefault = method
+      return null
+    }),
+    setDepreciationRate: (ratePct) => get().intent((s) => {
+      // null = follow the standard rate for whichever method is selected.
+      if (ratePct === null) {
+        delete s.company.depreciationRatePct
+        return null
+      }
+      const n = Number(ratePct)
+      if (!Number.isFinite(n)) return 'Enter a depreciation rate between 5% and 30%.'
+      s.company.depreciationRatePct = fleet.clampDepRate(n)
+      return null
+    }),
+    remitGst: () => get().intent((s) => tax.remitGst(s)),
+    fileTds: () => get().intent((s) => tax.fileTds(s)),
+    takeHpLoan: (productId, busId, months) => get().intent((s) => banking.takeHpLoan(s, productId, busId, months)),
+    setServiceTier: (schId, tier, amenities) => get().intent((s) => {
+      const sch = s.schedules[schId]
+      if (!sch) return 'Schedule not found.'
+      const patch: { serviceTier: typeof tier; amenities?: typeof amenities } = { serviceTier: tier }
+      if (amenities) patch.amenities = amenities
+      // Route through updateSchedule so auto fares reprice with the brand tier.
+      const err = schedules.updateSchedule(s, schId, patch)
+      if (err) return err
+      if (amenities) sch.amenities = { ...sch.amenities, ...amenities }
+      return null
+    }),
+    setDefaultAmenities: (amenities) => get().intent((s) => {
+      s.company.defaultAmenities = { ...s.company.defaultAmenities, ...amenities }
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm }
+      s.config.defaultAmenities = { ...s.company.defaultAmenities }
+      return null
+    }),
+    setDefaultServiceTier: (tier) => get().intent((s) => {
+      s.company.defaultServiceTier = tier
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm }
+      s.config.defaultServiceTier = tier
+      return null
+    }),
+    retrofitBus: (busId, feature) => get().intent((s) => maintenance.retrofitBus(s, busId, feature)),
+    setFuelContract: (partner) => get().intent((s) => depot.setFuelContract(s, partner)),
+    installDepotFuelTank: () => get().intent((s) => depot.installDepotFuelTank(s)),
+    orderDepotFuelRefill: (litres) => get().intent((s) => depot.orderDepotFuelRefill(s, litres)),
+    toggleAutoRefillDepotTank: (enabled) => get().intent((s) => depot.toggleAutoRefillDepotTank(s, enabled)),
+    toggleEcoIncentive: (enabled) => get().intent((s) => {
+      const active = enabled !== undefined ? enabled : !s.company.ecoIncentiveActive
+      s.company.ecoIncentiveActive = active
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm }
+      s.config.ecoIncentiveActive = active
+      pushLog(s, 'info', `Driver eco-driving mileage incentive ${active ? 'ACTIVATED (₹250/trip bonus)' : 'DEACTIVATED'}.`)
+      return null
+    }),
+    triggerFlashDeal: (tripId) => get().intent((s) => {
+      const t = s.trips[tripId]
+      if (!t) return 'Trip not found.'
+      if (t.status !== 'open') return 'Flash sales can only be triggered on open trips.'
+      t.flashDeal = !t.flashDeal
+      if (t.flashDeal) t.surgeDeal = false
+      const sch = s.schedules[t.scheduleId]
+      const b = s.buses[t.busId]
+      if (sch && b) {
+        t.fare = resolveTripFare(s, t, sch, b, t.day - s.day)
+      }
+      return null
+    }),
+    triggerSurgeDeal: (tripId) => get().intent((s) => {
+      const t = s.trips[tripId]
+      if (!t) return 'Trip not found.'
+      if (t.status !== 'open') return 'Surge pricing can only be applied to open trips.'
+      t.surgeDeal = !t.surgeDeal
+      if (t.surgeDeal) t.flashDeal = false
+      const sch = s.schedules[t.scheduleId]
+      const b = s.buses[t.busId]
+      if (sch && b) {
+        t.fare = resolveTripFare(s, t, sch, b, t.day - s.day)
+      }
+      return null
+    }),
+  })),
+)
+
+/** Narrow selector helpers */
+export function useGameState(): GameState | null {
+  return useGame((g) => g.state)
+}
+
+export type { Schedule }

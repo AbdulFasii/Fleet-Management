@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "react/jsx-key": "off",
+    "unicorn/no-useless-spread": "off"
+  }
+}
