@@ -13,8 +13,11 @@ import { worstSubsystem } from '../../engine/sim/fleet'
 import {
   axleTyresDue,
   bServiceDueKm,
+  computeBayAllocations,
   determineDueServiceTier,
   freeStaffedBays,
+  getWorkshopLocations,
+  inOwnWorkshop,
   overhaulDueInfo,
   ownerPaysService,
   quoteReplaceTyres,
@@ -26,13 +29,13 @@ import {
   tyresDue,
 } from '../../engine/sim/maintenance'
 import { fmtCompact, rs } from '../../engine/core/money'
-import { cityName } from '../../engine/data/cities'
+import { CITIES, cityName } from '../../engine/data/cities'
 import { ROUTES } from '../../engine/data/routes'
 import { yardMonthlyRent, busesParkedInCity, outstationNightlyFee } from '../../engine/sim/depot'
 import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays, workshopMechanicsOnDuty } from '../../engine/sim/staffing'
 import { spanMeters } from '../../engine/sim/span'
-import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand } from '../../engine/types'
-import { Bar, KV, M, Panel } from '../bits'
+import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand, WorkshopLocation, ID } from '../../engine/types'
+import { Bar, KV, M, Panel, Modal, GroupBadge } from '../bits'
 
 const TRADE_LABEL: Record<MechanicTrade, string> = {
   engine_gearbox: 'Engine/Gearbox',
@@ -71,29 +74,6 @@ function OwnershipCell({ ownership, attachShare }: { ownership: Ownership; attac
   )
 }
 
-interface BayRow {
-  index: number
-  mechanic?: Staff
-  job?: Bus
-}
-
-function bayBoard(s: ReturnType<typeof useGame.getState>['state']): BayRow[] {
-  if (!s || s.workshop.bays <= 0) return []
-  const mechIds = s.workshop.mechanicIds ?? []
-  const onDuty = new Set(workshopMechanicsOnDuty(s).map((m) => m.id))
-  const jobs = sortWorkshopBayJobs(Object.values(s.buses).filter((b) => b.status === 'workshop'))
-  let jobCursor = 0
-  const rows: BayRow[] = []
-  for (let i = 0; i < s.workshop.bays; i++) {
-    const mid = mechIds[i]
-    const mechanic = mid ? s.staff[mid] : undefined
-    const staffed = !!(mechanic && onDuty.has(mechanic.id))
-    const job = staffed ? jobs[jobCursor++] : undefined
-    rows.push({ index: i + 1, mechanic, job })
-  }
-  return rows
-}
-
 export function WorkshopPage() {
   const s = useGame((g) => g.state)!
   const g = useGame()
@@ -116,8 +96,8 @@ export function WorkshopPage() {
   )
   const disc = workshopJobDiscount(s.workshop.bays)
   const speed = workshopJobSpeedup(s.workshop.bays)
-  const nextBayCost = nextWorkshopBayCost(s.workshop.bays)
-  const bays = bayBoard(s)
+  const locations = getWorkshopLocations(s)
+  const bays = computeBayAllocations(s)
   const assignedJobIds = new Set(bays.map((b) => b.job?.id).filter(Boolean))
   const overflow = inShop.filter((b) => !assignedJobIds.has(b.id))
   const util = s.workshop.bays > 0 ? staffed / s.workshop.bays : 0
@@ -127,6 +107,13 @@ export function WorkshopPage() {
   const [frontBrandSelect, setFrontBrandSelect] = useState<Record<string, 'oem' | 'tier2'>>({})
   const [rearBrandSelect, setRearBrandSelect] = useState<Record<string, 'oem' | 'tier2' | 'retread'>>({})
   const [selectedLeaseCity, setSelectedLeaseCity] = useState<string>('')
+
+  const [showAddSatelliteModal, setShowAddSatelliteModal] = useState(false)
+  const [newSiteCity, setNewSiteCity] = useState<string>('')
+  const [newSiteBrands, setNewSiteBrands] = useState<ID[]>([])
+
+  const [editingLocation, setEditingLocation] = useState<WorkshopLocation | null>(null)
+  const [editLocationBrands, setEditLocationBrands] = useState<ID[]>([])
 
   const homeParkedCount = Object.values(s.buses).filter(
     (b) =>
@@ -167,7 +154,7 @@ export function WorkshopPage() {
   } | null>(null)
 
   const handleService = (bus: Bus, tier: ServiceTierId) => {
-    if (s.workshop.bays <= 0) {
+    if (!inOwnWorkshop(s, bus)) {
       const q = quoteService(s, bus, tier, true)
       setOutsideModal({
         busId: bus.id,
@@ -184,7 +171,7 @@ export function WorkshopPage() {
   }
 
   const handleReplaceTyres = (bus: Bus, axle: TyreAxle, brand: TyreBrand) => {
-    if (s.workshop.bays <= 0) {
+    if (!inOwnWorkshop(s, bus)) {
       const q = quoteReplaceTyres(s, bus, axle, brand, true)
       if (typeof q === 'string') {
         g.toast(q, 'bad')
@@ -334,9 +321,21 @@ export function WorkshopPage() {
             title={`Bay Board (${staffed} Live / ${s.workshop.bays} Built)`}
             right={
               s.workshop.bays > 0 && (
-                <span className="dim small">
-                  {freeBays} bay(s) ready for service
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="dim small">
+                    {freeBays} bay(s) ready for service
+                  </span>
+                  <button
+                    className="small primary"
+                    onClick={() => {
+                      setNewSiteCity('')
+                      setNewSiteBrands([])
+                      setShowAddSatelliteModal(true)
+                    }}
+                  >
+                    + Open Satellite ({fmtCompact(BAL.workshopSiteFirstBayCost)})
+                  </button>
+                </div>
               )
             }
           >
@@ -345,108 +344,181 @@ export function WorkshopPage() {
                 <p className="warn" style={{ marginBottom: 8 }}>
                   No in-house workshop built yet. All fleet maintenance is outsourced to outside commercial garages at full price.
                 </p>
-                <button className="primary" onClick={() => g.upgradeWorkshop()}>
-                  Build First Workshop Bay ({fmtCompact(nextBayCost)})
+                <button className="primary" onClick={() => g.openWorkshopLocation(s.company.homeCityId, [])}>
+                  Build HQ Workshop — 1 Bay ({fmtCompact(BAL.workshopSiteFirstBayCost)})
                 </button>
               </div>
             ) : (
-              <>
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th>Bay</th>
-                      <th>Assigned Mechanic</th>
-                      <th>Active Job</th>
-                      <th>Type</th>
-                      <th className="num">ETA</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bays.map((bay) => {
-                      const onLeave = bay.mechanic?.onLeaveUntilDay && bay.mechanic.onLeaveUntilDay >= s.day
-                      const vacant = !bay.mechanic
-                      return (
-                        <tr key={bay.index}>
-                          <td className="accent"><b>#{bay.index}</b></td>
-                          <td className="nowrap">
-                            {vacant ? (
-                              freeMechanics.length > 0 ? (
-                                <select
-                                  value=""
-                                  style={{ maxWidth: 170 }}
-                                  onChange={(e) => {
-                                    const id = e.target.value
-                                    if (id) g.appointBayMechanic(id)
-                                  }}
-                                >
-                                  <option value="">+ Appoint Mechanic…</option>
-                                  {freeMechanics.map((st) => (
-                                    <option key={st.id} value={st.id}>
-                                      {st.name} ({tradeLabel(st.mechanicTrade)} · sk {st.skill})
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <span className="bad small">⚠️ Unstaffed (Hire on Staff)</span>
-                              )
-                            ) : (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div>
-                                  <b>{bay.mechanic!.name}</b>
-                                  <div className="dim small">
-                                    {tradeLabel(bay.mechanic!.mechanicTrade)} · Skill {bay.mechanic!.skill}
-                                    {onLeave && <span className="warn"> (on leave)</span>}
-                                  </div>
-                                </div>
-                                <button
-                                  className="small text"
-                                  title="Unappoint mechanic from this bay"
-                                  onClick={() => g.unappointBayMechanic(bay.mechanic!.id)}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            {vacant || onLeave ? (
-                              <span className="dim small">{vacant ? 'Bay idle (unstaffed)' : 'Mechanic on leave'}</span>
-                            ) : bay.job ? (
-                              <div>
-                                <Link to={`/fleet/${bay.job.id}`}><b>{bay.job.reg}</b></Link>
-                                <div className="small dim">{modelTitleById(bay.job.modelId)}</div>
-                                <ServiceJobBadge jobLabel={bay.job.workshopJob} />
-                              </div>
-                            ) : (
-                              <span className="good small">✓ Bay Ready & Clean</span>
-                            )}
-                          </td>
-                          <td>
-                            {bay.job ? (
-                              <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} />
-                            ) : (
-                              <span className="dim">—</span>
-                            )}
-                          </td>
-                          <td className="num">
-                            {bay.job ? (
-                              <b className="accent">{Math.max(0, (bay.job.workshopUntilDay ?? s.day) - s.day)}d left</b>
-                            ) : (
-                              <span className="dim">—</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+              <div>
+                {locations.map((loc) => {
+                  const locBays = bays.filter((b) => b.locationId === loc.id)
+                  const isHQ = loc.cityId === s.company.homeCityId
+                  return (
+                    <div
+                      key={loc.id}
+                      style={{
+                        marginBottom: 16,
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'var(--bg2)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '8px 12px',
+                          background: 'var(--bg3)',
+                          borderBottom: '1px solid var(--border)',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>
+                            {cityName(loc.cityId)}
+                          </span>
+                          {isHQ && <span className="pill good small">HQ Depot</span>}
+                          <span className="dim small">
+                            {loc.bayCount} Bay{loc.bayCount === 1 ? '' : 's'}
+                          </span>
+                          <span className="dim small">· Allowed:</span>
+                          {loc.groupIds.length === 0 ? (
+                            <span className="pill faint small">All Brands</span>
+                          ) : (
+                            loc.groupIds.map((gid) => {
+                              const grp = s.groups?.[gid]
+                              return grp ? <GroupBadge key={gid} group={grp} /> : null
+                            })
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <button
+                            className="small"
+                            onClick={() => {
+                              setEditingLocation(loc)
+                              setEditLocationBrands([...loc.groupIds])
+                            }}
+                          >
+                            Brands
+                          </button>
+                          <button
+                            className="small primary"
+                            onClick={() => g.addWorkshopBayAtLocation(loc.id)}
+                            title={`Add 1 bay at ${cityName(loc.cityId)} for ${fmtCompact(BAL.workshopBayCostFlat)}`}
+                          >
+                            + Bay ({fmtCompact(BAL.workshopBayCostFlat)})
+                          </button>
+                        </div>
+                      </div>
+
+                      <table className="data" style={{ margin: 0 }}>
+                        <thead>
+                          <tr>
+                            <th>Bay</th>
+                            <th>Assigned Mechanic</th>
+                            <th>Active Job</th>
+                            <th>Type</th>
+                            <th className="num">ETA</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {locBays.map((bay) => {
+                            const onLeave = bay.mechanic?.onLeaveUntilDay && bay.mechanic.onLeaveUntilDay >= s.day
+                            const vacant = !bay.mechanic
+                            return (
+                              <tr key={bay.index}>
+                                <td className="accent">
+                                  <b>#{bay.index}</b>
+                                  <span className="dim small" style={{ marginLeft: 4 }}>
+                                    (Bay {bay.bayIndexInLoc + 1})
+                                  </span>
+                                </td>
+                                <td className="nowrap">
+                                  {vacant ? (
+                                    freeMechanics.length > 0 ? (
+                                      <select
+                                        value=""
+                                        style={{ maxWidth: 170 }}
+                                        onChange={(e) => {
+                                          const id = e.target.value
+                                          if (id) g.appointBayMechanic(id)
+                                        }}
+                                      >
+                                        <option value="">+ Appoint Mechanic…</option>
+                                        {freeMechanics.map((st) => (
+                                          <option key={st.id} value={st.id}>
+                                            {st.name} ({tradeLabel(st.mechanicTrade)} · sk {st.skill})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <span className="bad small">⚠️ Unstaffed (Hire on Staff)</span>
+                                    )
+                                  ) : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                      <div>
+                                        <b>{bay.mechanic!.name}</b>
+                                        <div className="dim small">
+                                          {tradeLabel(bay.mechanic!.mechanicTrade)} · Skill {bay.mechanic!.skill}
+                                          {onLeave && <span className="warn"> (on leave)</span>}
+                                        </div>
+                                      </div>
+                                      <button
+                                        className="small text"
+                                        title="Unappoint mechanic from this bay"
+                                        onClick={() => g.unappointBayMechanic(bay.mechanic!.id)}
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  {vacant || onLeave ? (
+                                    <span className="dim small">{vacant ? 'Bay idle (unstaffed)' : 'Mechanic on leave'}</span>
+                                  ) : bay.job ? (
+                                    <div>
+                                      <Link to={`/fleet/${bay.job.id}`}><b>{bay.job.reg}</b></Link>
+                                      <div className="small dim">{modelTitleById(bay.job.modelId)}</div>
+                                      <ServiceJobBadge jobLabel={bay.job.workshopJob} />
+                                    </div>
+                                  ) : (
+                                    <span className="good small">✓ Bay Ready & Clean</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {bay.job ? (
+                                    <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} />
+                                  ) : (
+                                    <span className="dim">—</span>
+                                  )}
+                                </td>
+                                <td className="num">
+                                  {bay.job ? (
+                                    <b className="accent">{Math.max(0, (bay.job.workshopUntilDay ?? s.day) - s.day)}d left</b>
+                                  ) : (
+                                    <span className="dim">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })}
 
                 {bayMechs.length < s.workshop.bays && (
                   <p className="small warn" style={{ padding: '8px 10px 0' }}>
                     💡 Unstaffed bays remain idle. Hire mechanics in the Staff desk to operate all bays.
                   </p>
                 )}
-              </>
+              </div>
             )}
           </Panel>
 
@@ -454,7 +526,7 @@ export function WorkshopPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Panel title="Workshop Facility & Expansion">
               <KV rows={[
-                ['Workshop Capacity', `${s.workshop.bays} Bay(s) Built · ${staffed} Staffed (${Math.round(util * 100)}% utilization)`],
+                ['Workshop Capacity', `${s.workshop.bays} Bay(s) Built across ${locations.length} Location(s) · ${staffed} Staffed (${Math.round(util * 100)}% utilization)`],
                 ['Foreman Span', <span><b>{wsSpan.demand}</b> / {wsSpan.capacity} bays ({Math.round(wsSpan.coverage * 100)}% coverage){wsSpan.demand > wsSpan.capacity ? <span className="warn" style={{ marginLeft: 6 }}>+{wsSpan.assistantsToCover} assistant(s) needed</span> : null}</span>],
                 ['Free Staffed Bays', <span className={freeBays > 0 ? 'good' : 'warn'}>{freeBays} bay(s) available</span>],
                 ['Cost Reduction', <span className="good">-{Math.round(disc * 100)}% cheaper vs outside commercial rate</span>],
@@ -495,12 +567,23 @@ export function WorkshopPage() {
                 </select>
               </div>
 
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12, display: 'flex', gap: 8 }}>
-                <button className="primary" onClick={() => g.upgradeWorkshop()}>
-                  {s.workshop.bays === 0
-                    ? `Build Workshop — 1 Bay (${fmtCompact(nextBayCost)})`
-                    : `Add Bay ${s.workshop.bays + 1} (${fmtCompact(nextBayCost)})`}
-                </button>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {s.workshop.bays === 0 ? (
+                  <button className="primary" onClick={() => g.openWorkshopLocation(s.company.homeCityId, [])}>
+                    Build HQ Workshop — 1 Bay ({fmtCompact(BAL.workshopSiteFirstBayCost)})
+                  </button>
+                ) : (
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      setNewSiteCity('')
+                      setNewSiteBrands([])
+                      setShowAddSatelliteModal(true)
+                    }}
+                  >
+                    + Open Satellite Workshop ({fmtCompact(BAL.workshopSiteFirstBayCost)})
+                  </button>
+                )}
               </div>
             </Panel>
 
@@ -1094,7 +1177,7 @@ export function WorkshopPage() {
           <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
             <h3>Outside Commercial Garage Dispatch</h3>
             <p>
-              Your in-house workshop currently has <strong>0 free staffed bays</strong>. Would you like to outsource{' '}
+              Your in-house workshop has <strong>no eligible free staffed bay</strong> for this vehicle (capacity full or brand restricted). Would you like to outsource{' '}
               <strong>{outsideModal.reg}</strong> to an authorized commercial garage?
             </p>
             <div className="panel flat" style={{ margin: '12px 0', padding: '10px 14px' }}>
@@ -1120,6 +1203,175 @@ export function WorkshopPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Open Satellite Workshop Modal */}
+      {showAddSatelliteModal && (
+        <Modal
+          title="Open Satellite Workshop Depot"
+          onClose={() => setShowAddSatelliteModal(false)}
+          actions={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="small text" onClick={() => setShowAddSatelliteModal(false)}>
+                Cancel
+              </button>
+              <button
+                className="primary small"
+                disabled={!newSiteCity}
+                onClick={() => {
+                  if (!newSiteCity) return
+                  g.openWorkshopLocation(newSiteCity, newSiteBrands)
+                  setShowAddSatelliteModal(false)
+                }}
+              >
+                Open Satellite Depot ({fmtCompact(BAL.workshopSiteFirstBayCost)})
+              </button>
+            </div>
+          }
+        >
+          <p className="dim small" style={{ marginBottom: 14 }}>
+            Open a regional satellite workshop in another city hub. The first bay at this site costs{' '}
+            <strong style={{ color: 'var(--fg)' }}>{fmtCompact(BAL.workshopSiteFirstBayCost)}</strong>{' '}
+            (includes opening the depot). Any additional bays built at this location cost flat{' '}
+            <strong style={{ color: 'var(--fg)' }}>{fmtCompact(BAL.workshopBayCostFlat)}</strong> each.
+          </p>
+
+          <div className="form-row">
+            <label>Site City</label>
+            <select
+              value={newSiteCity}
+              onChange={(e) => setNewSiteCity(e.target.value)}
+            >
+              <option value="">— Select Outstation City —</option>
+              {Object.keys(CITIES)
+                .filter((cid) => !locations.some((l) => l.cityId === cid))
+                .sort((a, b) => cityName(a).localeCompare(cityName(b)))
+                .map((cid) => (
+                  <option key={cid} value={cid}>
+                    {cityName(cid)} ({CITIES[cid].state})
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="form-row mt12">
+            <label>Allowed Brands</label>
+            <div className="dim small" style={{ marginBottom: 6 }}>
+              Bays at this satellite will only service coaches of selected subsidiary brands. Select none to allow all brands across the company.
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                maxHeight: 180,
+                overflowY: 'auto',
+                padding: '8px 10px',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                background: 'var(--bg)',
+              }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={newSiteBrands.length === 0}
+                  onChange={(e) => {
+                    if (e.target.checked) setNewSiteBrands([])
+                  }}
+                />
+                <span><strong>All Brands</strong> (Universal access)</span>
+              </label>
+              {Object.values(s.groups ?? {}).map((grp) => (
+                <label key={grp.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newSiteBrands.includes(grp.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setNewSiteBrands([...newSiteBrands, grp.id])
+                      } else {
+                        setNewSiteBrands(newSiteBrands.filter((id) => id !== grp.id))
+                      }
+                    }}
+                  />
+                  <GroupBadge group={grp} />
+                  <span>{grp.name} ({grp.code})</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Workshop Location Brands Modal */}
+      {editingLocation && (
+        <Modal
+          title={`Allowed Brands — ${cityName(editingLocation.cityId)}`}
+          onClose={() => setEditingLocation(null)}
+          actions={
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="small text" onClick={() => setEditingLocation(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary small"
+                onClick={() => {
+                  g.updateWorkshopLocationBrands(editingLocation.id, editLocationBrands)
+                  setEditingLocation(null)
+                }}
+              >
+                Save Allowed Brands
+              </button>
+            </div>
+          }
+        >
+          <p className="dim small" style={{ marginBottom: 12 }}>
+            Choose which subsidiary brands may occupy bays at <strong>{cityName(editingLocation.cityId)}</strong>.
+            Buses not in this list will use other locations or outside commercial garages.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              margin: '10px 0',
+              padding: '10px 12px',
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              background: 'var(--bg)',
+            }}
+          >
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={editLocationBrands.length === 0}
+                onChange={(e) => {
+                  if (e.target.checked) setEditLocationBrands([])
+                }}
+              />
+              <span><strong>All Brands</strong> (Allow any company fleet vehicle)</span>
+            </label>
+            {Object.values(s.groups ?? {}).map((grp) => (
+              <label key={grp.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={editLocationBrands.includes(grp.id)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setEditLocationBrands([...editLocationBrands, grp.id])
+                    } else {
+                      setEditLocationBrands(editLocationBrands.filter((id) => id !== grp.id))
+                    }
+                  }}
+                />
+                <GroupBadge group={grp} />
+                <span>{grp.name} ({grp.code})</span>
+              </label>
+            ))}
+          </div>
+        </Modal>
       )}
     </>
   )

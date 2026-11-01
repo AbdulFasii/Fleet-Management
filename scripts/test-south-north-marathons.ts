@@ -96,19 +96,21 @@ assert.strictEqual(recommendedFleetSize(rShort, true), 2, 'Short hop paired flee
 assert(layoverMinutes(r8h) >= 120 && layoverMinutes(r8h) <= 180, '8h layover should be ~2.5h')
 assert.strictEqual(recommendedFleetSize(r8h, true), 2, '8h paired fleet is 2')
 
-// 20-22h peer layover check
+// 20-22h peer layover check — cooldown capped at 8h
 const bbsLayover = layoverMinutes(rBbs)
 const bbsTurn = turnaroundMinutes(rBbs)
 console.log(`  maa-bbs 22h layover: ${(bbsLayover / 60).toFixed(1)}h, total turnaround: ${(bbsTurn / 60).toFixed(1)}h`)
-assert(bbsTurn >= 540 && bbsTurn <= 660, '22h turnaround should be ~9.5h to 11h')
-assert.strictEqual(recommendedFleetSize(rNag, true), 3, 'blr-nag 20h paired fleet should be 3')
-assert.strictEqual(recommendedFleetSize(rBbs, true), 3, 'maa-bbs 22h paired fleet should be 3')
-
-// 26h-36h marathons
+assert(bbsLayover <= 480, 'layover must never exceed 8h cap')
+assert(bbsTurn <= 480, 'total vehicle cooldown capped at 8h')
+assert(turnaroundMinutes(rKocDel) <= 480, '36h haul cooldown capped at 8h')
+assert(layoverMinutes(rKocDel) <= 480, '36h haul layover capped at 8h')
+// With 8h max cooldown, 20–36h hauls need a 2-day one-way cycle → 4 coaches for daily both ways
+assert.strictEqual(recommendedFleetSize(rNag, true), 4, 'blr-nag 20h paired fleet should be 4')
+assert.strictEqual(recommendedFleetSize(rBbs, true), 4, 'maa-bbs 22h paired fleet should be 4')
 assert.strictEqual(recommendedFleetSize(rHydDel, true), 4, 'hyd-del 26h paired fleet should be 4')
 assert.strictEqual(recommendedFleetSize(rBlrDel, true), 4, 'blr-del 32h paired fleet should be 4')
 assert.strictEqual(recommendedFleetSize(rKocDel, true), 4, 'koc-del 36h paired fleet should be 4')
-console.log('✓ Layover scaling and recommended fleet sizes verified.')
+console.log('✓ Layover cap (8h) and recommended fleet sizes verified.')
 
 console.log('--- 4. Testing Earliest Return & Day Offsets on Marathons ---')
 const dep20 = { depHour: 20, depMin: 0 as const }
@@ -174,17 +176,17 @@ assert(reject5 && reject5.includes('at most 4 buses'), `Expected cap rejection, 
 
 // Generate trips and verify daily departures both ways across 4 days
 generateTrips(s)
-const trips = Object.values(s.trips).filter((t) => t.scheduleId === schId)
-console.log(`  Generated ${trips.length} trips on 4-coach marathon schedule.`)
+const trips = Object.values(s.trips).filter((t) => t.scheduleId === schId && t.status === 'open')
+console.log(`  Generated ${trips.length} open trips on 4-coach marathon schedule.`)
 
-// Verify that for each day in [s.day, s.day + 1, s.day + 2], we have AB and BA departures
+// Verify each day has exactly one AB and one BA (ready coach takes next schedule clock)
 for (let d = s.day; d <= s.day + 3; d++) {
   const dayTrips = trips.filter((t) => t.day === d)
   const ab = dayTrips.filter((t) => t.direction === 'AB')
   const ba = dayTrips.filter((t) => t.direction === 'BA')
-  console.log(`  Day ${d}: ${dayTrips.length} trips (AB: ${ab.length}, BA: ${ba.length})`)
-  assert(ab.length >= 1, `Day ${d} must have at least 1 AB departure`)
-  assert(ba.length >= 1, `Day ${d} must have at least 1 BA departure`)
+  console.log(`  Day ${d}: open (AB: ${ab.length} ${ab[0]?.busId ?? '-'}, BA: ${ba.length} ${ba[0]?.busId ?? '-'})`)
+  assert.strictEqual(ab.length, 1, `Day ${d} must have exactly 1 AB departure`)
+  assert.strictEqual(ba.length, 1, `Day ${d} must have exactly 1 BA departure`)
 }
 
 // Test sanitizeScheduleAssignments preserves 4 buses
@@ -233,11 +235,11 @@ assert.strictEqual(sanitizeScheduleAssignments(s), 0)
 assert.strictEqual(kocSch.busIds.length, 3, '3 buses retained after sanitizeScheduleAssignments')
 
 generateTrips(s)
-const kocTrips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId)
-console.log(`  Generated ${kocTrips.length} trips on 3-coach koc-del schedule.`)
+const kocTrips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId && t.status === 'open')
+console.log(`  Generated ${kocTrips.length} open trips on 3-coach koc-del schedule.`)
 for (let d = s.day; d <= s.day + 2; d++) {
   const dTrips = kocTrips.filter((t) => t.day === d)
-  assert.strictEqual(dTrips.length, 1, `Day ${d} must have exactly 1 departure on 3-coach marathon`)
+  assert.strictEqual(dTrips.length, 1, `Day ${d} must have exactly 1 open departure on 3-coach marathon`)
   console.log(`  Day ${d}: Bus ${dTrips[0]?.busId} departs ${dTrips[0]?.direction}`)
 }
 console.log('✓ 3-coach unpaired marathon runs smoothly without drop or clash!')

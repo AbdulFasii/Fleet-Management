@@ -1183,6 +1183,14 @@ export interface HrAutoFire {
   maxSalaryByRole: Partial<Record<StaffRole, Money>>
 }
 
+export interface WorkshopLocation {
+  id: ID
+  cityId: string
+  /** Brands allowed to use this site’s bays. Empty = all brands (typical HQ). */
+  groupIds: ID[]
+  bayCount: number
+}
+
 export interface WorkshopState {
   /** 0 = no facility; 1+ = open (bays is the real capacity). */
   level: number
@@ -1191,6 +1199,8 @@ export interface WorkshopState {
   managerId?: ID
   /** one service mechanic per bay; unstaffed bays sit idle */
   mechanicIds?: ID[]
+  /** Workshop locations (HQ + satellites). Total bays = sum of location bayCounts. */
+  locations?: WorkshopLocation[]
 }
 
 export type InsuranceClaimStatus = 'pending' | 'survey' | 'settled' | 'garage_paid' | 'rejected'

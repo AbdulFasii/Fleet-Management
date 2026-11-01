@@ -85,7 +85,7 @@ export function newGame(name: string, difficulty: Difficulty, homeRouteId: strin
       hrAutoFire: defaultHrAutoFire(),
       opsAutoStaff: true,
     },
-    workshop: { level: 0, bays: 0, mechanicIds: [] },
+    workshop: { level: 0, bays: 0, mechanicIds: [], locations: [] },
     config: {
       odoHighlightKm: BAL.odoHighlightDefaultKm,
       autoRenewDocs: true,

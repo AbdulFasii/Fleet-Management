@@ -171,6 +171,9 @@ interface GameStore {
   rebodyBus: (busId: ID) => void
   refurbishSeats: (busId: ID) => void
   upgradeWorkshop: () => void
+  openWorkshopLocation: (cityId: string, groupIds: ID[]) => void
+  addWorkshopBayAtLocation: (locationId: ID) => void
+  updateWorkshopLocationBrands: (locationId: ID, groupIds: ID[]) => void
   expandDepot: () => void
   leaseYard: (cityId: string) => void
   cancelYard: (cityId: string) => void
@@ -559,8 +562,25 @@ function migrate(raw: unknown): GameState | null {
   for (const l of Object.values(s.loans ?? {})) {
     if (!l.kind) l.kind = 'vehicle'
   }
-  if (!s.workshop) s.workshop = { level: 0, bays: 0, mechanicIds: [] }
+  if (!s.workshop) s.workshop = { level: 0, bays: 0, mechanicIds: [], locations: [] }
   if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+  if (!s.workshop.locations || s.workshop.locations.length === 0) {
+    if (s.workshop.bays > 0 || s.workshop.level > 0) {
+      s.workshop.locations = [
+        {
+          id: 'loc_hq',
+          cityId: s.company.homeCityId,
+          groupIds: [],
+          bayCount: s.workshop.bays || 1,
+        },
+      ]
+    } else {
+      s.workshop.locations = []
+    }
+  }
+  if (s.workshop.locations.length > 0) {
+    s.workshop.bays = s.workshop.locations.reduce((sum, l) => sum + l.bayCount, 0)
+  }
   if (!s.yards) s.yards = []
   if (!s.company.lenderRelations) s.company.lenderRelations = {}
   if (!s.company.serviceSpendByTier) s.company.serviceSpendByTier = { a: 0, b: 0, overhaul: 0 }
@@ -1486,6 +1506,9 @@ export const useGame = create<GameStore>()(
     rebodyBus: (busId) => get().intent((s) => maintenance.rebodyBus(s, busId)),
     refurbishSeats: (busId) => get().intent((s) => maintenance.refurbishSeats(s, busId)),
     upgradeWorkshop: () => get().intent((s) => maintenance.upgradeWorkshop(s)),
+    openWorkshopLocation: (cityId, groupIds) => get().intent((s) => maintenance.openWorkshopLocation(s, cityId, groupIds)),
+    addWorkshopBayAtLocation: (locationId) => get().intent((s) => maintenance.addBayAtLocation(s, locationId)),
+    updateWorkshopLocationBrands: (locationId, groupIds) => get().intent((s) => maintenance.updateWorkshopLocationBrands(s, locationId, groupIds)),
     expandDepot: () => get().intent((s) => maintenance.expandDepot(s)),
     leaseYard: (cityId) => get().intent((s) => depot.leaseYard(s, cityId)),
     cancelYard: (cityId) => get().intent((s) => depot.cancelYard(s, cityId)),

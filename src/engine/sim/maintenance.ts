@@ -7,9 +7,10 @@ import { BUS_MODELS } from '../data/busModels'
 import { ROUTES } from '../data/routes'
 import { cityName } from '../data/cities'
 import { fmtCompact, type Money } from '../core/money'
-import { SUBSYSTEMS, type Bus, type GameState, type SubsystemId, type ID, type ServiceTierId, type TyreBrand, type TyreAxle, type MechanicTrade, type Staff } from '../types'
+import { SUBSYSTEMS, type Bus, type GameState, type SubsystemId, type ID, type ServiceTierId, type TyreBrand, type TyreAxle, type MechanicTrade, type Staff, type WorkshopLocation } from '../types'
 // (SUBSYSTEMS also used for owner-side upkeep of attached buses)
 import { isFestivalDay } from '../core/calendar'
+import { nextId } from '../core/ids'
 import { canAfford, spend, capitalOut } from './finance'
 import { pushLog } from './log'
 import { fleetManagerOnDuty, staffedWorkshopBays, docsManagerOnDuty, workshopMechanicsOnDuty, monthlyOfficeAdminCost } from './staffing'
@@ -21,12 +22,105 @@ import { FITTING_CATALOG, busHasFitting, setBusFitting, fittingById } from '../d
 
 export type RetrofitFeature = string
 
+/** Get or lazily initialize workshop locations (HQ at home city if bays exist). */
+export function getWorkshopLocations(s: GameState): WorkshopLocation[] {
+  if (s.workshop.locations && s.workshop.locations.length > 0) {
+    return s.workshop.locations
+  }
+  if ((s.workshop.bays ?? 0) > 0 || (s.workshop.level ?? 0) > 0) {
+    const hq: WorkshopLocation = {
+      id: 'loc_hq',
+      cityId: s.company.homeCityId,
+      groupIds: [],
+      bayCount: s.workshop.bays || 1,
+    }
+    s.workshop.locations = [hq]
+    return s.workshop.locations
+  }
+  return []
+}
+
+/** Check if a bus's brand is permitted at a workshop location. Empty groupIds = all brands allowed. */
+export function isBusAllowedAtLocation(loc: WorkshopLocation, bus?: Bus): boolean {
+  if (!bus) return true
+  if (!loc.groupIds || loc.groupIds.length === 0) return true
+  return Boolean(bus.groupId && loc.groupIds.includes(bus.groupId))
+}
+
+export interface BayAllocation {
+  index: number // 1-based display index across entire company (1 .. totalBays)
+  globalBayIndex: number // 0-based
+  locationId: ID
+  locationCityId: string
+  bayIndexInLoc: number // 0-based within location
+  mechanic?: Staff
+  staffed: boolean
+  job?: Bus
+}
+
+/**
+ * Maps all bays across all workshop locations, their appointed mechanics,
+ * and matches in-shop buses to eligible staffed bays according to brand allowlists.
+ */
+export function computeBayAllocations(s: GameState): BayAllocation[] {
+  const locations = getWorkshopLocations(s)
+  if (locations.length === 0 || (s.workshop.bays ?? 0) <= 0) return []
+  const mechIds = s.workshop.mechanicIds ?? []
+  const onDuty = new Set(workshopMechanicsOnDuty(s).map((m) => m.id))
+  const jobs = sortWorkshopBayJobs(
+    Object.values(s.buses).filter((b) => b.status === 'workshop' && !b.outsideGarage),
+  )
+
+  const allocations: BayAllocation[] = []
+  let globalIndex = 0
+
+  for (const loc of locations) {
+    for (let bIdx = 0; bIdx < loc.bayCount; bIdx++) {
+      const mid = mechIds[globalIndex]
+      const mechanic = mid ? s.staff[mid] : undefined
+      const staffed = Boolean(mechanic && onDuty.has(mechanic.id))
+      allocations.push({
+        index: globalIndex + 1,
+        globalBayIndex: globalIndex,
+        locationId: loc.id,
+        locationCityId: loc.cityId,
+        bayIndexInLoc: bIdx,
+        mechanic,
+        staffed,
+        job: undefined,
+      })
+      globalIndex++
+    }
+  }
+
+  // Allocate in-shop jobs to eligible staffed bays
+  for (const bus of jobs) {
+    const alloc = allocations.find((a) => {
+      if (!a.staffed || a.job) return false
+      const loc = locations.find((l) => l.id === a.locationId)
+      return loc ? isBusAllowedAtLocation(loc, bus) : true
+    })
+    if (alloc) {
+      alloc.job = bus
+    }
+  }
+
+  return allocations
+}
+
 /** Free staffed bays in own workshop (ignoring outside commercial garage jobs). */
-export function freeStaffedBays(s: GameState): number {
-  const staffed = staffedWorkshopBays(s)
-  if (staffed <= 0) return 0
-  const occupied = Object.values(s.buses).filter((b) => b.status === 'workshop' && !b.outsideGarage).length
-  return Math.max(0, staffed - occupied)
+export function freeStaffedBays(s: GameState, forBus?: Bus): number {
+  const allocs = computeBayAllocations(s)
+  if (allocs.length === 0) return 0
+  if (!forBus) {
+    return allocs.filter((a) => a.staffed && !a.job).length
+  }
+  const locations = getWorkshopLocations(s)
+  return allocs.filter((a) => {
+    if (!a.staffed || a.job) return false
+    const loc = locations.find((l) => l.id === a.locationId)
+    return loc ? isBusAllowedAtLocation(loc, forBus) : true
+  }).length
 }
 
 /** Owned coaches claim staffed bays before attached / leased. */
@@ -41,10 +135,6 @@ export function sortWorkshopBayJobs(jobs: Bus[]): Bus[] {
   )
 }
 
-function ownedWorkshopOccupancy(s: GameState): number {
-  return Object.values(s.buses).filter((b) => b.status === 'workshop' && b.ownership === 'owned' && !b.outsideGarage).length
-}
-
 function workshopOccupancy(s: GameState): number {
   return Object.values(s.buses).filter((b) => b.status === 'workshop' && !b.outsideGarage).length
 }
@@ -54,8 +144,8 @@ export function freeWorkshopBays(s: GameState): number {
 }
 
 /**
- * Own-shop rates/slots: owned are never blocked by attached/leased.
- * Attached/leased may use leftover staffed bays after owned claim theirs.
+ * Own-shop rates/slots: bus can use in-house workshop if a staffed bay at an
+ * allowed location is available (or if currently allocated to one).
  */
 export function inOwnWorkshop(s: GameState, bus?: Bus): boolean {
   if (bus?.outsideGarage) return false
@@ -63,12 +153,26 @@ export function inOwnWorkshop(s: GameState, bus?: Bus): boolean {
   if (bays <= 0) return false
   const staffed = staffedWorkshopBays(s)
   if (staffed <= 0) return false
-  if (!bus || bus.ownership === 'owned') return true
-  const ownedBusy = ownedWorkshopOccupancy(s)
-  const leftovers = staffed - ownedBusy
-  if (leftovers <= 0) return false
-  const othersBusy = workshopOccupancy(s) - ownedBusy
-  return othersBusy < leftovers
+
+  const allocations = computeBayAllocations(s)
+
+  // If this bus is already in the workshop, check if it was allocated to a bay
+  if (bus && bus.status === 'workshop') {
+    return allocations.some((a) => a.job?.id === bus.id)
+  }
+
+  // If bus is provided (e.g. previewing a quote or checking dispatch eligibility):
+  if (bus) {
+    const locations = getWorkshopLocations(s)
+    return allocations.some((a) => {
+      if (!a.staffed || a.job) return false
+      const loc = locations.find((l) => l.id === a.locationId)
+      return loc ? isBusAllowedAtLocation(loc, bus) : true
+    })
+  }
+
+  // No specific bus: returns true if any staffed bay is currently vacant
+  return allocations.some((a) => a.staffed && !a.job)
 }
 
 function jobCost(s: GameState, base: Money, bus?: Bus): Money {
@@ -114,42 +218,20 @@ export function tradeMultipliers(mechTrade?: MechanicTrade, requiredTrade?: Mech
 
 export function findMechanicForBus(s: GameState, bus: Bus): Staff | undefined {
   if (bus.outsideGarage) return undefined
-  if (s.workshop.level === 0 || s.workshop.bays <= 0) return undefined
-  const mechIds = s.workshop.mechanicIds ?? []
-  if (mechIds.length === 0) return undefined
+  if (s.workshop.level === 0 || (s.workshop.bays ?? 0) <= 0) return undefined
 
-  const onDuty = new Set(workshopMechanicsOnDuty(s).map((m) => m.id))
-  const jobs = sortWorkshopBayJobs(Object.values(s.buses).filter((b) => b.status === 'workshop' && !b.outsideGarage))
+  const allocations = computeBayAllocations(s)
+  const existingAlloc = allocations.find((a) => a.job?.id === bus.id)
+  if (existingAlloc?.mechanic) return existingAlloc.mechanic
 
-  let jobCursor = 0
-  for (let i = 0; i < s.workshop.bays; i++) {
-    const mid = mechIds[i]
-    const mech = mid ? s.staff[mid] : undefined
-    const hasMechOnDuty = mech && onDuty.has(mech.id)
-    if (hasMechOnDuty) {
-      if (jobCursor < jobs.length) {
-        const assignedJob = jobs[jobCursor++]
-        if (assignedJob.id === bus.id) return mech
-      }
-    }
-  }
-
-  jobCursor = 0
-  for (let i = 0; i < s.workshop.bays; i++) {
-    const mid = mechIds[i]
-    const mech = mid ? s.staff[mid] : undefined
-    const hasMechOnDuty = mech && onDuty.has(mech.id)
-    if (hasMechOnDuty) {
-      if (jobCursor < jobs.length) {
-        jobCursor++
-      } else {
-        return mech
-      }
-    }
-  }
-
-  const firstDuty = workshopMechanicsOnDuty(s)[0]
-  return inOwnWorkshop(s, bus) ? firstDuty : undefined
+  // If bus is not yet assigned to a bay, find first vacant staffed bay that allows it
+  const locations = getWorkshopLocations(s)
+  const freeAlloc = allocations.find((a) => {
+    if (!a.staffed || a.job) return false
+    const loc = locations.find((l) => l.id === a.locationId)
+    return loc ? isBusAllowedAtLocation(loc, bus) : true
+  })
+  return freeAlloc?.mechanic
 }
 
 export function determineDueServiceTier(s: GameState, bus: Bus): ServiceTierId {
@@ -244,8 +326,7 @@ export function quoteService(
   const rawBase = Math.round(BAL.serviceCostBase * model.maintCostIndex * serviceCostMult(age, bus.odometer, model.ac))
   const tierDef = BAL.serviceTiers[tier]
   const rawCost = Math.round(rawBase * tierDef.costMult)
-  const hasOwnBays = (s.workshop.bays ?? 0) > 0
-  const isOutside = outside !== undefined ? outside : !hasOwnBays
+  const isOutside = outside !== undefined ? outside : !inOwnWorkshop(s, bus)
   let cost = isOutside ? rawCost : jobCost(s, rawCost, bus)
   let days = isOutside ? tierDef.days : jobDays(s, tierDef.days, bus)
 
@@ -373,8 +454,7 @@ export function serviceBus(
     }. It keeps running with the service due.`
   }
 
-  const hasOwnBays = (s.workshop.bays ?? 0) > 0
-  const isOutside = hasOwnBays ? Boolean(opts?.outside) : true
+  const isOutside = opts?.outside !== undefined ? opts.outside : !inOwnWorkshop(s, bus)
   const chosenTier = tier ?? determineDueServiceTier(s, bus)
   const q = quoteService(s, bus, chosenTier, isOutside)
   if (!canAfford(s, q.cost)) return `${q.label} costs ${fmtCompact(q.cost)}.`
@@ -473,8 +553,7 @@ export function quoteReplaceTyres(
   const count = axle === 'front' ? 2 : axle === 'rear' ? totalCount - 2 : totalCount
   const tyrePrice = BAL.tyres[brand]?.price ?? BAL.tyres.oem.price
   const baseCost = tyrePrice * count
-  const hasOwnBays = (s.workshop.bays ?? 0) > 0
-  const isOutside = outside !== undefined ? outside : !hasOwnBays
+  const isOutside = outside !== undefined ? outside : !inOwnWorkshop(s, bus)
   let cost = isOutside ? baseCost : jobCost(s, baseCost, bus)
   let days = 1
 
@@ -513,8 +592,7 @@ export function replaceTyres(
     brand = brandOrNothing ?? (axle === 'rear' && bus.rearBrand === 'retread' ? 'retread' : 'oem')
   }
 
-  const hasOwnBays = (s.workshop.bays ?? 0) > 0
-  const isOutside = hasOwnBays ? Boolean(opts?.outside) : true
+  const isOutside = opts?.outside !== undefined ? opts.outside : !inOwnWorkshop(s, bus)
   const quote = quoteReplaceTyres(s, bus, axle, brand, isOutside)
   if (typeof quote === 'string') return quote
 
@@ -744,36 +822,79 @@ export function conductorAutoClean(s: GameState): void {
   }
 }
 
-export function upgradeWorkshop(s: GameState): string | null {
-  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
-  const built = s.workshop.bays
-  const cost = nextWorkshopBayCost(built)
+/** Open a new workshop location (HQ at home city or satellite depot elsewhere). First bay = L(30) flat. */
+export function openWorkshopLocation(s: GameState, cityId: string, groupIds: ID[] = []): string | null {
+  if (!cityId) return 'Please select a city.'
+  const locations = getWorkshopLocations(s)
+  if (locations.some((l) => l.cityId === cityId)) {
+    return `A workshop location already exists in ${cityName(cityId)}.`
+  }
+  const cost = BAL.workshopSiteFirstBayCost
   if (!canAfford(s, cost)) {
-    return built <= 0
-      ? `Opening a workshop costs ${fmtCompact(cost)}.`
-      : `Next bay costs ${fmtCompact(cost)}.`
+    return `Opening a workshop in ${cityName(cityId)} costs ${fmtCompact(cost)}.`
+  }
+  const isHQ = locations.length === 0 && cityId === s.company.homeCityId
+  capitalOut(s, 'workshop_capex', cost, {
+    note: isHQ ? 'Opened workshop in home depot (1 bay)' : `Opened workshop in ${cityName(cityId)} (1 bay)`,
+  })
+
+  const locId = isHQ ? 'loc_hq' : nextId(s.ids, 'wloc')
+  const newLoc: WorkshopLocation = {
+    id: locId,
+    cityId,
+    groupIds: [...groupIds],
+    bayCount: 1,
+  }
+  locations.push(newLoc)
+  s.workshop.locations = locations
+  s.workshop.level = Math.max(1, s.workshop.level)
+  s.workshop.bays = locations.reduce((sum, l) => sum + l.bayCount, 0)
+  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+
+  pushLog(s, 'good', `Opened workshop in ${cityName(cityId)} (1 bay).`)
+  return null
+}
+
+/** Add an extra bay at an existing workshop location. Extra bay = L(10) flat. */
+export function addBayAtLocation(s: GameState, locationId: ID): string | null {
+  const locations = getWorkshopLocations(s)
+  const loc = locations.find((l) => l.id === locationId)
+  if (!loc) return 'Location not found.'
+  const cost = BAL.workshopBayCostFlat
+  if (!canAfford(s, cost)) {
+    return `Adding a bay in ${cityName(loc.cityId)} costs ${fmtCompact(cost)}.`
   }
   capitalOut(s, 'workshop_capex', cost, {
-    note: built <= 0 ? 'open workshop (1 bay)' : `add workshop bay ${built + 1}`,
+    note: `Bay +1 at ${cityName(loc.cityId)}`,
   })
-  if (built <= 0) {
-    s.workshop.level = 1
-    s.workshop.bays = 1
-    pushLog(
-      s,
-      'good',
-      `Own workshop opened — 1 bay. Appoint one service mechanic per bay or jobs go to outside garages at full price.`,
-    )
-  } else {
-    s.workshop.bays = built + 1
-    s.workshop.level = Math.max(1, s.workshop.level)
-    pushLog(
-      s,
-      'good',
-      `Bay ${s.workshop.bays} built. Hire and appoint a mechanic to staff it — unstaffed bays cannot take jobs.`,
-    )
-  }
+
+  loc.bayCount += 1
+  s.workshop.bays = locations.reduce((sum, l) => sum + l.bayCount, 0)
+  pushLog(
+    s,
+    'good',
+    `Bay +1 at ${cityName(loc.cityId)} (now ${loc.bayCount} bays at this site, ${s.workshop.bays} total). Hire and appoint a mechanic to staff it.`,
+  )
   return null
+}
+
+/** Update brand allowlist for a workshop location (empty groupIds = all brands allowed). */
+export function updateWorkshopLocationBrands(s: GameState, locationId: ID, groupIds: ID[]): string | null {
+  const locations = getWorkshopLocations(s)
+  const loc = locations.find((l) => l.id === locationId)
+  if (!loc) return 'Location not found.'
+  loc.groupIds = [...groupIds]
+  pushLog(s, 'info', `Updated brand allowlist for workshop at ${cityName(loc.cityId)}.`)
+  return null
+}
+
+/** Legacy upgrade button: opens HQ if no bays exist, else adds bay to first location. */
+export function upgradeWorkshop(s: GameState): string | null {
+  const locations = getWorkshopLocations(s)
+  if (locations.length === 0 || (s.workshop.bays ?? 0) <= 0) {
+    return openWorkshopLocation(s, s.company.homeCityId, [])
+  }
+  return addBayAtLocation(s, locations[0].id)
 }
 
 function managerAutoMaint(s: GameState): void {
@@ -820,8 +941,8 @@ function managerAutoMaint(s: GameState): void {
         // In-house workshop bays owned: service internally on our bays.
         // Never send outside to a commercial garage. If all bays are busy today,
         // the coach waits for our bay to free up.
-        if (freeBays > 0) {
-          if (!serviceBus(s, bus.id, tier)) {
+        if (freeBays > 0 && inOwnWorkshop(s, bus)) {
+          if (!serviceBus(s, bus.id, tier, { outside: false })) {
             freeBays--
             booked++
             continue
@@ -837,29 +958,29 @@ function managerAutoMaint(s: GameState): void {
     }
 
     // 2. Tyres check (in-house bay)
-    if (freeBays > 0) {
+    if (freeBays > 0 && inOwnWorkshop(s, bus)) {
       const tyreInfo = axleTyresDue(bus)
       if (tyreInfo.frontDue || tyreInfo.rearDue) {
         if (tyreInfo.frontDue && tyreInfo.rearDue) {
           const frontBrand = bus.frontBrand ?? defaultBrand
           const rearBrand = bus.rearBrand ?? defaultBrand
           if (frontBrand === rearBrand && frontBrand !== 'retread') {
-            if (!replaceTyres(s, bus.id, 'both', frontBrand)) { freeBays--; booked++; continue }
+            if (!replaceTyres(s, bus.id, 'both', frontBrand, { outside: false })) { freeBays--; booked++; continue }
           } else {
-            if (!replaceTyres(s, bus.id, 'front', frontBrand)) { freeBays--; booked++; continue }
+            if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside: false })) { freeBays--; booked++; continue }
           }
         } else if (tyreInfo.frontDue) {
           const frontBrand = bus.frontBrand ?? defaultBrand
-          if (!replaceTyres(s, bus.id, 'front', frontBrand)) { freeBays--; booked++; continue }
+          if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside: false })) { freeBays--; booked++; continue }
         } else if (tyreInfo.rearDue) {
           const rearBrand = bus.rearBrand ?? defaultBrand
-          if (!replaceTyres(s, bus.id, 'rear', rearBrand)) { freeBays--; booked++; continue }
+          if (!replaceTyres(s, bus.id, 'rear', rearBrand, { outside: false })) { freeBays--; booked++; continue }
         }
       }
     }
 
     // 3. Subsystem overhaul check (in-house bay)
-    if (freeBays > 0) {
+    if (freeBays > 0 && inOwnWorkshop(s, bus)) {
       const worst = worstSubsystem(bus.condition)
       const neglected = serviceDueKm(bus) > 0 || worst < 50
       if (neglected && worst < repairAt) {

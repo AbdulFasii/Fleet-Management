@@ -636,6 +636,19 @@ export function driverRestIllegal(d: Staff, day: number): boolean {
   return (d.lastTripDay ?? -1) === day - 1
 }
 
+/**
+ * Hours counted against a driver's CMVR daily cap for one trip.
+ * Multi-day hauls (e.g. 32–36h) are shared across the crew and spread over the
+ * calendar days the coach is on the road — otherwise half of 36h (18) always
+ * exceeds the 13h daily limit and every marathon cancels forever.
+ */
+export function cmvrDutyHoursForTrip(routeHours: number, numQualified = 1): number {
+  const h = Math.max(0, routeHours)
+  const share = h / Math.max(1, numQualified)
+  const calendarDays = Math.max(1, Math.ceil(h / 24))
+  return share / calendarDays
+}
+
 export function isDriverEligibleForTrip(
   s: GameState,
   d: Staff,
@@ -665,7 +678,7 @@ export function isDriverEligibleForTrip(
   if (driverRestIllegal(d, tripDay)) return false
 
   // CMVR daily driving hours limit (13h)
-  const hoursThisTrip = numDriversNeeded > 1 ? routeHours / 2 : routeHours
+  const hoursThisTrip = cmvrDutyHoursForTrip(routeHours, numDriversNeeded)
   if (tripDay === s.day && (d.cmvrHoursToday ?? 0) + hoursThisTrip > BAL.cmvrDailyHours) {
     return false
   }

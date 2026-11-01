@@ -60,24 +60,37 @@ export function hasYardOrHome(s?: GameState, cityId?: string): boolean {
   return s.yards?.some((y) => y.cityId === cityId) ?? false
 }
 
-/** Rest/layover minutes scaled by route duration for long hauls beyond 6 hours. */
+/** Rest/layover minutes scaled by route duration for long hauls beyond 6 hours (capped). */
 export function layoverMinutes(route: { hours?: number }): number {
   const h = route?.hours ?? 0
   const thresh = BAL.layoverMinHaulHours ?? 6
   if (h <= thresh) return 0
   const slope = BAL.layoverSlope ?? 0.48
-  const maxMin = BAL.layoverMaxMin ?? 960
+  const maxMin = BAL.layoverMaxMin ?? 480
   const layoverH = Math.min(maxMin / 60, 1.5 + (h - thresh) * slope)
   return Math.round(layoverH * 60)
 }
 
-/** Terminal + rest minutes before the coach can leave on the return. Adds 30m without a yard. */
+/** Calendar days one coach is busy for a single leg (drive + cooldown). */
+export function oneWayCycleDays(
+  route: { hours?: number; to?: string },
+  s?: GameState,
+): number {
+  const hours = route.hours ?? 6
+  const turnH = turnaroundMinutes(route, s) / 60
+  return Math.max(1, Math.ceil((hours + turnH) / 24))
+}
+
+/** Terminal + rest minutes before the coach can leave again. Hard-capped at 8h. */
 export function turnaroundMinutes(route: { hours?: number; km?: number; to?: string }, s?: GameState): number {
   const hasYard = hasYardOrHome(s, route.to)
   const base = BAL.pairMinTurnMin
   const yardExtra = hasYard ? 0 : 30
   const layover = layoverMinutes(route)
-  return base + yardExtra + layover
+  const raw = base + yardExtra + layover
+  const cap = BAL.layoverMaxMin ?? 480
+  // Short hops stay at the small terminal turn; long hauls never exceed the 8h cooldown.
+  return Math.min(cap, raw)
 }
 
 /** Running time in minutes (aligned with demand/hours, not the turnaround formula). */
@@ -92,15 +105,13 @@ export function recommendedFleetSize(
   s?: GameState,
 ): number {
   if (!route) return paired ? 2 : 1
-  const hours = route.hours ?? 6
-  const turnMin = turnaroundMinutes(route, s)
-  const turnHours = turnMin / 60
+  const cycle = oneWayCycleDays(route, s)
   const maxCap = BAL.scheduleMaxCoaches ?? 4
   if (!paired) {
-    return Math.max(1, Math.min(maxCap, Math.ceil((hours + turnHours) / 24)))
+    return Math.max(1, Math.min(maxCap, cycle))
   }
-  // Paired round trip requires full outbound + layover + return + layover cycle
-  return Math.max(2, Math.min(maxCap, Math.ceil((2 * hours + 2 * turnHours) / 24)))
+  // Daily both ways: one A-start pool and one B-start pool, each sized to the one-way cycle.
+  return Math.max(2, Math.min(maxCap, 2 * cycle))
 }
 
 export interface ReturnPlan {

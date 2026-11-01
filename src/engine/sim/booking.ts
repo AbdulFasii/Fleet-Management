@@ -21,7 +21,7 @@ import {
   accrueGstOnTicket, earn, spend, spendNetted, pushTxn,
   accrueAttachOwnerShare, reverseAttachOwnerShare,
 } from './finance'
-import { cancelPairedReturn, clearTripBookings, pairReturnClock, turnaroundMinutes } from './pairing'
+import { cancelPairedReturn, clearTripBookings, pairReturnClock, turnaroundMinutes, oneWayCycleDays } from './pairing'
 import { pushLog } from './log'
 import { groupForTrip } from './groups'
 import { fmtCompact } from '../core/money'
@@ -90,6 +90,166 @@ export function festivalLegsOpen(
   return homeboundAB ? { out: false, ret: true, padDir: 'BA' } : { out: true, ret: false, padDir: 'AB' }
 }
 
+/** True when a coach cannot flip same calendar day — use readiness rotation. */
+function usesMarathonReadiness(
+  sch: Schedule,
+  route: NonNullable<typeof ROUTES[string]>,
+): boolean {
+  if (!sch.paired || sch.busIds.length === 0) return false
+  if (oneWayCycleDays(route) >= 2) return true
+  const out = clockFromMinutes(clockMinutes(sch))
+  const ret = pairReturnClock(sch, route)
+  const runMin = Math.round(route.hours * 60)
+  const outMin = clockMinutes(out)
+  const retMin = clockMinutes(ret)
+  const overlapsSameDay = !(retMin + runMin <= outMin || retMin >= outMin + runMin)
+  return ret.dayOffset >= 1 || overlapsSameDay
+}
+
+interface MarathonLegPlan {
+  busId: string
+  day: number
+  dir: 'AB' | 'BA'
+  depHour: number
+  depMin: 0 | 30
+  slot: 1 | 2
+  pairOfTripId?: string
+  isSeasonal: boolean
+}
+
+/**
+ * Plan paired long-haul departures: each coach, after drive + cooldown, takes
+ * the next fixed schedule clock from the city it is in. With enough coaches
+ * (≈ 2 × one-way cycle days), every day gets both AB and BA.
+ */
+function planPairedMarathonLegs(
+  sch: Schedule,
+  route: NonNullable<typeof ROUTES[string]>,
+  fromDay: number,
+  toDay: number,
+): MarathonLegPlan[] {
+  const out = clockFromMinutes(clockMinutes(sch))
+  const ret = pairReturnClock(sch, route)
+  const outDuty = sch.outboundDuty ?? (sch.festivalOnly ? 'festival' : 'daily')
+  const retDuty = sch.returnDuty ?? (sch.festivalOnly ? 'festival' : 'daily')
+  const runMin = Math.round(route.hours * 60)
+  const turnMin = turnaroundMinutes(route)
+  const outClock = clockMinutes(out)
+  const retClock = clockMinutes(ret)
+
+  const readyAt = new Map<string, number>()
+  const atCity = new Map<string, 'A' | 'B'>()
+  const lastAbId = new Map<string, string>()
+  for (let i = 0; i < sch.busIds.length; i++) {
+    const id = sch.busIds[i]!
+    atCity.set(id, i % 2 === 0 ? 'A' : 'B')
+    readyAt.set(id, fromDay * 1440)
+  }
+
+  const pick = (city: 'A' | 'B', slotAbs: number): string | undefined => {
+    let best: string | undefined
+    let bestReady = Infinity
+    for (const id of sch.busIds) {
+      if (atCity.get(id) !== city) continue
+      const ready = readyAt.get(id) ?? 0
+      if (ready > slotAbs) continue
+      if (ready < bestReady || (ready === bestReady && id < (best ?? ''))) {
+        best = id
+        bestReady = ready
+      }
+    }
+    return best
+  }
+
+  const plans: MarathonLegPlan[] = []
+  for (let d = fromDay; d <= toDay; d++) {
+    const outOk = outDuty === 'daily' || (outDuty === 'festival' && isFestivalDay(d))
+    const retOk = retDuty === 'daily' || (retDuty === 'festival' && isFestivalDay(d))
+
+    // AB at outbound clock — first ready coach sitting at origin
+    if (outOk) {
+      const abAbs = d * 1440 + outClock
+      const busId = pick('A', abAbs)
+      if (busId) {
+        const id = tripKey(sch.id, busId, d, 'AB')
+        plans.push({
+          busId,
+          day: d,
+          dir: 'AB',
+          depHour: out.depHour,
+          depMin: out.depMin,
+          slot: 1,
+          isSeasonal: outDuty === 'festival',
+        })
+        lastAbId.set(busId, id)
+        atCity.set(busId, 'B')
+        readyAt.set(busId, abAbs + runMin + turnMin)
+      }
+    }
+    // BA at return clock — first ready coach sitting at destination
+    if (retOk) {
+      const baAbs = d * 1440 + retClock
+      const busId = pick('B', baAbs)
+      if (busId) {
+        plans.push({
+          busId,
+          day: d,
+          dir: 'BA',
+          depHour: ret.depHour,
+          depMin: ret.depMin,
+          slot: 2,
+          pairOfTripId: lastAbId.get(busId),
+          isSeasonal: retDuty === 'festival',
+        })
+        atCity.set(busId, 'A')
+        readyAt.set(busId, baAbs + runMin + turnMin)
+      }
+    }
+  }
+  return plans
+}
+
+function generatePairedMarathonTrips(
+  s: GameState,
+  sch: Schedule,
+  route: NonNullable<typeof ROUTES[string]>,
+  fromDay: number,
+  toDay: number,
+  busy: BusyIndex,
+): void {
+  for (const leg of planPairedMarathonLegs(sch, route, fromDay, toDay)) {
+    const line = s.buses[leg.busId]
+    if (!line || line.status === 'delivery') continue
+    const runner = line.status === 'active' ? line : coveringSpare(s, leg.busId)
+    if (!runner || runner.status !== 'active') continue
+
+    const id = tripKey(sch.id, leg.busId, leg.day, leg.dir)
+    const start = leg.day * 1440 + leg.depHour * 60 + leg.depMin
+    const turnMin = turnaroundMinutes(route, s)
+    const end = start + Math.round(route.hours * 60) + turnMin
+    if (busyClash(busy, runner.id, start, end, id)) {
+      if (s.trips[id]?.status === 'open') {
+        s.trips[id].busId = runner.id
+        setBusy(busy, id, runner.id, start, end)
+      }
+      continue
+    }
+    const existed = Boolean(s.trips[id])
+    createTrip(
+      s, sch, leg.busId, leg.day, leg.dir, leg.depHour, leg.depMin,
+      leg.pairOfTripId, leg.isSeasonal, leg.slot,
+    )
+    const trip = s.trips[id]
+    if (trip && trip.status === 'open') {
+      trip.busId = runner.id
+      setBusy(busy, id, runner.id, start, end)
+      if (!existed || runner.modelId !== line.modelId) {
+        if (runner.modelId !== line.modelId) adaptTripSeats(s, trip, runner.modelId)
+      }
+    }
+  }
+}
+
 /**
  * Legs for outbound calendar day `day` and bus index k.
  * Paired: bus0 AB→BA; bus1 mirrors BA→AB so both directions sell daily.
@@ -142,37 +302,9 @@ function planLegsForDay(
       const outMin = clockMinutes(out)
       const retMin = clockMinutes(ret)
       const overlapsSameDay = !(retMin + runMin <= outMin || retMin >= outMin + runMin)
-      // Marathon haul (ret.dayOffset >= 2) or multi-coach rotation (sch.busIds.length >= 3 on ret.dayOffset >= 1):
-      const isMultiCoachMarathon = ret.dayOffset >= 2 || (ret.dayOffset >= 1 && sch.busIds.length >= 3)
-      if (isMultiCoachMarathon) {
-        // Group 0: busIdx 0 and 1 -> active on even days (day % 2 === 0)
-        // Group 1: busIdx 2 and 3 -> active on odd days (day % 2 === 1)
-        const isGroup0 = busIdx === 0 || busIdx === 1
-        const activeDay = isGroup0 ? day % 2 === 0 : day % 2 === 1
-        if (!activeDay) return []
-
-        // In group 0: bus 0 starts at A, bus 1 starts at B
-        // In group 1: bus 2 starts at A, bus 3 starts at B
-        const startsAtA = busIdx % 2 === 0
-        const cycle = Math.floor(day / 2)
-        const dir: 'AB' | 'BA' = (startsAtA ? cycle % 2 === 0 : cycle % 2 === 1) ? 'AB' : 'BA'
-        const leg = dir === 'AB' ? out : ret
-        const pairOfTripId = dir === 'BA'
-          ? tripKey(sch.id, busId, day - 2, 'AB')
-          : undefined
-
-        return [
-          {
-            dir,
-            depHour: leg.depHour,
-            depMin: leg.depMin,
-            day,
-            pairOfTripId,
-            isSeasonal: (dir === 'AB' ? outDuty : retDuty) === 'festival',
-            slot: dir === 'AB' ? 1 : 2,
-          },
-        ]
-      }
+      // Long-haul paired: readiness planner in generatePairedMarathonTrips fills
+      // each schedule clock with the coach that finished drive+8h cooldown first.
+      if (usesMarathonReadiness(sch, route)) return []
 
       if (ret.dayOffset === 1 && overlapsSameDay) {
         const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
@@ -277,32 +409,30 @@ function planLegsForDay(
     return [{ dir: fest.padDir, depHour: clock.depHour, depMin: clock.depMin, day, isSeasonal: true, slot: 1 }]
   }
 
-  let legs: Leg[]
-  if (route.hours <= 6) {
+  // Short hops: same coach can flip same day. Long hauls: one leg per coach
+  // per active day, rotating the fleet so departures stay daily.
+  if ((route.hours ?? 0) <= 6) {
     const back = clockFromMinutes(clockMinutes(sch) + (Math.ceil(route.hours) + 2) * 60)
-    legs = [
+    return [
       { dir: 'AB', ...out, day, slot: 1 },
       { dir: 'BA', ...back, day, slot: 1 },
     ]
-  } else {
-    const runMin = Math.round(route.hours * 60)
-    const turnMin = turnaroundMinutes(route)
-    const cycleDays = Math.max(1, Math.ceil((runMin + turnMin) / 1440))
-    const numBuses = sch.busIds.length
-
-    if (cycleDays === 1) {
-      const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
-      legs = [{ dir, ...out, day, slot: 1 }]
-    } else {
-      const cycleMod = Math.max(cycleDays, numBuses > 0 ? numBuses : 1)
-      const active = (day % cycleMod) === (busIdx % cycleMod)
-      if (!active) return []
-      const cycle = Math.floor(day / cycleDays)
-      const dir: 'AB' | 'BA' = cycle % 2 === 0 ? 'AB' : 'BA'
-      legs = [{ dir, ...out, day, slot: 1 }]
-    }
   }
-  return legs
+
+  const cycleDays = oneWayCycleDays(route)
+  const numBuses = Math.max(1, sch.busIds.length)
+  if (cycleDays <= 1) {
+    const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
+    return [{ dir, ...out, day, slot: 1 }]
+  }
+
+  // One departure per day across the pool (busIdx rotates). Direction flips
+  // each time that coach is next up.
+  const slot = ((day % numBuses) + numBuses) % numBuses
+  if (busIdx !== slot) return []
+  const runIndex = Math.floor(day / numBuses)
+  const dir: 'AB' | 'BA' = runIndex % 2 === 0 ? 'AB' : 'BA'
+  return [{ dir, ...out, day, slot: 1 }]
 }
 
 /**
@@ -615,14 +745,20 @@ function releaseStaleTrips(
   const isAllFest = sch.festivalOnly || (sch.outboundDuty === 'festival' && (!sch.paired || sch.returnDuty === 'festival'))
   const lastGenDay = isAllFest ? Math.min(edge, s.day + 3) : edge
   const expected = new Set<string>()
-  sch.busIds.forEach((busId, k) => {
-    for (let d = s.day; d <= lastGenDay; d++) {
-      const fest = festivalLegsOpen(s, sch, route, d)
-      for (const leg of legsForDay(sch, route, d, busId, k, fest)) {
-        expected.add(tripKey(sch.id, busId, leg.day, leg.dir))
-      }
+  if (usesMarathonReadiness(sch, route)) {
+    for (const leg of planPairedMarathonLegs(sch, route, s.day, lastGenDay)) {
+      expected.add(tripKey(sch.id, leg.busId, leg.day, leg.dir))
     }
-  })
+  } else {
+    sch.busIds.forEach((busId, k) => {
+      for (let d = s.day; d <= lastGenDay; d++) {
+        const fest = festivalLegsOpen(s, sch, route, d)
+        for (const leg of legsForDay(sch, route, d, busId, k, fest)) {
+          expected.add(tripKey(sch.id, busId, leg.day, leg.dir))
+        }
+      }
+    })
+  }
   let dropped = 0
   let refunded = 0
   for (const t of openTrips) {
@@ -697,6 +833,11 @@ export function generateTrips(s: GameState): void {
       for (let d = s.day; d <= festEdge; d++) {
         if (festivalRunSlot(d)) generateTripsForDay(s, sch, route, d, busy)
       }
+      continue
+    }
+
+    if (usesMarathonReadiness(sch, route)) {
+      generatePairedMarathonTrips(s, sch, route, s.day, edge, busy)
       continue
     }
 

@@ -695,11 +695,14 @@ export const BAL = {
     suspension: 0.40, brakes: 0.30, electrical: 0.25,
   },
   repairDaysPer20Points: 1,
-  /** First bay — open your own workshop. */
-  workshopOpenCost: L(6),
-  /** Cost of bay N+1 ≈ base + step × currentBays (no max). */
-  workshopBayBaseCost: L(4.5),
-  workshopBayCostStep: L(3),
+  /** First bay at any location (opens HQ or satellite depot) — includes opening that site. */
+  workshopSiteFirstBayCost: L(30),
+  /** Each additional bay at any existing location flat. */
+  workshopBayCostFlat: L(10),
+  /** Legacy aliases kept for compatibility. */
+  workshopOpenCost: L(30),
+  workshopBayBaseCost: L(10),
+  workshopBayCostStep: 0,
   /** Own-shop job discount vs outside garage; grows with built bays, soft cap. */
   workshopDiscountBase: 0.32,
   workshopDiscountPerBay: 0.035,
@@ -1031,8 +1034,8 @@ export const BAL = {
   layoverMinHaulHours: 6,
   /** Layover scaling slope per route hour above threshold. */
   layoverSlope: 0.48,
-  /** Maximum turnaround/layover cap in minutes (16 hours). */
-  layoverMaxMin: 960,
+  /** Max vehicle cooldown after any haul (8 hours). */
+  layoverMaxMin: 480,
   /** Terminal + rest turnaround uses corridor km / this speed. */
   pairAvgSpeedKmh: 35,
   /** Floor on turnaround even for short hops. */
@@ -1125,10 +1128,17 @@ export function driverBataForKm(km: number): Money {
   return Math.round(BAL.driverBataMin + (BAL.driverBataMax - BAL.driverBataMin) * t)
 }
 
-/** Cost to open (0 bays) or add one more bay. No hard cap. */
-export function nextWorkshopBayCost(builtBays: number): Money {
-  if (builtBays <= 0) return BAL.workshopOpenCost
-  return Math.round(BAL.workshopBayBaseCost + BAL.workshopBayCostStep * builtBays)
+/**
+ * Cost to open (first bay at a site) or add one more bay.
+ * Pass bayCountAtLocation (0 = first bay L(30), 1+ = extra bay L(10)).
+ * If omitted, treats builtBays <= 0 as first bay, else extra bay flat.
+ */
+export function nextWorkshopBayCost(builtBays: number, bayCountAtLocation?: number): Money {
+  if (bayCountAtLocation !== undefined) {
+    return bayCountAtLocation <= 0 ? BAL.workshopSiteFirstBayCost : BAL.workshopBayCostFlat
+  }
+  if (builtBays <= 0) return BAL.workshopSiteFirstBayCost
+  return BAL.workshopBayCostFlat
 }
 
 /** Job discount when working in your own staffed workshop (by built bay count). */

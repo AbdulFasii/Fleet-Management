@@ -16,7 +16,7 @@ import { earn, spend, todayRouteDay, settleAttachOwnerCash, reverseAttachOwnerSh
 import { cancelTrip } from './booking'
 import { pushLog } from './log'
 import { coveringSpare, tryCoverBus } from './cover'
-import { driverOnDuty, pickSpareConductor, pickSpareDriver, hrOnDuty, opsOnDuty, isStaffResting, driverRestIllegal, isDriverEligibleForTrip } from './staffing'
+import { driverOnDuty, pickSpareConductor, pickSpareDriver, hrOnDuty, opsOnDuty, isStaffResting, driverRestIllegal, isDriverEligibleForTrip, cmvrDutyHoursForTrip } from './staffing'
 import { recordScheduleOcc } from './schedules'
 import { recordTripGrievanceOrCompliment } from './crm'
 import { allocateCargoForTrip, cargoLaneKey, makeCorridorCargoPool, recordCargoLane, type CargoDepartureRef, type CorridorCargoPool } from './cargo'
@@ -130,7 +130,7 @@ function resolveTripCrew(
       drivers.push(d)
       if (driverRestIllegal(d, s.day)) notes.push(`${d.name} on illegal consecutive duty`)
       else if (isStaffResting(s, d, depHour)) notes.push(`${d.name} on duty while in mandatory rest`)
-      else if (rHours > 0 && (d.cmvrHoursToday ?? 0) + (driversNeeded > 1 ? rHours / 2 : rHours) > BAL.cmvrDailyHours) {
+      else if (rHours > 0 && (d.cmvrHoursToday ?? 0) + cmvrDutyHoursForTrip(rHours, driversNeeded) > BAL.cmvrDailyHours) {
         notes.push(`${d.name} exceeds CMVR daily hours`)
       }
     }
@@ -246,15 +246,18 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
   const crewIndex = buildCrewIndex(s)
   const corridorCargoMap = new Map<string, CorridorCargoPool>()
 
-  // AB before BA at the same clock so outbound delay can slip the return.
+  // Due departures: today's open trips, plus any past-due opens that were
+  // never dispatched (e.g. trips generated on the starting day before the
+  // first advance). Catch them up so Run History is not stuck empty.
   const todayIds = s.openTripIds
     .filter((id) => {
       const t = s.trips[id]
-      return t && t.status === 'open' && t.day === s.day
+      return t && t.status === 'open' && t.day <= s.day
     })
     .sort((a, b) => {
       const ta = s.trips[a]!
       const tb = s.trips[b]!
+      if (ta.day !== tb.day) return ta.day - tb.day
       // On same corridor and day: cargo vehicles load priority freight before passenger buses
       if (ta.routeId === tb.routeId && ta.direction === tb.direction) {
         const ba = s.buses[ta.busId]
@@ -308,7 +311,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
 
   for (const id of todayIds) {
     const trip = s.trips[id]
-    if (!trip || trip.status !== 'open' || trip.day !== s.day) continue
+    if (!trip || trip.status !== 'open' || trip.day > s.day) continue
 
     const route = ROUTES[trip.routeId]
     let bus = s.buses[trip.busId]
@@ -392,7 +395,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
 
     // Shared by the CMVR gate and post-trip hour accrual.
     const numQualified = crew.drivers.length + (crew.conductor && crew.conductor.skill >= 5 ? 1 : 0)
-    const hoursPerDriver = numQualified > 1 ? route.hours / 2 : route.hours
+    const hoursPerDriver = cmvrDutyHoursForTrip(route.hours, Math.max(1, numQualified))
 
     // CMVR driving hours, night rest, and 2nd qualified crew check.
     // Attached coaches bring the owner's crew — company payroll rules do not apply.
