@@ -65,9 +65,7 @@ export function migrateStaffRoles(s: GameState): void {
   const wm = s.workshop.managerId ? s.staff[s.workshop.managerId] : undefined
   if (wm && wm.role === 'mechanic') {
     wm.role = 'manager'
-    if (s.workshop.mechanicIds) {
-      s.workshop.mechanicIds = s.workshop.mechanicIds.filter((id) => id !== wm.id)
-    }
+    clearMechanicBaySlot(s, wm.id)
   }
   for (const key of ['hrId', 'opsId', 'cargoManagerId', 'scheduleManagerId', 'docsManagerId', 'crmId', 'accountantId'] as const) {
     const id = s.company[key]
@@ -1290,8 +1288,19 @@ function hrDevelopSkills(s: GameState): void {
   }
 }
 
+/** Keep mechanicIds length aligned with built bays (null = vacant). */
+export function ensureWorkshopMechanicSlots(s: GameState): (ID | null | undefined)[] {
+  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+  const ids = s.workshop.mechanicIds
+  const n = Math.max(0, s.workshop.bays ?? 0)
+  while (ids.length < n) ids.push(null)
+  if (ids.length > n) ids.length = n
+  return ids
+}
+
 export function workshopMechanicsOnDuty(s: GameState): Staff[] {
   return (s.workshop.mechanicIds ?? [])
+    .filter((id): id is ID => Boolean(id))
     .map((id) => s.staff[id])
     .filter((st): st is Staff => !!st && st.role === 'mechanic' && driverOnDuty(s, st))
 }
@@ -1302,8 +1311,30 @@ export function staffedWorkshopBays(s: GameState): number {
   return Math.min(s.workshop.bays, workshopMechanicsOnDuty(s).length)
 }
 
-export function appointBayMechanic(s: GameState, staffId: ID | undefined): string | null {
-  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+export function appointedBayMechanicCount(s: GameState): number {
+  return (s.workshop.mechanicIds ?? []).filter(Boolean).length
+}
+
+/** Clear a mechanic from whatever bay slot they hold without compacting the roster. */
+export function clearMechanicBaySlot(s: GameState, staffId: ID): void {
+  const ids = s.workshop.mechanicIds
+  if (!ids) return
+  for (let i = 0; i < ids.length; i++) {
+    if (ids[i] === staffId) ids[i] = null
+  }
+}
+
+/**
+ * Appoint a mechanic to a workshop bay.
+ * Pass `bayIndex` (0-based global bay) to staff a specific bay — required for
+ * satellites so we do not fill the next empty HQ bay instead.
+ */
+export function appointBayMechanic(
+  s: GameState,
+  staffId: ID | undefined,
+  bayIndex?: number,
+): string | null {
+  const ids = ensureWorkshopMechanicSlots(s)
   if (!staffId) return 'Pick a mechanic.'
   if (s.workshop.level === 0) return 'Build a workshop first.'
   const st = s.staff[staffId]
@@ -1311,17 +1342,25 @@ export function appointBayMechanic(s: GameState, staffId: ID | undefined): strin
   if (st.role !== 'mechanic') return 'Appoint a service mechanic to the bay.'
   if (st.onLeaveUntilDay && st.onLeaveUntilDay >= s.day) return `${st.name} is on leave.`
   if (s.workshop.managerId === staffId) return 'Unappoint them as workshop manager first.'
-  if (s.workshop.mechanicIds.includes(staffId)) return 'Already appointed to a bay.'
-  if (s.workshop.mechanicIds.length >= s.workshop.bays) return 'Every bay already has a mechanic.'
+  if (ids.includes(staffId)) return 'Already appointed to a bay.'
+
+  let idx = bayIndex
+  if (idx === undefined) {
+    idx = ids.findIndex((id) => !id)
+    if (idx < 0) return 'Every bay already has a mechanic.'
+  }
+  if (idx < 0 || idx >= (s.workshop.bays ?? 0)) return 'Invalid bay.'
+  if (ids[idx]) return 'That bay already has a mechanic.'
+
   st.busId = undefined
-  s.workshop.mechanicIds.push(staffId)
+  ids[idx] = staffId
   return null
 }
 
 export function unappointBayMechanic(s: GameState, staffId: ID): string | null {
   const ids = s.workshop.mechanicIds ?? []
   if (!ids.includes(staffId)) return 'Not on a workshop bay.'
-  s.workshop.mechanicIds = ids.filter((id) => id !== staffId)
+  clearMechanicBaySlot(s, staffId)
   const st = s.staff[staffId]
   if (st) pushLog(s, 'info', `${st.name} is no longer on a workshop bay.`)
   return null
@@ -1537,7 +1576,7 @@ export function fire(s: GameState, staffId: ID): string | null {
   const st = s.staff[staffId]
   if (!st) return 'No such employee.'
   clearDesk(s, staffId)
-  if (s.workshop.mechanicIds) s.workshop.mechanicIds = s.workshop.mechanicIds.filter((id) => id !== staffId)
+  clearMechanicBaySlot(s, staffId)
   spend(s, 'salary', st.salary, { note: `severance: ${st.name}` })
   delete s.staff[staffId]
   // Firing spooks the rest — HR cushions the blow with professional exit handling
@@ -1908,7 +1947,7 @@ export function monthlyStaffPass(s: GameState): void {
     const quitP = hr ? baseQuitP / (1 + hr.skill * 0.12 * hrCoverage) : baseQuitP
     if (!isImmune && rChance(rng, Math.max(0.001, quitP))) {
       clearDesk(s, st.id)
-      if (s.workshop.mechanicIds) s.workshop.mechanicIds = s.workshop.mechanicIds.filter((id) => id !== st.id)
+      clearMechanicBaySlot(s, st.id)
       delete s.staff[st.id]
       pushLog(s, 'alert', `${st.name} (${st.role}, skill ${st.skill}) RESIGNED${st.morale < 35 ? ' citing working conditions' : ''}.`)
       continue

@@ -884,7 +884,7 @@ export function assignBus(s: GameState, schId: ID, busId: ID): string | null {
     sch.baseFareSleeper = roundFare(sch.baseFare * 1.15)
     sch.baseFareSeater = roundFare(sch.baseFare * 0.85)
   }
-  if (sch.paired && route) {
+  if (route && (sch.paired || (route.hours ?? 0) > 6)) {
     bus.parkedCityId = sch.busIds.length % 2 === 0 ? route.to : route.from
   } else if (!bus.parkedCityId && route) {
     bus.parkedCityId = route.from

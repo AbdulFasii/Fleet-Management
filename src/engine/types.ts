@@ -115,7 +115,6 @@ export interface Bus {
   frontBrand: 'oem' | 'tier2'
   rearBrand: 'oem' | 'tier2' | 'retread'
   tyreCount: 6 | 10
-  tyrePressure?: 'ok' | 'low'
   outsideGarage?: boolean
   /** Cumulative km at last A-service (or any service) */
   lastServiceOdo: number
@@ -1197,8 +1196,11 @@ export interface WorkshopState {
   bays: number
   /** staff id of the appointed workshop manager (must be a manager) */
   managerId?: ID
-  /** one service mechanic per bay; unstaffed bays sit idle */
-  mechanicIds?: ID[]
+  /**
+   * Mechanic per global bay index (0 .. bays-1). Null/empty slots are unstaffed —
+   * do not compact; satellite bays sit at higher indices after HQ.
+   */
+  mechanicIds?: (ID | null | undefined)[]
   /** Workshop locations (HQ + satellites). Total bays = sum of location bayCounts. */
   locations?: WorkshopLocation[]
 }

@@ -591,7 +591,11 @@ export function applyDecision(s: GameState, decisionId: ID, optionId: string): s
         if (s.workshop.managerId === staffId) s.workshop.managerId = undefined
         if (s.company.hrId === staffId) s.company.hrId = undefined
         if (s.company.opsId === staffId) s.company.opsId = undefined
-        if (s.workshop.mechanicIds) s.workshop.mechanicIds = s.workshop.mechanicIds.filter((id) => id !== staffId)
+        if (s.workshop.mechanicIds) {
+          for (let i = 0; i < s.workshop.mechanicIds.length; i++) {
+            if (s.workshop.mechanicIds[i] === staffId) s.workshop.mechanicIds[i] = null
+          }
+        }
         delete s.staff[staffId]
         pushLog(s, 'alert', `${st.name} left for the rival. Their bus needs new crew.`)
       }

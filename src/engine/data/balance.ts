@@ -679,8 +679,6 @@ export const BAL = {
     frontWearMult: 1.25,
     rearWearMult: 1.0,
     alertThreshold: 0.90, // Alert when an axle is at 90% of its brand life
-    lowPressureChance: 0.02, // 2% chance per trip
-    lowPressureFuelMult: 1.08, // Low pressure multiplies fuel use by 1.08
   },
   tyreLifeKm: 200_000, // 2L km — change only after this mark
   tyreLifeRetreadKm: 150_000,

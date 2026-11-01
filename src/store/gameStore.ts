@@ -166,7 +166,6 @@ interface GameStore {
   serviceBus: (busId: ID, tier?: ServiceTierId, opts?: { outside?: boolean }) => void
   repairSubsystem: (busId: ID, sub: SubsystemId) => void
   replaceTyres: (busId: ID, axleOrRetread?: TyreAxle | boolean, brand?: TyreBrand, opts?: { outside?: boolean }) => void
-  setTyrePressure: (busId: ID) => void
   setWorkshopTyreBrand: (brand: 'oem' | 'tier2') => void
   rebodyBus: (busId: ID) => void
   refurbishSeats: (busId: ID) => void
@@ -180,7 +179,7 @@ interface GameStore {
   payGarageClaim: (claimId: ID) => void
   settleInsuranceClaim: (claimId: ID) => void
   appointFleetManager: (staffId: ID | undefined) => void
-  appointBayMechanic: (staffId: ID | undefined) => void
+  appointBayMechanic: (staffId: ID | undefined, bayIndex?: number) => void
   unappointBayMechanic: (staffId: ID) => void
   appointHr: (staffId: ID | undefined) => void
   appointOps: (staffId: ID | undefined) => void
@@ -534,7 +533,7 @@ function migrate(raw: unknown): GameState | null {
     if (b.rearTyreKm === undefined) b.rearTyreKm = b.tyreKm ?? 0
     if (b.frontBrand === undefined) b.frontBrand = 'oem'
     if (b.rearBrand === undefined) b.rearBrand = b.tyresRetreaded ? 'retread' : 'oem'
-    if (b.tyrePressure === undefined) b.tyrePressure = 'ok'
+    if ((b as { tyrePressure?: unknown }).tyrePressure !== undefined) delete (b as { tyrePressure?: unknown }).tyrePressure
     if (b.parkedCityId === undefined) b.parkedCityId = s.company?.homeCityId ?? 'maa'
     if (b.ownership === 'owned' && !b.depreciationMethod) b.depreciationMethod = 'SLM'
     if (b.cargoVolumeCbm === undefined) {
@@ -639,8 +638,15 @@ function migrate(raw: unknown): GameState | null {
     }
   }
   s.openTripIds = Object.values(s.trips ?? {}).filter((t) => t.status === 'open').map((t) => t.id)
+  // Unpack seat sales before regenerating boards — packed saves omit `trip.seats`
+  // and releaseStale/clearTripBookings must not crash on undefined.
+  hydratePackedState(s)
   pruneInvalidSeasonalTrips(s)
-  generateTrips(s)
+  try {
+    generateTrips(s)
+  } catch (err) {
+    console.error('migrate: generateTrips failed', err)
+  }
   staffing.migrateStaffRoles(s)
   if (!s.company.deskAssistants) s.company.deskAssistants = {}
   if (s.version < 2) {
@@ -1104,6 +1110,8 @@ function migrate(raw: unknown): GameState | null {
 
   const fromVersion = s.version
   compactTrips(s)
+  // Seat maps already hydrated earlier (before generateTrips); keep a second
+  // pass in case compactTrips introduced packed rows.
   hydratePackedState(s)
   if (fromVersion < 22) {
     // Two board defects were fixed here: a paired service whose return cleared
@@ -1223,7 +1231,8 @@ export const useGame = create<GameStore>()(
         dropPendingSave()
         set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
         return true
-      } catch {
+      } catch (err) {
+        console.error('loadSave failed', err)
         return false
       }
     },
@@ -1501,7 +1510,6 @@ export const useGame = create<GameStore>()(
     serviceBus: (busId, tier, opts) => get().intent((s) => maintenance.serviceBus(s, busId, tier, opts)),
     repairSubsystem: (busId, sub) => get().intent((s) => maintenance.repairSubsystem(s, busId, sub)),
     replaceTyres: (busId, axleOrRetread, brand, opts) => get().intent((s) => maintenance.replaceTyres(s, busId, axleOrRetread, brand, opts)),
-    setTyrePressure: (busId) => get().intent((s) => maintenance.setTyrePressure(s, busId)),
     setWorkshopTyreBrand: (brand) => get().intent((s) => { maintenance.setWorkshopTyreBrand(s, brand); return null }),
     rebodyBus: (busId) => get().intent((s) => maintenance.rebodyBus(s, busId)),
     refurbishSeats: (busId) => get().intent((s) => maintenance.refurbishSeats(s, busId)),
@@ -1515,7 +1523,7 @@ export const useGame = create<GameStore>()(
     payGarageClaim: (claimId) => get().intent((s) => insurance.payGarageNow(s, claimId)),
     settleInsuranceClaim: (claimId) => get().intent((s) => insurance.settleClaim(s, claimId)),
     appointFleetManager: (staffId) => get().intent((s) => staffing.appointFleetManager(s, staffId)),
-    appointBayMechanic: (staffId) => get().intent((s) => staffing.appointBayMechanic(s, staffId)),
+    appointBayMechanic: (staffId, bayIndex) => get().intent((s) => staffing.appointBayMechanic(s, staffId, bayIndex)),
     unappointBayMechanic: (staffId) => get().intent((s) => staffing.unappointBayMechanic(s, staffId)),
     appointHr: (staffId) => get().intent((s) => staffing.appointHr(s, staffId)),
     appointOps: (staffId) => get().intent((s) => staffing.appointOps(s, staffId)),

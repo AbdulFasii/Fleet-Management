@@ -206,7 +206,9 @@ export function fmtTurnaround(route: RouteDef, s?: GameState): string {
 /** Refund all sold seats on an open trip but keep it open (empty reposition). */
 export function clearTripBookings(s: GameState, trip: Trip, note: string): number {
   if (trip.status !== 'open') return 0
+  // Packed saves may omit `seats` until hydratePackedState runs — never iterate undefined.
   if (trip.sold > 0) hydrateTripSeats(s, trip)
+  if (!trip.seats) trip.seats = []
   let refunded = 0
   for (const seat of trip.seats) {
     if (!seat.sale) continue

@@ -557,13 +557,6 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
           litres *= 1 + fv.bunkSurcharge
           fuelNote = 'Fuel shortfall — roadside bunk. '
         }
-        if (bus.tyrePressure === 'low') {
-          litres *= BAL.tyres.lowPressureFuelMult
-          fuelNote += 'Low tyre pressure (+8% fuel). '
-        }
-        if (rChance(rng, BAL.tyres.lowPressureChance)) {
-          bus.tyrePressure = 'low'
-        }
         if (hasDetour) {
           litres *= 1.12
           fuelNote += 'Bridge detour (+12% fuel). '
@@ -1093,10 +1086,6 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
 
     bus.lifeTrips++
     bus.parkedCityId = trip.direction === 'AB' ? route.to : route.from
-    if (bus.parkedCityId === s.company.homeCityId && bus.tyrePressure === 'low') {
-      bus.tyrePressure = 'ok'
-      pushLog(s, 'info', `${bus.reg} reached the home depot — tyre pressure checked and corrected.`)
-    }
     trip.status = 'completed'
     trip.outcome = {
       delayMin: Math.round(delay),

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { ROUTES, routeName, canonicalRouteId } from '../../engine/data/routes'
@@ -467,7 +467,15 @@ export function TripBoardPage() {
   }, [groups, statusFilter, s])
 
   const myRoutes = useMemo(() => {
-    const raw = Object.values(s.schedules).map((x) => canonicalRouteId(x.routeId))
+    const brand = uiPrefs.fleetGroupId
+    const raw = Object.values(s.schedules)
+      .filter((sch) => {
+        if (brand === 'all') return true
+        const gid = sch.groupId
+        if (brand === 'none') return !gid
+        return gid === brand
+      })
+      .map((x) => canonicalRouteId(x.routeId))
     const seen = new Set<string>()
     const routes: string[] = []
     for (const rid of raw) {
@@ -478,7 +486,14 @@ export function TripBoardPage() {
       }
     }
     return routes.sort((a, b) => routeName(a).localeCompare(routeName(b)))
-  }, [s.schedules])
+  }, [s.schedules, uiPrefs.fleetGroupId])
+
+  // Drop a route filter that doesn't belong to the selected brand.
+  useEffect(() => {
+    if (routeFilter === 'all') return
+    const stillValid = myRoutes.some((r) => canonicalRouteId(r) === canonicalRouteId(routeFilter))
+    if (!stillValid) setRouteFilter('all')
+  }, [myRoutes, routeFilter])
 
   const totalOpen = groups.reduce((n, grp) => n + grp.openCount, 0)
 

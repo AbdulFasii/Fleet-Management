@@ -2,7 +2,6 @@ import { newGame } from '../src/engine/newGame'
 import {
   replaceTyres,
   serviceBus,
-  setTyrePressure,
   axleTyresDue,
   dailyMaintenancePass,
   freeStaffedBays,
@@ -105,13 +104,6 @@ function testSprint3() {
   dailyMaintenancePass(s3)
   assert(bus3.status === 'workshop', 'Manager books bus into free in-house staffed bay')
   assert(bus3.outsideGarage !== true, 'Manager job is in-house, not outside')
-
-  // 6. Tyre pressure calibration
-  const { s: s4, bus: bus4 } = setupGameWithBus(204)
-  bus4.tyrePressure = 'low'
-  const pressRes = setTyrePressure(s4, bus4.id)
-  assert(pressRes === null, 'setTyrePressure succeeds')
-  assert(bus4.tyrePressure === 'ok', 'Tyre pressure corrected to ok')
 
   console.log('--- ALL SPRINT 3 TESTS PASSED ---')
 }

@@ -409,25 +409,6 @@ export function BusDetailPage() {
                 </span>
               )
             })()],
-              ['Tyre pressure', (() => {
-              const isLow = bus.tyrePressure === 'low'
-              return (
-                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                  {isLow && (
-                    <button
-                      className="small"
-                      onClick={() => g.setTyrePressure(bus.id)}
-                      title="Calibrate and fill tyres to recommended PSI"
-                    >
-                      Correct Pressure (Free)
-                    </button>
-                  )}
-                  <span className={isLow ? 'bad' : 'good'}>
-                    {isLow ? 'LOW PRESSURE (+8% fuel penalty)' : 'OK (optimal)'}
-                  </span>
-                </span>
-              )
-            })()],
             ]}
             />
             <VitalGroup

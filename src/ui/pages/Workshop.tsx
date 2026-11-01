@@ -86,7 +86,10 @@ export function WorkshopPage() {
   const managerCandidates = managersOnPayroll(s).filter(
     (st) => st.id === s.workshop.managerId || !deskOf(s, st.id),
   )
-  const bayMechs = (s.workshop.mechanicIds ?? []).map((id) => s.staff[id]).filter(Boolean) as Staff[]
+  const bayMechs = (s.workshop.mechanicIds ?? [])
+    .filter((id): id is string => Boolean(id))
+    .map((id) => s.staff[id])
+    .filter(Boolean) as Staff[]
   const staffed = staffedWorkshopBays(s)
   const freeMechanics = Object.values(s.staff).filter(
     (st) =>
@@ -445,7 +448,7 @@ export function WorkshopPage() {
                                         style={{ maxWidth: 170 }}
                                         onChange={(e) => {
                                           const id = e.target.value
-                                          if (id) g.appointBayMechanic(id)
+                                          if (id) g.appointBayMechanic(id, bay.globalBayIndex)
                                         }}
                                       >
                                         <option value="">+ Appoint Mechanic…</option>

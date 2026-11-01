@@ -32,7 +32,7 @@ export function tripKey(schId: string, busId: string, day: number, dir: 'AB' | '
 }
 
 function seatCap(trip: Trip): number {
-  return trip.seatCount || trip.seats.length
+  return trip.seatCount || trip.seats?.length || 0
 }
 
 type Leg = {
@@ -90,13 +90,14 @@ export function festivalLegsOpen(
   return homeboundAB ? { out: false, ret: true, padDir: 'BA' } : { out: true, ret: false, padDir: 'AB' }
 }
 
-/** True when a coach cannot flip same calendar day — use readiness rotation. */
+/** True when drive+cooldown spills past one day — plan by per-coach readiness. */
 function usesMarathonReadiness(
   sch: Schedule,
   route: NonNullable<typeof ROUTES[string]>,
 ): boolean {
-  if (!sch.paired || sch.busIds.length === 0) return false
+  if (sch.busIds.length === 0) return false
   if (oneWayCycleDays(route) >= 2) return true
+  if (!sch.paired) return (route.hours ?? 0) > 6
   const out = clockFromMinutes(clockMinutes(sch))
   const ret = pairReturnClock(sch, route)
   const runMin = Math.round(route.hours * 60)
@@ -117,36 +118,115 @@ interface MarathonLegPlan {
   isSeasonal: boolean
 }
 
+function sideForCity(
+  route: NonNullable<typeof ROUTES[string]>,
+  cityId: string | undefined,
+): 'A' | 'B' | null {
+  if (!cityId) return null
+  if (cityId === route.from) return 'A'
+  if (cityId === route.to) return 'B'
+  return null
+}
+
 /**
- * Plan paired long-haul departures: each coach, after drive + cooldown, takes
- * the next fixed schedule clock from the city it is in. With enough coaches
- * (≈ 2 × one-way cycle days), every day gets both AB and BA.
+ * Seed each coach at an end. Prefer real parked city; if the whole fleet sits
+ * on one end, split by roster index so both directions can sell from day one.
  */
-function planPairedMarathonLegs(
+function seedMarathonSides(
+  s: GameState | undefined,
+  sch: Schedule,
+  route: NonNullable<typeof ROUTES[string]>,
+): Map<string, 'A' | 'B'> {
+  const atCity = new Map<string, 'A' | 'B'>()
+  for (let i = 0; i < sch.busIds.length; i++) {
+    const id = sch.busIds[i]!
+    const parked = sideForCity(route, s?.buses[id]?.parkedCityId)
+    atCity.set(id, parked ?? (i % 2 === 0 ? 'A' : 'B'))
+  }
+  if (sch.busIds.length >= 2) {
+    let a = 0
+    let b = 0
+    for (const side of atCity.values()) {
+      if (side === 'A') a++
+      else b++
+    }
+    if (a === 0 || b === 0) {
+      for (let i = 0; i < sch.busIds.length; i++) {
+        const id = sch.busIds[i]!
+        const side: 'A' | 'B' = i % 2 === 0 ? 'A' : 'B'
+        atCity.set(id, side)
+        const bus = s?.buses[id]
+        if (bus) bus.parkedCityId = side === 'A' ? route.from : route.to
+      }
+    }
+  }
+  return atCity
+}
+
+/**
+ * Each coach, after drive + 8h cooldown, takes the next schedule clock from the
+ * city it is in. Never waits for the rest of the fleet. Paired fills AB and BA
+ * slots independently; unpaired fills the single clock from whichever end has
+ * a ready coach.
+ */
+export function planMarathonLegs(
   sch: Schedule,
   route: NonNullable<typeof ROUTES[string]>,
   fromDay: number,
   toDay: number,
+  s?: GameState,
 ): MarathonLegPlan[] {
   const out = clockFromMinutes(clockMinutes(sch))
-  const ret = pairReturnClock(sch, route)
+  const ret = sch.paired ? pairReturnClock(sch, route) : out
   const outDuty = sch.outboundDuty ?? (sch.festivalOnly ? 'festival' : 'daily')
-  const retDuty = sch.returnDuty ?? (sch.festivalOnly ? 'festival' : 'daily')
+  const retDuty = sch.paired
+    ? (sch.returnDuty ?? (sch.festivalOnly ? 'festival' : 'daily'))
+    : outDuty
   const runMin = Math.round(route.hours * 60)
-  const turnMin = turnaroundMinutes(route)
+  const turnMin = turnaroundMinutes(route, s)
   const outClock = clockMinutes(out)
   const retClock = clockMinutes(ret)
 
   const readyAt = new Map<string, number>()
   const atCity = new Map<string, 'A' | 'B'>()
   const lastAbId = new Map<string, string>()
-  for (let i = 0; i < sch.busIds.length; i++) {
-    const id = sch.busIds[i]!
-    atCity.set(id, i % 2 === 0 ? 'A' : 'B')
-    readyAt.set(id, fromDay * 1440)
+
+  // Inspect physically departed or completed trips for each assigned coach so we respect actual bus positions & cooldowns
+  const defaultSides = seedMarathonSides(s, sch, route)
+  for (const id of sch.busIds) {
+    let latestEnd = -1
+    let latestDest: 'A' | 'B' | null = null
+
+    if (s) {
+      for (const t of Object.values(s.trips)) {
+        if (t.busId !== id || t.status === 'cancelled') continue
+        if (t.routeId !== route.id) continue
+        // Only trips that have actually run or are currently on the road define physical vehicle position.
+        // Open trips across the booking window are prospective legs being planned/rebuilt.
+        const isPhysicalTrip = t.status === 'completed' || t.status === 'dispatched' || t.day < s.day
+        if (!isPhysicalTrip) continue
+
+        const tripDep = t.day * 1440 + t.depHour * 60 + (t.depMin ?? 0)
+        const tripRun = Math.round((ROUTES[t.routeId]?.hours ?? route.hours) * 60)
+        const tripTurn = turnaroundMinutes(route, s)
+        const tripEnd = tripDep + tripRun + tripTurn
+        if (tripEnd > latestEnd) {
+          latestEnd = tripEnd
+          latestDest = t.direction === 'AB' ? 'B' : 'A'
+        }
+      }
+    }
+
+    if (latestDest !== null) {
+      atCity.set(id, latestDest)
+      readyAt.set(id, Math.max(fromDay * 1440, latestEnd))
+    } else {
+      atCity.set(id, defaultSides.get(id) ?? 'A')
+      readyAt.set(id, fromDay * 1440)
+    }
   }
 
-  const pick = (city: 'A' | 'B', slotAbs: number): string | undefined => {
+  const pickAt = (city: 'A' | 'B', slotAbs: number): string | undefined => {
     let best: string | undefined
     let bestReady = Infinity
     for (const id of sch.busIds) {
@@ -161,55 +241,54 @@ function planPairedMarathonLegs(
     return best
   }
 
+  const commit = (
+    busId: string,
+    d: number,
+    dir: 'AB' | 'BA',
+    clock: { depHour: number; depMin: 0 | 30 },
+    slotAbs: number,
+    slot: 1 | 2,
+    seasonal: boolean,
+  ) => {
+    const id = tripKey(sch.id, busId, d, dir)
+    if (dir === 'AB') lastAbId.set(busId, id)
+    atCity.set(busId, dir === 'AB' ? 'B' : 'A')
+    readyAt.set(busId, slotAbs + runMin + turnMin)
+    return {
+      busId,
+      day: d,
+      dir,
+      depHour: clock.depHour,
+      depMin: clock.depMin,
+      slot,
+      pairOfTripId: dir === 'BA' ? lastAbId.get(busId) : undefined,
+      isSeasonal: seasonal,
+    } satisfies MarathonLegPlan
+  }
+
   const plans: MarathonLegPlan[] = []
   for (let d = fromDay; d <= toDay; d++) {
     const outOk = outDuty === 'daily' || (outDuty === 'festival' && isFestivalDay(d))
     const retOk = retDuty === 'daily' || (retDuty === 'festival' && isFestivalDay(d))
 
-    // AB at outbound clock — first ready coach sitting at origin
+    // Independent departure slots at both termini:
+    // Outbound from City A at outClock, Return from City B at retClock.
+    // Ready coaches depart as soon as their haul + layover rest completes.
     if (outOk) {
       const abAbs = d * 1440 + outClock
-      const busId = pick('A', abAbs)
-      if (busId) {
-        const id = tripKey(sch.id, busId, d, 'AB')
-        plans.push({
-          busId,
-          day: d,
-          dir: 'AB',
-          depHour: out.depHour,
-          depMin: out.depMin,
-          slot: 1,
-          isSeasonal: outDuty === 'festival',
-        })
-        lastAbId.set(busId, id)
-        atCity.set(busId, 'B')
-        readyAt.set(busId, abAbs + runMin + turnMin)
-      }
+      const busId = pickAt('A', abAbs)
+      if (busId) plans.push(commit(busId, d, 'AB', out, abAbs, 1, outDuty === 'festival'))
     }
-    // BA at return clock — first ready coach sitting at destination
     if (retOk) {
       const baAbs = d * 1440 + retClock
-      const busId = pick('B', baAbs)
-      if (busId) {
-        plans.push({
-          busId,
-          day: d,
-          dir: 'BA',
-          depHour: ret.depHour,
-          depMin: ret.depMin,
-          slot: 2,
-          pairOfTripId: lastAbId.get(busId),
-          isSeasonal: retDuty === 'festival',
-        })
-        atCity.set(busId, 'A')
-        readyAt.set(busId, baAbs + runMin + turnMin)
-      }
+      const busId = pickAt('B', baAbs)
+      if (busId) plans.push(commit(busId, d, 'BA', ret, baAbs, sch.paired ? 2 : 1, retDuty === 'festival'))
     }
   }
   return plans
 }
 
-function generatePairedMarathonTrips(
+function generateMarathonTrips(
   s: GameState,
   sch: Schedule,
   route: NonNullable<typeof ROUTES[string]>,
@@ -217,7 +296,7 @@ function generatePairedMarathonTrips(
   toDay: number,
   busy: BusyIndex,
 ): void {
-  for (const leg of planPairedMarathonLegs(sch, route, fromDay, toDay)) {
+  for (const leg of planMarathonLegs(sch, route, fromDay, toDay, s)) {
     const line = s.buses[leg.busId]
     if (!line || line.status === 'delivery') continue
     const runner = line.status === 'active' ? line : coveringSpare(s, leg.busId)
@@ -409,8 +488,7 @@ function planLegsForDay(
     return [{ dir: fest.padDir, depHour: clock.depHour, depMin: clock.depMin, day, isSeasonal: true, slot: 1 }]
   }
 
-  // Short hops: same coach can flip same day. Long hauls: one leg per coach
-  // per active day, rotating the fleet so departures stay daily.
+  // Short hops: same coach can flip same day.
   if ((route.hours ?? 0) <= 6) {
     const back = clockFromMinutes(clockMinutes(sch) + (Math.ceil(route.hours) + 2) * 60)
     return [
@@ -419,19 +497,10 @@ function planLegsForDay(
     ]
   }
 
-  const cycleDays = oneWayCycleDays(route)
-  const numBuses = Math.max(1, sch.busIds.length)
-  if (cycleDays <= 1) {
-    const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
-    return [{ dir, ...out, day, slot: 1 }]
-  }
+  // Long unpaired hauls: readiness planner fills slots (no fleet-wave batching).
+  if (usesMarathonReadiness(sch, route)) return []
 
-  // One departure per day across the pool (busIdx rotates). Direction flips
-  // each time that coach is next up.
-  const slot = ((day % numBuses) + numBuses) % numBuses
-  if (busIdx !== slot) return []
-  const runIndex = Math.floor(day / numBuses)
-  const dir: 'AB' | 'BA' = runIndex % 2 === 0 ? 'AB' : 'BA'
+  const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
   return [{ dir, ...out, day, slot: 1 }]
 }
 
@@ -746,7 +815,7 @@ function releaseStaleTrips(
   const lastGenDay = isAllFest ? Math.min(edge, s.day + 3) : edge
   const expected = new Set<string>()
   if (usesMarathonReadiness(sch, route)) {
-    for (const leg of planPairedMarathonLegs(sch, route, s.day, lastGenDay)) {
+    for (const leg of planMarathonLegs(sch, route, s.day, lastGenDay, s)) {
       expected.add(tripKey(sch.id, leg.busId, leg.day, leg.dir))
     }
   } else {
@@ -837,7 +906,7 @@ export function generateTrips(s: GameState): void {
     }
 
     if (usesMarathonReadiness(sch, route)) {
-      generatePairedMarathonTrips(s, sch, route, s.day, edge, busy)
+      generateMarathonTrips(s, sch, route, s.day, edge, busy)
       continue
     }
 

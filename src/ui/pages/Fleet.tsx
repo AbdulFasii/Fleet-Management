@@ -75,7 +75,7 @@ export function FleetPage() {
       }
 
       const tInfo = axleTyresDue(b)
-      if (tInfo.frontDue || tInfo.rearDue || b.tyrePressure === 'low' || tInfo.frontPct >= 0.85 || tInfo.rearPct >= 0.85) {
+      if (tInfo.frontDue || tInfo.rearDue || tInfo.frontPct >= 0.85 || tInfo.rearPct >= 0.85) {
         tyresAttention++
       }
 
@@ -219,15 +219,14 @@ export function FleetPage() {
         const info = axleTyresDue(b)
         const fPct = Math.round(info.frontPct * 100)
         const rPct = Math.round(info.rearPct * 100)
-        const lowP = b.tyrePressure === 'low'
-        const alert = info.frontDue || info.rearDue || lowP || fPct >= 90 || rPct >= 90
+        const alert = info.frontDue || info.rearDue || fPct >= 90 || rPct >= 90
         const warn = fPct >= 75 || rPct >= 75
         return (
           <span
             className={alert ? 'bad' : warn ? 'warn' : 'dim'}
-            title={`Front: ${Math.round(info.frontKm / 1000)}k / ${Math.round(info.frontLife / 1000)}k (${b.frontBrand ?? 'oem'}) · Rear: ${Math.round(info.rearKm / 1000)}k / ${Math.round(info.rearLife / 1000)}k (${b.rearBrand ?? 'oem'})${lowP ? ' · LOW PRESSURE' : ''}`}
+            title={`Front: ${Math.round(info.frontKm / 1000)}k / ${Math.round(info.frontLife / 1000)}k (${b.frontBrand ?? 'oem'}) · Rear: ${Math.round(info.rearKm / 1000)}k / ${Math.round(info.rearLife / 1000)}k (${b.rearBrand ?? 'oem'})`}
           >
-            {fPct}% / {rPct}%{lowP ? ' (low)' : ''}
+            {fPct}% / {rPct}%
           </span>
         )
       },

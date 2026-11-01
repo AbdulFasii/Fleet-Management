@@ -13,7 +13,7 @@ import { isFestivalDay } from '../core/calendar'
 import { nextId } from '../core/ids'
 import { canAfford, spend, capitalOut } from './finance'
 import { pushLog } from './log'
-import { fleetManagerOnDuty, staffedWorkshopBays, docsManagerOnDuty, workshopMechanicsOnDuty, monthlyOfficeAdminCost } from './staffing'
+import { fleetManagerOnDuty, staffedWorkshopBays, docsManagerOnDuty, workshopMechanicsOnDuty, monthlyOfficeAdminCost, ensureWorkshopMechanicSlots } from './staffing'
 import { releaseFinishedCovers, tryCoverBus } from './cover'
 import { worstSubsystem, busAgeYears, effectiveAgeYears } from './fleet'
 import { serviceCostMult } from './serviceCost'
@@ -388,14 +388,6 @@ export function axleTyresDue(bus: Bus): {
 export function tyresDue(bus: Bus): boolean {
   const info = axleTyresDue(bus)
   return info.frontDue || info.rearDue
-}
-
-export function setTyrePressure(s: GameState, busId: ID): string | null {
-  const bus = s.buses[busId]
-  if (!bus) return 'Bus not found.'
-  bus.tyrePressure = 'ok'
-  pushLog(s, 'good', `Tyre pressure checked and corrected for ${bus.reg}.`)
-  return null
 }
 
 /** Leased / attached: the bus owner pays service, tyres and overhauls. We only staff. */
@@ -849,7 +841,7 @@ export function openWorkshopLocation(s: GameState, cityId: string, groupIds: ID[
   s.workshop.locations = locations
   s.workshop.level = Math.max(1, s.workshop.level)
   s.workshop.bays = locations.reduce((sum, l) => sum + l.bayCount, 0)
-  if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
+  ensureWorkshopMechanicSlots(s)
 
   pushLog(s, 'good', `Opened workshop in ${cityName(cityId)} (1 bay).`)
   return null
@@ -870,6 +862,7 @@ export function addBayAtLocation(s: GameState, locationId: ID): string | null {
 
   loc.bayCount += 1
   s.workshop.bays = locations.reduce((sum, l) => sum + l.bayCount, 0)
+  ensureWorkshopMechanicSlots(s)
   pushLog(
     s,
     'good',
@@ -902,7 +895,7 @@ function managerAutoMaint(s: GameState): void {
   if (!mgr) return
 
   // Must have at least one bay opened OR mechanics assigned to automate workshop operations
-  const hasBayOrEmployees = (s.workshop.bays > 0) || ((s.workshop.mechanicIds?.length ?? 0) > 0)
+  const hasBayOrEmployees = (s.workshop.bays > 0) || ((s.workshop.mechanicIds ?? []).some(Boolean))
   if (!hasBayOrEmployees) return
 
   // Workshop manager only books emergency deep clean for buses WITHOUT an assigned conductor

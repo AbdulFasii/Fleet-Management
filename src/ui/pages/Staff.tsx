@@ -957,7 +957,11 @@ export function StaffPage() {
             </div>
           )
         }
-        if (x.role === 'mechanic' && s.workshop.level > 0 && (s.workshop.mechanicIds ?? []).length < s.workshop.bays) {
+        if (
+          x.role === 'mechanic'
+          && s.workshop.level > 0
+          && (s.workshop.mechanicIds ?? []).filter(Boolean).length < s.workshop.bays
+        ) {
           return <button className="small primary" onClick={() => g.appointBayMechanic(x.id)}>+ Assign to Bay</button>
         }
         if (x.role === 'manager') {
@@ -1627,7 +1631,7 @@ export function StaffPage() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 6 }}>
                 <span className="small">
-                  Workshop Bays: <b>{(s.workshop.mechanicIds ?? []).length} / {s.workshop.bays} Staffed</b>
+                  Workshop Bays: <b>{(s.workshop.mechanicIds ?? []).filter(Boolean).length} / {s.workshop.bays} Staffed</b>
                 </span>
                 <Link to="/workshop" className="small">Open Workshop Page →</Link>
               </div>

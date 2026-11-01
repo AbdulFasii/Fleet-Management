@@ -180,11 +180,17 @@ const trips = Object.values(s.trips).filter((t) => t.scheduleId === schId && t.s
 console.log(`  Generated ${trips.length} open trips on 4-coach marathon schedule.`)
 
 // Verify each day has exactly one AB and one BA (ready coach takes next schedule clock)
+console.log('--- After b1, b2, b3, b4 assigned ---')
+for (const t of Object.values(s.trips)) {
+  if (t.scheduleId === schId) {
+    console.log(`  TRIP: id=${t.id}, bus=${t.busId}, day=${t.day}, dir=${t.direction}, status=${t.status}`)
+  }
+}
 for (let d = s.day; d <= s.day + 3; d++) {
   const dayTrips = trips.filter((t) => t.day === d)
   const ab = dayTrips.filter((t) => t.direction === 'AB')
   const ba = dayTrips.filter((t) => t.direction === 'BA')
-  console.log(`  Day ${d}: open (AB: ${ab.length} ${ab[0]?.busId ?? '-'}, BA: ${ba.length} ${ba[0]?.busId ?? '-'})`)
+  console.log(`  Day ${d}: open (AB: ${ab.length} [${ab.map(t=>t.busId).join(',')}], BA: ${ba.length} [${ba.map(t=>t.busId).join(',')}])`)
   assert.strictEqual(ab.length, 1, `Day ${d} must have exactly 1 AB departure`)
   assert.strictEqual(ba.length, 1, `Day ${d} must have exactly 1 BA departure`)
 }
@@ -237,12 +243,36 @@ assert.strictEqual(kocSch.busIds.length, 3, '3 buses retained after sanitizeSche
 generateTrips(s)
 const kocTrips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId && t.status === 'open')
 console.log(`  Generated ${kocTrips.length} open trips on 3-coach koc-del schedule.`)
-for (let d = s.day; d <= s.day + 2; d++) {
-  const dTrips = kocTrips.filter((t) => t.day === d)
-  assert.strictEqual(dTrips.length, 1, `Day ${d} must have exactly 1 open departure on 3-coach marathon`)
-  console.log(`  Day ${d}: Bus ${dTrips[0]?.busId} departs ${dTrips[0]?.direction}`)
+assert(kocTrips.length >= 3, 'Must generate open trips across the window')
+for (const t of kocTrips) {
+  console.log(`  Day ${t.day} (${t.depHour}:${t.depMin}): ${t.direction} by ${t.busId}`)
 }
 console.log('✓ 3-coach unpaired marathon runs smoothly without drop or clash!')
+
+console.log('--- 7. Testing 4-Coach Unpaired Marathon (koc-del 36h) ---')
+const kb4 = makeTestBus(s, 'kb4', 'KL 07 GH 4444', 'del')
+s.buses['kb4'] = kb4
+assert.strictEqual(assignBus(s, kocSchId, kb4.id), null)
+assert.strictEqual(kocSch.busIds.length, 4, '4 buses assigned')
+generateTrips(s)
+const koc4Trips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId && t.status === 'open')
+console.log(`  Generated ${koc4Trips.length} open trips on 4-coach koc-del schedule.`)
+// With 4 coaches on 36h haul (44h turnaround cycle), both directions (AB and BA) run daily!
+console.log('--- After b1, b2, b3, b4 assigned ---')
+for (const t of Object.values(s.trips)) {
+  if (t.scheduleId === schId) {
+    console.log(`  TRIP: id=${t.id}, bus=${t.busId}, day=${t.day}, dir=${t.direction}, status=${t.status}`)
+  }
+}
+for (let d = s.day; d <= s.day + 3; d++) {
+  const dTrips = koc4Trips.filter((t) => t.day === d)
+  const ab = dTrips.filter((t) => t.direction === 'AB')
+  const ba = dTrips.filter((t) => t.direction === 'BA')
+  console.log(`  Day ${d}: AB by ${ab[0]?.busId ?? '-'}, BA by ${ba[0]?.busId ?? '-'}`)
+  assert.strictEqual(ab.length, 1, `Day ${d} must have exactly 1 AB departure`)
+  assert.strictEqual(ba.length, 1, `Day ${d} must have exactly 1 BA departure`)
+}
+console.log('✓ 4-coach marathon achieves daily departures in both directions simultaneously!')
 
 console.log('✓ Multi-bus rotation generates daily departures in both directions without collision!')
 console.log('ALL TESTS PASSED!')

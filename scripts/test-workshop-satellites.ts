@@ -86,9 +86,18 @@ s.staff['m3'] = m3
 
 appointBayMechanic(s, 'm1')
 appointBayMechanic(s, 'm2')
-appointBayMechanic(s, 'm3')
+// Intentionally leave HQ bay index 1? No — leave one HQ bay empty and staff satellite by index
+// Reset and staff HQ bay 0 + satellite bay 2 while leaving HQ bay 1 vacant
+s.workshop.mechanicIds = [null, null, null]
+appointBayMechanic(s, 'm1', 0)
+appointBayMechanic(s, 'm3', 2) // satellite only — must NOT fill empty HQ bay 1
 
-assert.strictEqual(s.workshop.mechanicIds?.length, 3, 'All 3 global bay slots staffed')
+assert.strictEqual(s.workshop.mechanicIds?.[0], 'm1')
+assert.strictEqual(s.workshop.mechanicIds?.[1] ?? null, null, 'HQ bay 1 must stay vacant when staffing satellite')
+assert.strictEqual(s.workshop.mechanicIds?.[2], 'm3', 'Satellite bay gets the appointed mechanic')
+
+appointBayMechanic(s, 'm2', 1)
+assert.strictEqual(s.workshop.mechanicIds?.filter(Boolean).length, 3, 'All 3 global bay slots staffed')
 const allocs = computeBayAllocations(s)
 assert.strictEqual(allocs.length, 3)
 assert.strictEqual(allocs[0].locationCityId, s.company.homeCityId)

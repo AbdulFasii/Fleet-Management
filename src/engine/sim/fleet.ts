@@ -475,7 +475,6 @@ function addBus(s: GameState, o: CreateBusOpts): Bus {
     frontBrand: 'oem',
     rearBrand: 'oem',
     tyreCount: (model.cls === 'sleeper' || model.sleeper || model.layout?.kind === 'sleeper' || model.layout?.kind === 'hybrid' || model.cls === 'AC_HYBRID' || model.cls === 'AC_SLEEPER') ? 10 : 6,
-    tyrePressure: 'ok',
     lastServiceOdo: Math.max(0, o.odometer - rInt(rng, 0, BAL.serviceIntervalKm)),
     lastMajorServiceOdo: Math.max(0, o.odometer - rInt(rng, 0, BAL.serviceTiers.b.intervalKm)),
     lastOverhaulDay: s.day - rInt(rng, 0, 300),
