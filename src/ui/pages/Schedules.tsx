@@ -8,7 +8,7 @@ import { enabledChannelLabels } from '../../engine/data/channels'
 import { getScheduleDefaults, scheduleIsCargo, scheduleOccLf } from '../../engine/sim/schedules'
 import { serviceTierFareMult } from '../../engine/sim/pricing'
 import { isNewVehicle } from '../../engine/sim/fleet'
-import { fmtTurnaround, runningMinutes, suggestReturnSlot, hasYardOrHome, recommendedFleetSize } from '../../engine/sim/pairing'
+import { fmtTurnaround, runningMinutes, suggestReturnSlot, hasYardOrHome, recommendedFleetSize, turnaroundMinutes } from '../../engine/sim/pairing'
 import { clockFromMinutes, clockMinutes, fmtClock, HALF_HOUR_SLOTS } from '../../engine/core/calendar'
 import { toRupees, rs } from '../../engine/core/money'
 import type { Bus, GameState, ID, RouteDef, Schedule, ServiceTier } from '../../engine/types'
@@ -169,6 +169,11 @@ function DepartureSelect({ hour, min, onChange }: {
   )
 }
 
+function dayOffsetTag(absMin: number): string {
+  const d = Math.floor(absMin / 1440)
+  return d > 0 ? ` +${d}d` : ''
+}
+
 function RotationTooltip({
   sch,
   route,
@@ -182,45 +187,54 @@ function RotationTooltip({
   const paired = Boolean(sch.paired) && !isCargoSvc
   const rec = recommendedFleetSize(route, paired, s)
   const busCount = sch.busIds?.length ?? 0
+  const shortfall = Math.max(0, rec - busCount)
+
   const runMin = runningMinutes(route)
   const turnMin = turnaroundMinutes(route, s)
-  const layoverH = (turnMin / 60).toFixed(1).replace('.0', '')
-  const cycleDays = Math.max(1, Math.ceil((runMin + turnMin) / 1440))
-
-  const outMin = clockMinutes(sch)
-  const arrAbs = outMin + runMin
-  const arrDays = Math.floor(arrAbs / 1440)
-  const arrClock = clockFromMinutes(arrAbs)
-  const arrTag = arrDays > 0 ? `+${arrDays}d` : ''
+  const layoverH = (turnMin / 60).toFixed(1).replace(/\.0$/, '')
+  const oneWayCycleMin = runMin + turnMin
+  const oneWayCycleDays = Math.max(1, Math.ceil(oneWayCycleMin / 1440))
+  const roundTripCycleMin = 2 * runMin + 2 * turnMin
+  const roundTripCycleDays = Math.max(1, Math.ceil(roundTripCycleMin / 1440))
+  const cycleDays = paired ? roundTripCycleDays : oneWayCycleDays
+  const cycleHours = Math.round((paired ? roundTripCycleMin : oneWayCycleMin) / 60)
 
   const fromCity = cityName(route.from)
   const toCity = cityName(route.to)
+  const hasYardAtTo = hasYardOrHome(s, route.to)
+  const hasYardAtFrom = hasYardOrHome(s, route.from)
 
-  const readyAbs = arrAbs + turnMin
-  const readyDays = Math.floor(readyAbs / 1440)
-  const readyClock = clockFromMinutes(readyAbs)
-  const readyTag = readyDays > 0 ? `+${readyDays}d` : ''
+  const outMin = clockMinutes(sch)
+  const arrAbs = outMin + runMin
+  const readyAtToAbs = arrAbs + turnMin
 
-  const plainText = [
-    `Coach Timing & Rotation Schedule:`,
-    `• Outbound: ${fmtClock(sch)} ${fromCity} → reaches ${fmtClock(arrClock)}${arrTag ? ' ' + arrTag : ''} ${toCity} (${route.hours}h)`,
-    `• Layover Rest: ${layoverH}h turnaround & vehicle rest at ${toCity} (dispatch ready: ${fmtClock(readyClock)}${readyTag ? ' ' + readyTag : ''})`,
-    paired && sch.returnDepHour !== undefined
-      ? `• Return: ${fmtClock({ depHour: sch.returnDepHour, depMin: sch.returnDepMin })} ${toCity} → ${fromCity}`
-      : `• Return: Coach returns on alternating service run`,
-    `• Rotation Cycle: ${cycleDays} day${cycleDays > 1 ? 's' : ''} per vehicle · ${rec} coaches recommended for continuous daily operations`,
-    `• Current Assigned: ${busCount}/${rec} coaches`,
-  ].join('\n')
+  let retDepAbs: number | undefined
+  let retArrAbs: number | undefined
+  let readyAtHomeAbs: number | undefined
+  if (paired && sch.returnDepHour !== undefined) {
+    const retClockMin = clockMinutes({ depHour: sch.returnDepHour, depMin: sch.returnDepMin })
+    // Return clock is on calendar day of earliest ready (or later if player set a later slot)
+    const readyDayStart = Math.floor(readyAtToAbs / 1440) * 1440
+    retDepAbs = readyDayStart + retClockMin
+    if (retDepAbs < readyAtToAbs) retDepAbs += 1440
+    retArrAbs = retDepAbs + runMin
+    readyAtHomeAbs = retArrAbs + turnaroundMinutes({ ...route, to: route.from }, s)
+  }
+
+  const serviceLine = paired
+    ? `Daily both ways (${fromCity} ↔ ${toCity})`
+    : `Daily one way (${fromCity} → ${toCity})`
 
   return (
     <span
       className="panel-info"
       tabIndex={0}
-      title={plainText}
+      aria-label="Coach rotation and timing details"
       style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle', cursor: 'help' }}
     >
       <span
         className="panel-info-icon"
+        aria-hidden
         style={{
           borderColor: busCount < rec ? 'var(--warn)' : 'var(--good)',
           color: busCount < rec ? 'var(--warn)' : 'var(--good)',
@@ -230,8 +244,9 @@ function RotationTooltip({
       </span>
       <div
         className="panel-info-tip"
+        role="tooltip"
         style={{
-          width: 330,
+          width: 380,
           padding: '10px 12px',
           background: 'var(--bg3, #151a21)',
           border: '1px solid var(--border)',
@@ -247,63 +262,132 @@ function RotationTooltip({
           style={{
             fontWeight: 700,
             fontSize: '11px',
-            marginBottom: 6,
+            marginBottom: 8,
             borderBottom: '1px solid var(--border)',
-            paddingBottom: 4,
+            paddingBottom: 5,
             display: 'flex',
             justifyContent: 'space-between',
+            gap: 8,
           }}
         >
           <span>Coach Rotation & Timing</span>
           <span className={busCount >= rec ? 'good' : 'warn'}>
-            {busCount}/{rec} Coaches
+            {busCount}/{rec} coaches
           </span>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '11px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '11px' }}>
+          <div className="dim small">
+            Goal: keep <b style={{ color: 'var(--fg)' }}>{serviceLine}</b> without sending the same coach out before it has rested.
+          </div>
+
           <div>
-            <b>Outbound Leg:</b>{' '}
-            <span className="accent">{fmtClock(sch)}</span> {fromCity} →{' '}
-            <span>reaches <b>{fmtClock(arrClock)}{arrTag ? ' ' + arrTag : ''}</b></span> ({route.hours}h run)
-          </div>
-
-          <div style={{ color: 'var(--fg-dim)', background: 'var(--bg2, rgba(255,255,255,0.05))', padding: '5px 7px', borderRadius: 4 }}>
-            <b>Vehicle Layover & Rest:</b> {layoverH}h at {toCity}
-            <div className="dim small" style={{ marginTop: 2 }}>
-              CMVR & mechanics turnaround; ready to depart from {fmtClock(readyClock)}{readyTag ? ' ' + readyTag : ''}.
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>1. One coach’s trip timeline</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingLeft: 2 }}>
+              <div>
+                <span className="accent">{fmtClock(sch)}</span> leave {fromCity}
+                <span className="dim"> → drive {route.hours}h ({route.km} km)</span>
+              </div>
+              <div>
+                Arrive {toCity}{' '}
+                <b>{fmtClock(clockFromMinutes(arrAbs))}{dayOffsetTag(arrAbs)}</b>
+              </div>
+              <div
+                style={{
+                  background: 'var(--bg2, rgba(255,255,255,0.05))',
+                  padding: '5px 7px',
+                  borderRadius: 4,
+                }}
+              >
+                Rest at {toCity}: <b>{layoverH}h</b> vehicle layover
+                <div className="dim small" style={{ marginTop: 2 }}>
+                  Terminal turnaround{hasYardAtTo ? '' : ' (+30m: no yard here)'} plus haul-scaled rest.
+                  Same coach cannot depart again before{' '}
+                  <b style={{ color: 'var(--fg)' }}>
+                    {fmtClock(clockFromMinutes(readyAtToAbs))}{dayOffsetTag(readyAtToAbs)}
+                  </b>
+                  .
+                </div>
+              </div>
+              {paired && retDepAbs !== undefined && retArrAbs !== undefined && readyAtHomeAbs !== undefined ? (
+                <>
+                  <div>
+                    <span className="accent">{fmtClock(clockFromMinutes(retDepAbs))}</span>
+                    {dayOffsetTag(retDepAbs)} leave {toCity}
+                    <span className="dim"> → drive {route.hours}h back</span>
+                  </div>
+                  <div>
+                    Arrive {fromCity}{' '}
+                    <b>{fmtClock(clockFromMinutes(retArrAbs))}{dayOffsetTag(retArrAbs)}</b>
+                  </div>
+                  <div className="dim small">
+                    Rest again at {fromCity} (~{(turnaroundMinutes({ ...route, to: route.from }, s) / 60).toFixed(1).replace(/\.0$/, '')}h
+                    {hasYardAtFrom ? '' : ', no yard'}) — coach free again{' '}
+                    <b style={{ color: 'var(--fg)' }}>
+                      {fmtClock(clockFromMinutes(readyAtHomeAbs))}{dayOffsetTag(readyAtHomeAbs)}
+                    </b>
+                    .
+                  </div>
+                </>
+              ) : (
+                <div className="dim small">
+                  One-way service: coach lays over at {toCity}, then comes home on a later trip / reverse schedule before the next outbound.
+                </div>
+              )}
             </div>
           </div>
 
-          {paired && sch.returnDepHour !== undefined && (
-            <div>
-              <b>Return Leg:</b>{' '}
-              <span className="accent">{fmtClock({ depHour: sch.returnDepHour, depMin: sch.returnDepMin })}</span> {toCity} → {fromCity}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>
+              2. Why {rec} coaches? ({cycleDays}-day cycle ≈ {cycleHours}h)
             </div>
-          )}
-
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 5 }}>
-            <b>How Coaches Rotate ({cycleDays}d cycle):</b>
-            <div className="dim small" style={{ marginTop: 2 }}>
-              {cycleDays === 1 && (
-                <>Coaches alternate directions daily. 2 coaches provide continuous round-trip daily departures.</>
+            <div className="dim small" style={{ marginBottom: 4 }}>
+              {paired ? (
+                <>
+                  Round trip = {route.hours}h out + {layoverH}h rest + {route.hours}h back + rest at home
+                  ≈ <b style={{ color: 'var(--fg)' }}>{cycleHours}h</b> before one coach can leave {fromCity} again.
+                  To offer a departure <b style={{ color: 'var(--fg)' }}>every day</b>, you need about{' '}
+                  <b style={{ color: 'var(--fg)' }}>{rec}</b> coaches in the pool so one is always ready while others are on the road or resting.
+                </>
+              ) : (
+                <>
+                  One leg = {route.hours}h drive + {layoverH}h rest ≈ <b style={{ color: 'var(--fg)' }}>{Math.round(oneWayCycleMin / 60)}h</b>.
+                  For a daily departure, assign about <b style={{ color: 'var(--fg)' }}>{rec}</b> coaches and rotate which one leaves each night.
+                </>
               )}
-              {cycleDays === 2 && paired && (
-                <>48h cycle: Coaches rotate in pairs (Coaches 1 & 2 on even days, Coaches 3 & 4 on odd days) for daily service both ways.</>
-              )}
-              {cycleDays >= 2 && !paired && (
-                <>Each coach departs every {cycleDays} days, alternating out and back. {rec} coaches needed for 1 departure every day.</>
-              )}
-              {cycleDays >= 3 && paired && (
-                <>72h ultra-marathon cycle: each coach needs 3 days between departures ({route.hours}h travel + {layoverH}h rest). {rec} coaches ensure daily departures.</>
-              )}
+            </div>
+            <div
+              style={{
+                background: 'var(--bg2, rgba(255,255,255,0.05))',
+                padding: '5px 7px',
+                borderRadius: 4,
+              }}
+            >
+              <div style={{ fontWeight: 600, marginBottom: 3 }}>Example with {rec} coaches</div>
+              <div className="dim small">
+                {Array.from({ length: Math.min(rec, 4) }, (_, i) => (
+                  <div key={i}>
+                    Coach {i + 1}: takes the Day {i + 1} departure, then is busy ~{cycleDays} day{cycleDays > 1 ? 's' : ''} (drive + rest)
+                    {paired ? ' covering out & return' : ''}.
+                  </div>
+                ))}
+                {rec > 4 && <div>…and Coach {rec} covers Day {rec}.</div>}
+                <div style={{ marginTop: 3 }}>
+                  Day {rec + 1}: Coach 1 is free again → continuous daily service.
+                </div>
+              </div>
             </div>
           </div>
 
-          <div style={{ paddingTop: 4, borderTop: '1px solid var(--border)' }}>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6 }}>
             {busCount >= rec ? (
-              <span className="good small">✓ Fully staffed for 100% daily operations without rest clashes.</span>
+              <span className="good small">
+                ✓ Fleet is sized for daily service — enough coaches for drive + layover without skipping nights.
+              </span>
             ) : (
-              <span className="warn small">⚠️ Assign {rec - busCount} more coach{rec - busCount > 1 ? 'es' : ''} to run daily service without departure gaps.</span>
+              <span className="warn small">
+                ⚠ You have {busCount} of {rec}. Assign {shortfall} more coach{shortfall === 1 ? '' : 'es'} or some nights will have no departure while coaches finish their rest.
+              </span>
             )}
           </div>
         </div>
