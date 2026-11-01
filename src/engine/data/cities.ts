@@ -55,6 +55,8 @@ export const CITIES: Record<string, City> = {
   lko: { id: 'lko', name: 'Lucknow', state: 'Uttar Pradesh', metro: 0.6, pickups: 4 },
   agr: { id: 'agr', name: 'Agra', state: 'Uttar Pradesh', metro: 0.35, pickups: 3 },
   amd: { id: 'amd', name: 'Ahmedabad', state: 'Gujarat', metro: 0.7, pickups: 5 },
+  nag: { id: 'nag', name: 'Nagpur', state: 'Maharashtra', metro: 0.5, pickups: 4 },
+  bbs: { id: 'bbs', name: 'Bhubaneswar', state: 'Odisha', metro: 0.45, pickups: 4 },
 }
 
 export function cityName(id: string): string {
@@ -106,6 +108,8 @@ export const CITY_FREIGHT: Record<string, CityFreightProfile> = {
   lko: { tier: 'commercial', shipIndex: 0.60, attractIndex: 0.70, mixBias: { textiles: 0.35, fmcg: 0.30, mixed: 0.20, hardware: 0.10, agri: 0.05 } },
   agr: { tier: 'commercial', shipIndex: 0.50, attractIndex: 0.50, mixBias: { hardware: 0.35, textiles: 0.30, mixed: 0.20, fmcg: 0.10, agri: 0.05 } },
   amd: { tier: 'metro', shipIndex: 0.90, attractIndex: 0.85, mixBias: { textiles: 0.45, hardware: 0.25, fmcg: 0.15, mixed: 0.10, agri: 0.05 } },
+  nag: { tier: 'industrial', shipIndex: 0.70, attractIndex: 0.65, mixBias: { hardware: 0.40, fmcg: 0.30, mixed: 0.15, textiles: 0.10, agri: 0.05 } },
+  bbs: { tier: 'commercial', shipIndex: 0.55, attractIndex: 0.60, mixBias: { agri: 0.35, fmcg: 0.30, mixed: 0.20, hardware: 0.10, textiles: 0.05 } },
 }
 
 const DEFAULT_FREIGHT_PROFILE: CityFreightProfile = {

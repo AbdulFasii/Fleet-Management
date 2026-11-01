@@ -1025,6 +1025,14 @@ export const BAL = {
   },
 
   /* ---------------- paired return schedules ---------------- */
+  /** Max coaches assignable to a single schedule for marathon rotations. */
+  scheduleMaxCoaches: 4,
+  /** Route duration hours threshold beyond which marathon layover scaling kicks in. */
+  layoverMinHaulHours: 6,
+  /** Layover scaling slope per route hour above threshold. */
+  layoverSlope: 0.48,
+  /** Maximum turnaround/layover cap in minutes (16 hours). */
+  layoverMaxMin: 960,
   /** Terminal + rest turnaround uses corridor km / this speed. */
   pairAvgSpeedKmh: 35,
   /** Floor on turnaround even for short hops. */

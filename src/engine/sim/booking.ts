@@ -21,7 +21,7 @@ import {
   accrueGstOnTicket, earn, spend, spendNetted, pushTxn,
   accrueAttachOwnerShare, reverseAttachOwnerShare,
 } from './finance'
-import { cancelPairedReturn, clearTripBookings, pairReturnClock } from './pairing'
+import { cancelPairedReturn, clearTripBookings, pairReturnClock, turnaroundMinutes } from './pairing'
 import { pushLog } from './log'
 import { groupForTrip } from './groups'
 import { fmtCompact } from '../core/money'
@@ -142,6 +142,38 @@ function planLegsForDay(
       const outMin = clockMinutes(out)
       const retMin = clockMinutes(ret)
       const overlapsSameDay = !(retMin + runMin <= outMin || retMin >= outMin + runMin)
+      // Marathon haul (ret.dayOffset >= 2) or multi-coach rotation (sch.busIds.length >= 3 on ret.dayOffset >= 1):
+      const isMultiCoachMarathon = ret.dayOffset >= 2 || (ret.dayOffset >= 1 && sch.busIds.length >= 3)
+      if (isMultiCoachMarathon) {
+        // Group 0: busIdx 0 and 1 -> active on even days (day % 2 === 0)
+        // Group 1: busIdx 2 and 3 -> active on odd days (day % 2 === 1)
+        const isGroup0 = busIdx === 0 || busIdx === 1
+        const activeDay = isGroup0 ? day % 2 === 0 : day % 2 === 1
+        if (!activeDay) return []
+
+        // In group 0: bus 0 starts at A, bus 1 starts at B
+        // In group 1: bus 2 starts at A, bus 3 starts at B
+        const startsAtA = busIdx % 2 === 0
+        const cycle = Math.floor(day / 2)
+        const dir: 'AB' | 'BA' = (startsAtA ? cycle % 2 === 0 : cycle % 2 === 1) ? 'AB' : 'BA'
+        const leg = dir === 'AB' ? out : ret
+        const pairOfTripId = dir === 'BA'
+          ? tripKey(sch.id, busId, day - 2, 'AB')
+          : undefined
+
+        return [
+          {
+            dir,
+            depHour: leg.depHour,
+            depMin: leg.depMin,
+            day,
+            pairOfTripId,
+            isSeasonal: (dir === 'AB' ? outDuty : retDuty) === 'festival',
+            slot: dir === 'AB' ? 1 : 2,
+          },
+        ]
+      }
+
       if (ret.dayOffset === 1 && overlapsSameDay) {
         const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
         const leg = dir === 'AB' ? out : ret
@@ -424,10 +456,11 @@ function makeBusyIndex(s: GameState): BusyIndex {
   for (const t of Object.values(s.trips)) {
     if (t.status === 'cancelled') continue
     // Only recent and future departures can collide with a fresh leg.
-    if (t.day < s.day - 1) continue
+    if (t.day < s.day - 2) continue
     const route = ROUTES[t.routeId]
     const start = t.day * 1440 + t.depHour * 60 + (t.depMin ?? 0)
-    const end = start + Math.round((route?.hours ?? 6) * 60)
+    const turnMin = route ? turnaroundMinutes(route, s) : 45
+    const end = start + Math.round((route?.hours ?? 6) * 60) + turnMin
     setBusy(idx, t.id, t.busId, start, end)
   }
   return idx
@@ -476,7 +509,8 @@ function generateTripsForDay(
       // Same truck, two departures at once: a second leg cannot run. This is the
       // safety net for corrupt saves where one vehicle is listed on two services.
       const start = leg.day * 1440 + leg.depHour * 60 + leg.depMin
-      const end = start + Math.round(route.hours * 60)
+      const turnMin = turnaroundMinutes(route, s)
+      const end = start + Math.round(route.hours * 60) + turnMin
       if (busyClash(busy, runner.id, start, end, id)) {
         if (s.trips[id]?.status === 'open') {
           s.trips[id].busId = runner.id

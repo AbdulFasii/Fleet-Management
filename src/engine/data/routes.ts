@@ -105,6 +105,21 @@ export const RIVALS: Record<string, string[]> = {
   'del-lko': ['Zingbus', 'IntrCity SmartBus', 'UPSRTC', 'FlixBus'],
   'del-agr': ['Zingbus', 'IntrCity SmartBus', 'UPSRTC'],
   'mum-amd': ['VRL', 'SRS Travels', 'IntrCity SmartBus', 'Neeta Tours'],
+
+  // South to North / West / East Prestige Marathons
+  'blr-nag': ['VRL', 'Orange Travels', 'KSRTC Airavat', 'Hans Travels'],
+  'hyd-amd': ['Orange Travels', 'Shreenath Travelers', 'Eagle Falcon', 'SRS Travels'],
+  'maa-bbs': ['Morning Star', 'KPN Travels', 'OSRTC', 'Orange Travels'],
+  'hyd-del': ['Orange Travels', 'Hans Travels', 'IntrCity SmartBus', 'Zingbus'],
+  'blr-del': ['VRL', 'IntrCity SmartBus', 'Zingbus', 'SRS Travels'],
+  'maa-del': ['Parveen', 'Orange Travels', 'Hans Travels', 'SRS Travels'],
+  'koc-del': ['Kallada Travels', 'Orange Travels', 'VRL', 'Hans Travels'],
+  'hyd-jai': ['Orange Travels', 'Hans Travels', 'Shrinath Travels', 'TSRTC'],
+  'blr-jai': ['VRL', 'Shrinath Travels', 'SRS Travels', 'Hans Travels'],
+  'blr-amd': ['VRL', 'SRS Travels', 'Shreenath Travelers', 'Patel Tours'],
+  'maa-amd': ['KPN Travels', 'Shreenath Travelers', 'VRL', 'Orange Travels'],
+  'hyd-lko': ['Orange Travels', 'Hans Travels', 'UPSRTC', 'Zingbus'],
+  'blr-lko': ['VRL', 'Hans Travels', 'IntrCity SmartBus', 'Orange Travels'],
 }
 
 const R = (
@@ -206,6 +221,21 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('mum-amd', 530, 10, 1300, 5400, 0.85, 0.75, false, 2400, 2.4, 15, 'Western trade spine along NH48. High commercial freight and corporate sleepers.'),
     R('mum-pnq', 150, 3.5, 550, 9000, 0.95, 0.6, true, 0, 3.2, 10, 'Expressway shuttle. Volume game if you expand west.'),
     R('blr-mum', 985, 17, 1950, 2500, 0.65, 0.6, true, 3000, 2.1, 20, 'Marathon haul. Premium sleepers and two drivers.'),
+
+    // —— South → North Prestige Marathons ——
+    R('blr-nag', 1100, 20, 2250, 2400, 0.70, 0.60, false, 2800, 2.2, 20, 'Deccan to Vidarbha grand trunk corridor along NH44. Luxury sleeper marathon linking Bengaluru IT to Central India hub; multi-coach rotation.'),
+    R('hyd-amd', 1200, 21, 2350, 2200, 0.65, 0.55, false, 3000, 2.3, 20, 'Deccan to Gujarat commercial trade marathon via Solapur and Pune/Surat. High value corporate & mercantile sleeper flows.'),
+    R('maa-bbs', 1250, 22, 2400, 2000, 0.65, 0.65, false, 3200, 2.1, 20, 'East Coast golden corridor along NH16 linking Tamil Nadu to Odisha. Heavy commercial, student and cultural passenger movement.'),
+    R('hyd-del', 1560, 26, 2900, 2200, 0.70, 0.75, false, 3600, 2.4, 25, 'National capital flagship marathon via Nagpur and Agra. Multi-state prestige route demanding two-crew sleeper rotations.'),
+    R('blr-del', 2150, 32, 3800, 1900, 0.65, 0.80, false, 4500, 2.4, 30, 'The ultimate trans-subcontinent prestige marathon linking Silicon Valley of India to the National Capital. Full sleeper luxury.'),
+    R('maa-del', 2200, 34, 3900, 1800, 0.60, 0.80, false, 4800, 2.3, 30, 'Grand Trunk trans-India marathon from the Coromandel Coast to Delhi NCR via Vijayawada and Nagpur. Luxury sleeper.'),
+    R('koc-del', 2650, 36, 4500, 1500, 0.55, 0.85, true, 5200, 2.3, 30, 'Subcontinental trans-India odyssey from the Arabian Sea to Delhi. The longest scheduled coach run requiring multi-coach operations.'),
+    R('hyd-jai', 1450, 24, 2750, 1900, 0.65, 0.65, false, 3400, 2.3, 25, 'Deccan to Rajputana heritage and trade corridor via Indore and Kota. High festival and merchant sleeper demand.'),
+    R('blr-jai', 1900, 30, 3450, 1700, 0.60, 0.70, false, 4200, 2.3, 30, 'South-to-Northwest long-haul linking Karnataka to the Pink City. Heavy tourist and textile trade patronage.'),
+    R('blr-amd', 1500, 24, 2800, 2300, 0.70, 0.65, false, 3600, 2.4, 25, 'NH48 manufacturing and trade backbone connecting Karnataka to Gujarat. Strong mercantile parcel and AC sleeper flow.'),
+    R('maa-amd', 1800, 28, 3300, 1800, 0.60, 0.65, false, 4200, 2.3, 25, 'Cross-country industrial marathon from Chennai port to Ahmedabad textile & chemical hub.'),
+    R('hyd-lko', 1350, 22, 2600, 2100, 0.65, 0.70, false, 3200, 2.3, 25, 'Deccan to Awadh cultural and commercial corridor via Nagpur and Jabalpur/Kanpur.'),
+    R('blr-lko', 1750, 28, 3250, 1800, 0.60, 0.75, false, 4000, 2.4, 30, 'Southern tech capital to Uttar Pradesh capital via Nagpur. High seasonal migration and executive sleeper demand.'),
 
     // —— Major South Indian Mid-Haul & Long-Haul Additions ——
     // Andhra & Telangana corridors
@@ -448,6 +478,21 @@ const VIA_CORRIDORS: [string, string, string[]][] = [
 
   // North & West
   ['del', 'lko', ['agr']],
+
+  // South to North / West / East Marathons
+  ['blr', 'nag', ['kno', 'hyd']],
+  ['hyd', 'amd', ['pnq']],
+  ['maa', 'bbs', ['nlr', 'vga', 'viz']],
+  ['hyd', 'del', ['nag', 'agr']],
+  ['blr', 'del', ['hyd', 'nag', 'agr']],
+  ['maa', 'del', ['vga', 'nag', 'agr']],
+  ['koc', 'del', ['cbe', 'blr', 'nag', 'agr']],
+  ['hyd', 'jai', ['nag', 'agr']],
+  ['blr', 'jai', ['hyd', 'nag', 'agr']],
+  ['blr', 'amd', ['hbl', 'pnq']],
+  ['maa', 'amd', ['blr', 'pnq']],
+  ['hyd', 'lko', ['nag']],
+  ['blr', 'lko', ['hyd', 'nag']],
 ]
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)

@@ -427,16 +427,20 @@ export function createSchedule(s: GameState, input: ScheduleInput): { id: ID } |
       returnDepMin = sug.depMin
     }
     const retMin = (returnDepMin === 30 ? 30 : 0) as 0 | 30
-    const dayOffset = sug.dayOffset
-    // If player picked a clock earlier than earliest same-day, allow next-day offset.
-    const sameDayOk = isReturnValid(out, { depHour: returnDepHour, depMin: retMin }, route, 0)
-    const nextDayOk = isReturnValid(out, { depHour: returnDepHour, depMin: retMin }, route, 1)
-    if (!sameDayOk && !nextDayOk) {
-      return {
-        error: `Return too early — earliest is ${fmtClock(sug)}${sug.dayOffset ? ' (next day)' : ''}.`,
+    const retClock = { depHour: returnDepHour, depMin: retMin }
+    let valid = false
+    for (let d = 0; d <= Math.max(3, sug.dayOffset + 1); d++) {
+      if (isReturnValid(out, retClock, route, d, s)) {
+        valid = true
+        break
       }
     }
-    void dayOffset
+    if (!valid) {
+      const offsetNote = sug.dayOffset > 1 ? ` (+${sug.dayOffset}d)` : sug.dayOffset === 1 ? ' (next day)' : ''
+      return {
+        error: `Return too early — earliest is ${fmtClock(sug)}${offsetNote}.`,
+      }
+    }
   }
 
   if (input.serviceKind === 'cargo' && !s.company.dedicatedCargoSubsidiary) {
@@ -641,7 +645,13 @@ export function updateSchedule(s: GameState, schId: ID, patch: Partial<ScheduleI
           return prevRet.depHour === oldSug.depHour && prevRet.depMin === oldSug.depMin
         })()
       const ret = { depHour: sch.returnDepHour, depMin: sch.returnDepMin }
-      const invalid = !isReturnValid(sch, ret, route, 0) && !isReturnValid(sch, ret, route, 1)
+      let invalid = true
+      for (let d = 0; d <= Math.max(3, sug.dayOffset + 1); d++) {
+        if (isReturnValid(sch, ret, route, d, s)) {
+          invalid = false
+          break
+        }
+      }
       if (wasAuto || invalid) {
         sch.returnDepHour = sug.depHour
         sch.returnDepMin = sug.depMin
@@ -837,7 +847,8 @@ export function assignBus(s: GameState, schId: ID, busId: ID): string | null {
   const sch = s.schedules[schId]
   const bus = s.buses[busId]
   if (!sch || !bus) return 'Missing schedule or bus.'
-  if (sch.busIds.length >= 2) return 'A schedule takes at most 2 buses (one per direction).'
+  const maxBuses = BAL.scheduleMaxCoaches ?? 4
+  if (sch.busIds.length >= maxBuses) return `A schedule takes at most ${maxBuses} buses.`
   if (sch.busIds.includes(busId)) return 'Already assigned.'
   if (bus.scheduleId && bus.scheduleId !== schId) return 'Bus is on another schedule - unassign it first.'
   // A stale bus.scheduleId must never let one vehicle run two services at once.
@@ -872,8 +883,8 @@ export function assignBus(s: GameState, schId: ID, busId: ID): string | null {
     sch.baseFareSleeper = roundFare(sch.baseFare * 1.15)
     sch.baseFareSeater = roundFare(sch.baseFare * 0.85)
   }
-  if (sch.paired && sch.busIds.length === 2 && route) {
-    bus.parkedCityId = route.to
+  if (sch.paired && route) {
+    bus.parkedCityId = sch.busIds.length % 2 === 0 ? route.to : route.from
   } else if (!bus.parkedCityId && route) {
     bus.parkedCityId = route.from
   }

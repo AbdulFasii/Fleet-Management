@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
+import { BAL } from '../../engine/data/balance'
 import { ROUTES, routeName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
 import { BUS_MODELS, coachKind, coachKindClass, isCargoModel, modelTitleById } from '../../engine/data/busModels'
 import { enabledChannelLabels } from '../../engine/data/channels'
 import { getScheduleDefaults, scheduleIsCargo, scheduleOccLf } from '../../engine/sim/schedules'
 import { serviceTierFareMult } from '../../engine/sim/pricing'
 import { isNewVehicle } from '../../engine/sim/fleet'
-import { fmtTurnaround, runningMinutes, suggestReturnSlot, hasYardOrHome } from '../../engine/sim/pairing'
+import { fmtTurnaround, runningMinutes, suggestReturnSlot, hasYardOrHome, recommendedFleetSize } from '../../engine/sim/pairing'
 import { clockFromMinutes, clockMinutes, fmtClock, HALF_HOUR_SLOTS } from '../../engine/core/calendar'
 import { toRupees, rs } from '../../engine/core/money'
 import type { Bus, GameState, ID, RouteDef, Schedule, ServiceTier } from '../../engine/types'
@@ -47,9 +48,10 @@ function busPickLabel(b: Bus, day: number, extra?: string): string {
 
 function fmtReach(depHour: number, depMin: 0 | 30 | undefined, route: RouteDef): string {
   const abs = clockMinutes({ depHour, depMin }) + runningMinutes(route)
-  const nextDay = abs >= 1440
+  const days = Math.floor(abs / 1440)
   const clock = clockFromMinutes(abs)
-  return `reaches ${fmtClock(clock)}${nextDay ? ' +1d' : ''}`
+  const dayTag = days > 0 ? ` +${days}d` : ''
+  return `reaches ${fmtClock(clock)}${dayTag} (${route.hours}h)`
 }
 
 /** Actual gap from 1st-trip arrival to 2nd-trip departure (not the formula floor). */
@@ -62,12 +64,14 @@ function fmtLayover(
 ): string {
   const arriveAbs = clockMinutes({ depHour: outHour, depMin: outMin }) + runningMinutes(route)
   let retAbs = clockMinutes({ depHour: retHour, depMin: retMin })
-  if (retAbs < arriveAbs) retAbs += 1440
+  while (retAbs < arriveAbs) retAbs += 1440
   const gap = retAbs - arriveAbs
-  if (gap < 60) return `${gap}m layover`
+  const dayOffset = Math.floor(retAbs / 1440) - Math.floor(arriveAbs / 1440)
+  const dayTag = dayOffset > 0 ? ` (+${dayOffset}d)` : ''
+  if (gap < 60) return `${gap}m layover${dayTag}`
   const h = Math.floor(gap / 60)
   const m = gap % 60
-  return m ? `${h}h ${m}m layover` : `${h}h layover`
+  return (m ? `${h}h ${m}m layover` : `${h}h layover`) + dayTag
 }
 
 function suggestedSlots(route: RouteDef): { depHour: number; depMin: 0 | 30; label: string }[] {
@@ -113,21 +117,27 @@ function sortFreeBuses(buses: Bus[], route: RouteDef | undefined): Bus[] {
   return [...buses].sort((a, b) => busFitScore(a, route) - busFitScore(b, route) || a.reg.localeCompare(b.reg))
 }
 
-type ServiceStatus = 'live' | 'needs_bus' | 'needs_2nd' | 'suspended'
+type ServiceStatus = 'live' | 'needs_bus' | 'needs_2nd' | 'needs_more' | 'suspended'
 
-function serviceStatus(sch: Schedule, route: RouteDef | undefined, isCargo = false): ServiceStatus {
+function serviceStatus(sch: Schedule, route: RouteDef | undefined, isCargo = false, s?: GameState): ServiceStatus {
   // Cargo runs are one-way, so they never need a second coach for a return leg.
   const paired = Boolean(sch.paired) && !isCargo
   if (!sch.active) return 'suspended'
   if (sch.festivalOnly || (sch.outboundDuty === 'festival' && (!paired || sch.returnDuty === 'festival'))) return 'live' // buses park automatically on festival days
   if (sch.busIds.length === 0) return 'needs_bus'
-  if (route && route.hours > 6 && paired && sch.busIds.length < 2) return 'needs_2nd'
+  if (route) {
+    const rec = recommendedFleetSize(route, paired, s)
+    if (sch.busIds.length < rec) {
+      return rec > 2 ? 'needs_more' : 'needs_2nd'
+    }
+  }
   return 'live'
 }
 
 function StatusBadge({ status }: { status: ServiceStatus }) {
   if (status === 'needs_bus') return <span className="pill bad">Needs bus</span>
   if (status === 'needs_2nd') return <span className="pill warn">Needs 2nd</span>
+  if (status === 'needs_more') return <span className="pill warn">Needs more coaches</span>
   if (status === 'suspended') return <span className="pill bad">Off</span>
   return <span className="pill good">Live</span>
 }
@@ -313,7 +323,7 @@ function CreateModal({ onClose, defaultRouteId }: {
             const schs = Object.values(s.schedules).filter((sch) => canonicalRouteId(sch.routeId) === canonicalRouteId(r) && ROUTES[sch.routeId])
             const n = schs.length
             const busCount = schs.reduce((acc, sch) => acc + (sch.busIds?.length ?? 0), 0)
-            const targetBuses = schs.reduce((acc, sch) => acc + (sch.paired ? 2 : 1), 0)
+            const targetBuses = schs.reduce((acc, sch) => acc + recommendedFleetSize(ROUTES[sch.routeId] ?? ROUTES[canonicalRouteId(sch.routeId)], Boolean(sch.paired) && !scheduleIsCargo(s, sch), s), 0)
             const isShort = schs.length > 0 && busCount < targetBuses
             const busText = isShort
               ? `⚠️ ${busCount}/${targetBuses} buses`
@@ -918,7 +928,7 @@ function ServiceCard({ sch, s, g, freeBuses, autoEdit, onAutoEditHandled }: {
   }, [autoEdit, sch.id])
   const route = ROUTES[sch.routeId]
   const isCargoSvc = scheduleIsCargo(s, sch)
-  const status = serviceStatus(sch, route, isCargoSvc)
+  const status = serviceStatus(sch, route, isCargoSvc, s)
   const paired = Boolean(sch.paired) && !isCargoSvc
   const last30Lf = scheduleOccLf(sch, s.day, 30, 'out')
   const return30Lf = paired && sch.returnDepHour !== undefined ? scheduleOccLf(sch, s.day, 30, 'return') : null
@@ -992,6 +1002,14 @@ function ServiceCard({ sch, s, g, freeBuses, autoEdit, onAutoEditHandled }: {
           {paired && route && !hasYardOrHome(s, route.to) && (
             <span className="pill warn" title="No leased yard in return city (+30 min public bay turnaround)">Public bay +30 min</span>
           )}
+          {route && !isCargoSvc && (
+            <span
+              className={`pill ${sch.busIds.length >= recommendedFleetSize(route, paired, s) ? 'good' : 'warn'}`}
+              title={`Recommended fleet for continuous operation: ${recommendedFleetSize(route, paired, s)} coaches`}
+            >
+              {sch.busIds.length}/{recommendedFleetSize(route, paired, s)} coaches
+            </span>
+          )}
           <StatusBadge status={status} />
         </div>
       </header>
@@ -1020,7 +1038,7 @@ function ServiceCard({ sch, s, g, freeBuses, autoEdit, onAutoEditHandled }: {
               </div>
             )
           })}
-          {sch.busIds.length < 2 && ranked.length > 0 && (
+          {sch.busIds.length < (BAL.scheduleMaxCoaches ?? 4) && ranked.length > 0 && (
             <select
               className="small"
               value=""
@@ -1192,7 +1210,6 @@ export function SchedulesPage() {
 
       entry.services += 1
       entry.buses += (sch.busIds?.length ?? 0)
-      entry.targetBuses += (sch.paired ? 2 : 1)
 
       if (sch.groupId) {
         entry.groupCounts.set(sch.groupId, (entry.groupCounts.get(sch.groupId) ?? 0) + 1)
@@ -1200,6 +1217,8 @@ export function SchedulesPage() {
 
       const isCargo = scheduleIsCargo(s, sch)
       if (isCargo) entry.cargoCount += 1
+      const rDef = ROUTES[sch.routeId] ?? ROUTES[canon]
+      entry.targetBuses += recommendedFleetSize(rDef, Boolean(sch.paired) && !isCargo, s)
 
       const outLf = scheduleOccLf(sch, s.day, 30, 'out')
       if (outLf !== null) entry.occLfs.push(outLf)
@@ -1306,7 +1325,10 @@ export function SchedulesPage() {
       .sort((a, b) => clockMinutes(a) - clockMinutes(b))
   }, [s.schedules, selected, effectiveSelected, brandFilter])
 
-  const selectedTargetBuses = schedules.reduce((acc, sch) => acc + (sch.paired ? 2 : 1), 0)
+  const selectedTargetBuses = schedules.reduce((acc, sch) => {
+    const rDef = ROUTES[sch.routeId] ?? ROUTES[canonicalRouteId(sch.routeId)]
+    return acc + recommendedFleetSize(rDef, Boolean(sch.paired) && !scheduleIsCargo(s, sch), s)
+  }, 0)
   const selectedBusCount = schedules.reduce((acc, sch) => acc + (sch.busIds?.length ?? 0), 0)
   const selectedIsShort = schedules.length > 0 && selectedBusCount < selectedTargetBuses
 

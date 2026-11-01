@@ -27,7 +27,7 @@ function pairedTripId(schId: string, busId: string, day: number, dir: 'AB' | 'BA
  */
 export function pairedReturnOf(s: GameState, outTrip: Trip, pairs?: Map<string, Trip>): Trip | undefined {
   const schId = outTrip.scheduleId
-  for (const day of [outTrip.day, outTrip.day + 1, outTrip.day - 1]) {
+  for (const day of [outTrip.day, outTrip.day + 1, outTrip.day + 2, outTrip.day + 3, outTrip.day - 1]) {
     const t = s.trips[pairedTripId(schId, outTrip.busId, day, 'BA')]
     if (t && t.status === 'open' && t.pairOfTripId === outTrip.id) return t
   }
@@ -60,11 +60,24 @@ export function hasYardOrHome(s?: GameState, cityId?: string): boolean {
   return s.yards?.some((y) => y.cityId === cityId) ?? false
 }
 
+/** Rest/layover minutes scaled by route duration for long hauls beyond 6 hours. */
+export function layoverMinutes(route: { hours?: number }): number {
+  const h = route?.hours ?? 0
+  const thresh = BAL.layoverMinHaulHours ?? 6
+  if (h <= thresh) return 0
+  const slope = BAL.layoverSlope ?? 0.48
+  const maxMin = BAL.layoverMaxMin ?? 960
+  const layoverH = Math.min(maxMin / 60, 1.5 + (h - thresh) * slope)
+  return Math.round(layoverH * 60)
+}
+
 /** Terminal + rest minutes before the coach can leave on the return. Adds 30m without a yard. */
-export function turnaroundMinutes(route: { km?: number; to?: string }, s?: GameState): number {
+export function turnaroundMinutes(route: { hours?: number; km?: number; to?: string }, s?: GameState): number {
   const hasYard = hasYardOrHome(s, route.to)
   const base = BAL.pairMinTurnMin
-  return hasYard ? base : base + 30
+  const yardExtra = hasYard ? 0 : 30
+  const layover = layoverMinutes(route)
+  return base + yardExtra + layover
 }
 
 /** Running time in minutes (aligned with demand/hours, not the turnaround formula). */
@@ -72,10 +85,28 @@ export function runningMinutes(route: { hours: number }): number {
   return Math.round(route.hours * 60)
 }
 
+/** Recommended fleet size for a schedule to operate continuously without service gaps. */
+export function recommendedFleetSize(
+  route: RouteDef | undefined,
+  paired: boolean,
+  s?: GameState,
+): number {
+  if (!route) return paired ? 2 : 1
+  const hours = route.hours ?? 6
+  const turnMin = turnaroundMinutes(route, s)
+  const turnHours = turnMin / 60
+  const maxCap = BAL.scheduleMaxCoaches ?? 4
+  if (!paired) {
+    return Math.max(1, Math.min(maxCap, Math.ceil((hours + turnHours) / 24)))
+  }
+  // Paired round trip requires full outbound + layover + return + layover cycle
+  return Math.max(2, Math.min(maxCap, Math.ceil((2 * hours + 2 * turnHours) / 24)))
+}
+
 export interface ReturnPlan {
-  /** Absolute minutes from outbound calendar midnight (may be ≥ 1440 → next day). */
+  /** Absolute minutes from outbound calendar midnight (may be ≥ 1440 → next day, ≥ 2880 → +2d). */
   absMin: number
-  dayOffset: 0 | 1
+  dayOffset: number
   depHour: number
   depMin: 0 | 30
 }
@@ -85,50 +116,41 @@ export function earliestReturn(out: DepClock, route: RouteDef, s?: GameState): R
   const outMin = clockMinutes(out)
   const ready = outMin + runningMinutes(route) + turnaroundMinutes(route, s)
   const snapped = Math.ceil(ready / 30) * 30
-  const dayOffset = (snapped >= 1440 ? 1 : 0) as 0 | 1
+  const dayOffset = Math.floor(snapped / 1440)
   const clock = clockFromMinutes(snapped)
   return { absMin: snapped, dayOffset, depHour: clock.depHour, depMin: clock.depMin }
 }
 
-export function suggestReturnSlot(out: DepClock, route: RouteDef, s?: GameState): { depHour: number; depMin: 0 | 30; dayOffset: 0 | 1 } {
+export function suggestReturnSlot(out: DepClock, route: RouteDef, s?: GameState): { depHour: number; depMin: 0 | 30; dayOffset: number } {
   const e = earliestReturn(out, route, s)
   return { depHour: e.depHour, depMin: e.depMin, dayOffset: e.dayOffset }
 }
 
 /** Absolute minutes of a return clock relative to outbound calendar day 0. */
-export function returnAbsMinutes(ret: DepClock, dayOffset: 0 | 1): number {
+export function returnAbsMinutes(ret: DepClock, dayOffset: number): number {
   return dayOffset * 1440 + clockMinutes(ret)
 }
 
 /**
  * Day offset for BA relative to outbound day when using schedule return slot.
- * If return clock is earlier than outbound (same clock face), treat as next day
- * only when earliest ready already crossed midnight; otherwise same day if
- * return ≥ earliest same-day ready.
+ * Ensures the return departure is strictly at or after earliest ready time.
  */
-export function pairReturnDayOffset(sch: Schedule, route: RouteDef, s?: GameState): 0 | 1 {
+export function pairReturnDayOffset(sch: Schedule, route: RouteDef, s?: GameState): number {
   if (!sch.paired) return 0
   const out = { depHour: sch.depHour, depMin: sch.depMin }
   const earliest = earliestReturn(out, route, s)
   const retHour = sch.returnDepHour ?? earliest.depHour
   const retMin = (sch.returnDepMin === 30 ? 30 : 0) as 0 | 30
-  const sameDayAbs = clockMinutes({ depHour: retHour, depMin: retMin })
-  if (earliest.dayOffset === 1) {
-    // Must be next day if ready is after midnight; if player set a late night
-    // same-day clock that is still after earliest on day 0, allow day 0.
-    if (sameDayAbs >= earliest.absMin) return 0
-    return 1
+  const retClockMin = clockMinutes({ depHour: retHour, depMin: retMin })
+
+  if (retClockMin >= earliest.absMin) {
+    return 0
   }
-  // Same-day earliest: if chosen return is before outbound clock, it's next day.
-  if (sameDayAbs < clockMinutes(out) && sameDayAbs < earliest.absMin) return 1
-  if (sameDayAbs < earliest.absMin) {
-    // Invalid for same day — treat as next day slot matching the clock face
-    return 1
-  }
-  return 0
+  const minDayOffset = Math.ceil((earliest.absMin - retClockMin) / 1440)
+  return Math.max(earliest.dayOffset, minDayOffset)
 }
 
-export function pairReturnClock(sch: Schedule, route: RouteDef, s?: GameState): { depHour: number; depMin: 0 | 30; dayOffset: 0 | 1 } {
+export function pairReturnClock(sch: Schedule, route: RouteDef, s?: GameState): { depHour: number; depMin: 0 | 30; dayOffset: number } {
   const out = { depHour: sch.depHour, depMin: sch.depMin }
   const earliest = earliestReturn(out, route, s)
   const depHour = sch.returnDepHour ?? earliest.depHour
@@ -142,22 +164,22 @@ export function pairReturnClock(sch: Schedule, route: RouteDef, s?: GameState): 
 }
 
 /** True if return slot is at/after earliest ready (accounting for day wrap). */
-export function isReturnValid(out: DepClock, ret: DepClock, route: RouteDef, dayOffset: 0 | 1, s?: GameState): boolean {
+export function isReturnValid(out: DepClock, ret: DepClock, route: RouteDef, dayOffset: number, s?: GameState): boolean {
   const earliest = earliestReturn(out, route, s)
   const abs = returnAbsMinutes(ret, dayOffset)
   return abs >= earliest.absMin
 }
 
 /** Snap absolute minutes up to next half-hour clock (may cross midnight). */
-export function ceilHalfHourAbs(absMin: number): { absMin: number; depHour: number; depMin: 0 | 30; dayOffset: 0 | 1 } {
+export function ceilHalfHourAbs(absMin: number): { absMin: number; depHour: number; depMin: 0 | 30; dayOffset: number } {
   const snapped = Math.ceil(absMin / 30) * 30
-  const dayOffset = Math.floor(snapped / 1440) as 0 | 1 | number
+  const dayOffset = Math.floor(snapped / 1440)
   const clock = clockFromMinutes(snapped)
   return {
     absMin: snapped,
     depHour: clock.depHour,
     depMin: clock.depMin,
-    dayOffset: (dayOffset > 0 ? 1 : 0) as 0 | 1,
+    dayOffset,
   }
 }
 
