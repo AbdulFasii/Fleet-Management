@@ -790,7 +790,8 @@ export function sanitizeScheduleAssignments(s: GameState): number {
     if (!bus) continue
     if (claimed.has(c.busId)) continue
     const slots = keep.get(c.sch.id) ?? new Set<number>()
-    if (slots.size >= 2) continue
+    const maxBuses = BAL.scheduleMaxCoaches ?? 4
+    if (slots.size >= maxBuses) continue
     claimed.set(c.busId, c.sch.id)
     slots.add(c.slot)
     keep.set(c.sch.id, slots)

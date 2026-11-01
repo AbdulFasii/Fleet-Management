@@ -187,5 +187,60 @@ for (let d = s.day; d <= s.day + 3; d++) {
   assert(ba.length >= 1, `Day ${d} must have at least 1 BA departure`)
 }
 
+// Test sanitizeScheduleAssignments preserves 4 buses
+import { sanitizeScheduleAssignments } from '../src/engine/sim/schedules'
+const repairs = sanitizeScheduleAssignments(s)
+assert.strictEqual(repairs, 0, 'sanitizeScheduleAssignments should not repair or drop valid 4-bus assignment')
+assert.strictEqual(sch.busIds.length, 4, 'All 4 buses must stay retained after sanitization pass')
+
+console.log('--- 6. Testing 3-Bus Unpaired Marathon (koc-del 36h) ---')
+s.permits['koc-del'] = {
+  id: 'p_koc_del',
+  routeId: 'koc-del',
+  status: 'active',
+  grantedDay: s.day,
+  expiryDay: s.day + 365,
+  costMonthly: 5000,
+  tripsRun: 0,
+} as any
+
+const schKocRes = createSchedule(s, {
+  routeId: 'koc-del',
+  depHour: 20,
+  depMin: 0,
+  paired: false,
+  baseFare: 4500,
+})
+assert('id' in schKocRes, `koc-del schedule creation failed: ${JSON.stringify(schKocRes)}`)
+const kocSchId = schKocRes.id
+
+const kb1 = makeTestBus(s, 'kb1', 'KL 07 AB 1111', 'koc')
+const kb2 = makeTestBus(s, 'kb2', 'KL 07 CD 2222', 'koc')
+const kb3 = makeTestBus(s, 'kb3', 'KL 07 EF 3333', 'koc')
+s.buses['kb1'] = kb1
+s.buses['kb2'] = kb2
+s.buses['kb3'] = kb3
+
+assert.strictEqual(assignBus(s, kocSchId, kb1.id), null)
+assert.strictEqual(assignBus(s, kocSchId, kb2.id), null)
+assert.strictEqual(assignBus(s, kocSchId, kb3.id), null, 'Must be able to assign the 3rd bus!')
+
+const kocSch = s.schedules[kocSchId]
+assert.strictEqual(kocSch.busIds.length, 3, '3 buses successfully assigned to koc-del')
+
+// Sanitize pass must retain all 3 buses
+assert.strictEqual(sanitizeScheduleAssignments(s), 0)
+assert.strictEqual(kocSch.busIds.length, 3, '3 buses retained after sanitizeScheduleAssignments')
+
+generateTrips(s)
+const kocTrips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId)
+console.log(`  Generated ${kocTrips.length} trips on 3-coach koc-del schedule.`)
+for (let d = s.day; d <= s.day + 2; d++) {
+  const dTrips = kocTrips.filter((t) => t.day === d)
+  assert.strictEqual(dTrips.length, 1, `Day ${d} must have exactly 1 departure on 3-coach marathon`)
+  console.log(`  Day ${d}: Bus ${dTrips[0]?.busId} departs ${dTrips[0]?.direction}`)
+}
+console.log('✓ 3-coach unpaired marathon runs smoothly without drop or clash!')
+
 console.log('✓ Multi-bus rotation generates daily departures in both directions without collision!')
 console.log('ALL TESTS PASSED!')

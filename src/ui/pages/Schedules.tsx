@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { BAL } from '../../engine/data/balance'
-import { ROUTES, routeName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
+import { ROUTES, routeName, cityName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
 import { BUS_MODELS, coachKind, coachKindClass, isCargoModel, modelTitleById } from '../../engine/data/busModels'
 import { enabledChannelLabels } from '../../engine/data/channels'
 import { getScheduleDefaults, scheduleIsCargo, scheduleOccLf } from '../../engine/sim/schedules'
@@ -166,6 +166,149 @@ function DepartureSelect({ hour, min, onChange }: {
         <option key={clockMinutes(c)} value={clockMinutes(c)}>{fmtClock(c)}</option>
       ))}
     </select>
+  )
+}
+
+function RotationTooltip({
+  sch,
+  route,
+  s,
+}: {
+  sch: Schedule
+  route: RouteDef
+  s: GameState
+}) {
+  const isCargoSvc = scheduleIsCargo(s, sch)
+  const paired = Boolean(sch.paired) && !isCargoSvc
+  const rec = recommendedFleetSize(route, paired, s)
+  const busCount = sch.busIds?.length ?? 0
+  const runMin = runningMinutes(route)
+  const turnMin = turnaroundMinutes(route, s)
+  const layoverH = (turnMin / 60).toFixed(1).replace('.0', '')
+  const cycleDays = Math.max(1, Math.ceil((runMin + turnMin) / 1440))
+
+  const outMin = clockMinutes(sch)
+  const arrAbs = outMin + runMin
+  const arrDays = Math.floor(arrAbs / 1440)
+  const arrClock = clockFromMinutes(arrAbs)
+  const arrTag = arrDays > 0 ? `+${arrDays}d` : ''
+
+  const fromCity = cityName(route.from)
+  const toCity = cityName(route.to)
+
+  const readyAbs = arrAbs + turnMin
+  const readyDays = Math.floor(readyAbs / 1440)
+  const readyClock = clockFromMinutes(readyAbs)
+  const readyTag = readyDays > 0 ? `+${readyDays}d` : ''
+
+  const plainText = [
+    `Coach Timing & Rotation Schedule:`,
+    `• Outbound: ${fmtClock(sch)} ${fromCity} → reaches ${fmtClock(arrClock)}${arrTag ? ' ' + arrTag : ''} ${toCity} (${route.hours}h)`,
+    `• Layover Rest: ${layoverH}h turnaround & vehicle rest at ${toCity} (dispatch ready: ${fmtClock(readyClock)}${readyTag ? ' ' + readyTag : ''})`,
+    paired && sch.returnDepHour !== undefined
+      ? `• Return: ${fmtClock({ depHour: sch.returnDepHour, depMin: sch.returnDepMin })} ${toCity} → ${fromCity}`
+      : `• Return: Coach returns on alternating service run`,
+    `• Rotation Cycle: ${cycleDays} day${cycleDays > 1 ? 's' : ''} per vehicle · ${rec} coaches recommended for continuous daily operations`,
+    `• Current Assigned: ${busCount}/${rec} coaches`,
+  ].join('\n')
+
+  return (
+    <span
+      className="panel-info"
+      tabIndex={0}
+      title={plainText}
+      style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle', cursor: 'help' }}
+    >
+      <span
+        className="panel-info-icon"
+        style={{
+          borderColor: busCount < rec ? 'var(--warn)' : 'var(--good)',
+          color: busCount < rec ? 'var(--warn)' : 'var(--good)',
+        }}
+      >
+        i
+      </span>
+      <div
+        className="panel-info-tip"
+        style={{
+          width: 330,
+          padding: '10px 12px',
+          background: 'var(--bg3, #151a21)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          zIndex: 100,
+          textAlign: 'left',
+          lineHeight: 1.45,
+          color: 'var(--fg)',
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 700,
+            fontSize: '11px',
+            marginBottom: 6,
+            borderBottom: '1px solid var(--border)',
+            paddingBottom: 4,
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>Coach Rotation & Timing</span>
+          <span className={busCount >= rec ? 'good' : 'warn'}>
+            {busCount}/{rec} Coaches
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: '11px' }}>
+          <div>
+            <b>Outbound Leg:</b>{' '}
+            <span className="accent">{fmtClock(sch)}</span> {fromCity} →{' '}
+            <span>reaches <b>{fmtClock(arrClock)}{arrTag ? ' ' + arrTag : ''}</b></span> ({route.hours}h run)
+          </div>
+
+          <div style={{ color: 'var(--fg-dim)', background: 'var(--bg2, rgba(255,255,255,0.05))', padding: '5px 7px', borderRadius: 4 }}>
+            <b>Vehicle Layover & Rest:</b> {layoverH}h at {toCity}
+            <div className="dim small" style={{ marginTop: 2 }}>
+              CMVR & mechanics turnaround; ready to depart from {fmtClock(readyClock)}{readyTag ? ' ' + readyTag : ''}.
+            </div>
+          </div>
+
+          {paired && sch.returnDepHour !== undefined && (
+            <div>
+              <b>Return Leg:</b>{' '}
+              <span className="accent">{fmtClock({ depHour: sch.returnDepHour, depMin: sch.returnDepMin })}</span> {toCity} → {fromCity}
+            </div>
+          )}
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 5 }}>
+            <b>How Coaches Rotate ({cycleDays}d cycle):</b>
+            <div className="dim small" style={{ marginTop: 2 }}>
+              {cycleDays === 1 && (
+                <>Coaches alternate directions daily. 2 coaches provide continuous round-trip daily departures.</>
+              )}
+              {cycleDays === 2 && paired && (
+                <>48h cycle: Coaches rotate in pairs (Coaches 1 & 2 on even days, Coaches 3 & 4 on odd days) for daily service both ways.</>
+              )}
+              {cycleDays >= 2 && !paired && (
+                <>Each coach departs every {cycleDays} days, alternating out and back. {rec} coaches needed for 1 departure every day.</>
+              )}
+              {cycleDays >= 3 && paired && (
+                <>72h ultra-marathon cycle: each coach needs 3 days between departures ({route.hours}h travel + {layoverH}h rest). {rec} coaches ensure daily departures.</>
+              )}
+            </div>
+          </div>
+
+          <div style={{ paddingTop: 4, borderTop: '1px solid var(--border)' }}>
+            {busCount >= rec ? (
+              <span className="good small">✓ Fully staffed for 100% daily operations without rest clashes.</span>
+            ) : (
+              <span className="warn small">⚠️ Assign {rec - busCount} more coach{rec - busCount > 1 ? 'es' : ''} to run daily service without departure gaps.</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </span>
   )
 }
 
@@ -1003,11 +1146,14 @@ function ServiceCard({ sch, s, g, freeBuses, autoEdit, onAutoEditHandled }: {
             <span className="pill warn" title="No leased yard in return city (+30 min public bay turnaround)">Public bay +30 min</span>
           )}
           {route && !isCargoSvc && (
-            <span
-              className={`pill ${sch.busIds.length >= recommendedFleetSize(route, paired, s) ? 'good' : 'warn'}`}
-              title={`Recommended fleet for continuous operation: ${recommendedFleetSize(route, paired, s)} coaches`}
-            >
-              {sch.busIds.length}/{recommendedFleetSize(route, paired, s)} coaches
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <span
+                className={`pill ${sch.busIds.length >= recommendedFleetSize(route, paired, s) ? 'good' : 'warn'}`}
+                title={`Recommended fleet for continuous operation: ${recommendedFleetSize(route, paired, s)} coaches`}
+              >
+                {sch.busIds.length}/{recommendedFleetSize(route, paired, s)} coaches
+              </span>
+              <RotationTooltip sch={sch} route={route} s={s} />
             </span>
           )}
           <StatusBadge status={status} />
@@ -1458,15 +1604,25 @@ export function SchedulesPage() {
                 )}
                 {schedules.length > 0 && (
                   selectedIsShort ? (
-                    <span
-                      className="pill warn small"
-                      title={`Route needs ${selectedTargetBuses} buses for all scheduled trips, but only ${selectedBusCount} assigned.`}
-                    >
-                      ⚠️ {selectedBusCount}/{selectedTargetBuses} buses
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      <span
+                        className="pill warn small"
+                        title={`Route needs ${selectedTargetBuses} buses for all scheduled trips, but only ${selectedBusCount} assigned.`}
+                      >
+                        ⚠️ {selectedBusCount}/{selectedTargetBuses} buses
+                      </span>
+                      {route && schedules[0] && (
+                        <RotationTooltip sch={schedules[0]} route={route} s={s} />
+                      )}
                     </span>
                   ) : (
-                    <span className="pill good small" title={`All ${selectedTargetBuses} trips have assigned buses.`}>
-                      {selectedBusCount} {selectedBusCount === 1 ? 'bus' : 'buses'}
+                    <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                      <span className="pill good small" title={`All ${selectedTargetBuses} trips have assigned buses.`}>
+                        {selectedBusCount} {selectedBusCount === 1 ? 'bus' : 'buses'}
+                      </span>
+                      {route && schedules[0] && (
+                        <RotationTooltip sch={schedules[0]} route={route} s={s} />
+                      )}
                     </span>
                   )
                 )}

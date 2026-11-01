@@ -285,8 +285,22 @@ function planLegsForDay(
       { dir: 'BA', ...back, day, slot: 1 },
     ]
   } else {
-    const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
-    legs = [{ dir, ...out, day, slot: 1 }]
+    const runMin = Math.round(route.hours * 60)
+    const turnMin = turnaroundMinutes(route)
+    const cycleDays = Math.max(1, Math.ceil((runMin + turnMin) / 1440))
+    const numBuses = sch.busIds.length
+
+    if (cycleDays === 1) {
+      const dir: 'AB' | 'BA' = (day + busIdx) % 2 === 0 ? 'AB' : 'BA'
+      legs = [{ dir, ...out, day, slot: 1 }]
+    } else {
+      const cycleMod = Math.max(cycleDays, numBuses > 0 ? numBuses : 1)
+      const active = (day % cycleMod) === (busIdx % cycleMod)
+      if (!active) return []
+      const cycle = Math.floor(day / cycleDays)
+      const dir: 'AB' | 'BA' = cycle % 2 === 0 ? 'AB' : 'BA'
+      legs = [{ dir, ...out, day, slot: 1 }]
+    }
   }
   return legs
 }
