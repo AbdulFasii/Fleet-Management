@@ -330,7 +330,7 @@ export function refreshMarkets(s: GameState): void {
     let usedBuilderId: string | undefined
     let usedDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
-      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      const designOpts = designsForModel(s, model, { market: 'used' })
       if (designOpts.length > 0) {
         const picked = rPick(rng, designOpts)
         usedDesignId = picked.design.id
@@ -377,7 +377,7 @@ export function refreshMarkets(s: GameState): void {
     let leaseBuilderId: string | undefined
     let leaseDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
-      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      const designOpts = designsForModel(s, model, { market: 'lease' })
       if (designOpts.length > 0) {
         const picked = rPick(rng, designOpts)
         leaseDesignId = picked.design.id
@@ -413,7 +413,7 @@ export function refreshMarkets(s: GameState): void {
     let attachBuilderId: string | undefined
     let attachDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
-      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      const designOpts = designsForModel(s, model, { market: 'attach' })
       if (designOpts.length > 0) {
         const picked = rPick(rng, designOpts)
         attachDesignId = picked.design.id

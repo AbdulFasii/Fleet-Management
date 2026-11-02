@@ -124,7 +124,8 @@ export function SettingsPage() {
     maintDeltaPct: number
     image?: string
     chassisNames: string[]
-    secondaryMarket: boolean
+    availableUsed: boolean
+    availableLeaseAttach: boolean
   }>({
     id: '',
     name: '',
@@ -133,11 +134,13 @@ export function SettingsPage() {
     maintDeltaPct: 0,
     image: undefined,
     chassisNames: [],
-    secondaryMarket: true,
+    availableUsed: true,
+    availableLeaseAttach: true,
   })
 
   const openEditDesign = (builderId: string, d: BodyDesign) => {
     setEditingDesign({ builderId, design: d, isNew: false })
+    const baseSecondary = d.secondaryMarket !== false
     setDesignForm({
       id: d.id,
       name: d.name,
@@ -146,7 +149,8 @@ export function SettingsPage() {
       maintDeltaPct: Math.round(d.maintDelta * 100),
       image: d.image,
       chassisNames: d.chassisNames ? [...d.chassisNames] : [],
-      secondaryMarket: d.secondaryMarket !== false,
+      availableUsed: d.availableUsed !== undefined ? d.availableUsed : baseSecondary,
+      availableLeaseAttach: d.availableLeaseAttach !== undefined ? d.availableLeaseAttach : baseSecondary,
     })
   }
 
@@ -160,6 +164,8 @@ export function SettingsPage() {
       leadDaysAdd: standard.leadDaysAdd,
       comfortDelta: standard.comfortDelta,
       maintDelta: standard.maintDeltaPct / 100,
+      availableUsed: true,
+      availableLeaseAttach: true,
       secondaryMarket: true,
     }
     setEditingDesign({ builderId, design: blank, isNew: true })
@@ -171,7 +177,8 @@ export function SettingsPage() {
       maintDeltaPct: standard.maintDeltaPct,
       image: undefined,
       chassisNames: [],
-      secondaryMarket: true,
+      availableUsed: true,
+      availableLeaseAttach: true,
     })
   }
 
@@ -201,7 +208,9 @@ export function SettingsPage() {
       maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
       image: designForm.image,
       chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
-      secondaryMarket: designForm.secondaryMarket,
+      availableUsed: designForm.availableUsed,
+      availableLeaseAttach: designForm.availableLeaseAttach,
+      secondaryMarket: designForm.availableUsed || designForm.availableLeaseAttach,
     }
 
     if (editingDesign.isNew) {
@@ -2350,14 +2359,24 @@ export function SettingsPage() {
 
             <div className="form-row">
               <label>Secondary market</label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={designForm.secondaryMarket}
-                  onChange={(e) => setDesignForm((f) => ({ ...f, secondaryMarket: e.target.checked }))}
-                />
-                <span>Available on used, dry lease & attach</span>
-              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={designForm.availableUsed}
+                    onChange={(e) => setDesignForm((f) => ({ ...f, availableUsed: e.target.checked }))}
+                  />
+                  <span>Used</span>
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={designForm.availableLeaseAttach}
+                    onChange={(e) => setDesignForm((f) => ({ ...f, availableLeaseAttach: e.target.checked }))}
+                  />
+                  <span>Lease & attached</span>
+                </label>
+              </div>
             </div>
           </div>
         </Modal>

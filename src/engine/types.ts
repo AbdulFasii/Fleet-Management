@@ -21,11 +21,14 @@ export interface BodyDesign {
   maintDelta: number
   image?: string // optional data-URL (as-uploaded, same as branding pic)
   notes?: string
-  /**
-   * Chassis platform names this design fits (e.g. "12M", "13.5M", "1824hd").
+  /** Chassis platform names this design fits (e.g. "12M", "13.5M", "1824hd").
    * Empty / omitted = fits every chassis length for the builder's makers.
    */
   chassisNames?: string[]
+  /** When false, design never rolls on used market. Default true. */
+  availableUsed?: boolean
+  /** When false, design never rolls on dry-lease or attach market. Default true. */
+  availableLeaseAttach?: boolean
   /** When false, design never rolls on used / dry-lease / attach. Default true. */
   secondaryMarket?: boolean
 }

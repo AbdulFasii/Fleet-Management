@@ -1298,6 +1298,17 @@ function migrate(raw: unknown): GameState | null {
     }
   }
 
+  if (s.version < 32) {
+    if (s.bodyBuilders) {
+      for (const b of Object.values(s.bodyBuilders)) {
+        for (const d of b.designs) {
+          if (d.availableUsed === undefined) d.availableUsed = d.secondaryMarket !== false
+          if (d.availableLeaseAttach === undefined) d.availableLeaseAttach = d.secondaryMarket !== false
+        }
+      }
+    }
+  }
+
   s.version = SAVE_VERSION
   return s
 }

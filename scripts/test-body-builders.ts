@@ -135,17 +135,31 @@ const customRent = leaseMonthlyRent('bb1824', 3, 120_000, 'mg_luxe', s)
 assert(customRent > baseRent, `Lease rent with premium body is higher (${customRent} > ${baseRent})`)
 console.log('✓ Body-aware used pricing and lease rent passed')
 
-// 2. Secondary market flag
+// 2. Secondary market separate flags (used vs lease & attach)
 const bbModel = BUS_MODELS['bb1824']!
 const allDesigns = designsForModel(s, bbModel)
 assert(allDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe included by default')
-s.bodyBuilders.mg_group.designs.find((d) => d.id === 'mg_luxe')!.secondaryMarket = false
-const secondaryOnlyDesigns = designsForModel(s, bbModel, { secondaryOnly: true })
-assert(!secondaryOnlyDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe excluded from secondary when secondaryMarket=false')
-const newOnlyDesigns = designsForModel(s, bbModel)
-assert(newOnlyDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe still available for new orders')
-s.bodyBuilders.mg_group.designs.find((d) => d.id === 'mg_luxe')!.secondaryMarket = true
-console.log('✓ secondaryMarket flag filtering passed')
+
+const mgDesign = s.bodyBuilders.mg_group.designs.find((d) => d.id === 'mg_luxe')!
+
+// Disable Used only
+mgDesign.availableUsed = false
+mgDesign.availableLeaseAttach = true
+assert(!designsForModel(s, bbModel, { market: 'used' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe excluded from used')
+assert(designsForModel(s, bbModel, { market: 'lease' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe included in lease')
+assert(designsForModel(s, bbModel, { market: 'attach' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe included in attach')
+
+// Disable Lease & Attach only
+mgDesign.availableUsed = true
+mgDesign.availableLeaseAttach = false
+assert(designsForModel(s, bbModel, { market: 'used' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe included in used')
+assert(!designsForModel(s, bbModel, { market: 'lease' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe excluded from lease')
+assert(!designsForModel(s, bbModel, { market: 'attach' }).some((d) => d.design.id === 'mg_luxe'), 'MG Luxe excluded from attach')
+
+// Reset
+mgDesign.availableUsed = true
+mgDesign.availableLeaseAttach = true
+console.log('✓ Separate availableUsed & availableLeaseAttach flag filtering passed')
 
 // 3. Multi-refresh eligibility check
 let foundVolvoInLeaseOrAttach = false

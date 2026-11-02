@@ -25,6 +25,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: 0.05,
         chassisNames: ['12M', '1017'],
         notes: 'Budget regional coach shell — sized for 12M / 1017 chassis.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
       {
@@ -36,6 +38,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: 0.02,
         chassisNames: ['12M', '13.5M', '1017', '1624'],
         notes: 'Reinforced panelling for mid-length intercity chassis.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
     ],
@@ -53,6 +57,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.15,
         maintDelta: 0,
         notes: 'Reliable corridor coachwork with balanced weight and service access.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
       {
@@ -63,6 +69,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.4,
         maintDelta: -0.02,
         notes: 'Executive finish with quieter cabin and upgraded berth packs.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
     ],
@@ -81,6 +89,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.03,
         chassisNames: ['1624', '1824hd'],
         notes: 'BharatBenz-exclusive MG coach body for 1624 / 1824hd.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
       {
@@ -92,6 +102,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.05,
         chassisNames: ['1824hd'],
         notes: 'Exclusive BB luxury shell — 1824hd chassis only.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
     ],
@@ -109,6 +121,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.25,
         maintDelta: -0.01,
         notes: 'Smooth-line touring body with good highway aero and tidy underbelly bays.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
       {
@@ -120,6 +134,8 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.04,
         chassisNames: ['13.5M', '15M', '1824hd'],
         notes: 'Elite long-haul package — long chassis only.',
+        availableUsed: true,
+        availableLeaseAttach: true,
         secondaryMarket: true,
       },
     ],
@@ -286,11 +302,22 @@ export function designsForMaker(
 export function designsForModel(
   s: GameState | undefined,
   model: BusModel,
-  opts?: { secondaryOnly?: boolean },
+  opts?: { secondaryOnly?: boolean; market?: 'used' | 'lease' | 'attach' },
 ): { builder: BodyBuilder; design: BodyDesign }[] {
   return designsForMaker(s, model.maker).filter(({ design }) => {
     if (!designFitsChassis(design, model.name)) return false
-    if (opts?.secondaryOnly && design.secondaryMarket === false) return false
+    if (opts?.market === 'used') {
+      if (design.availableUsed === false) return false
+      if (design.availableUsed === undefined && design.secondaryMarket === false) return false
+    } else if (opts?.market === 'lease' || opts?.market === 'attach') {
+      if (design.availableLeaseAttach === false) return false
+      if (design.availableLeaseAttach === undefined && design.secondaryMarket === false) return false
+    } else if (opts?.secondaryOnly) {
+      const usedOk = design.availableUsed !== false
+      const leaseOk = design.availableLeaseAttach !== false
+      if (!usedOk && !leaseOk) return false
+      if (design.secondaryMarket === false) return false
+    }
     return true
   })
 }
