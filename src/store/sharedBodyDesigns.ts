@@ -112,8 +112,13 @@ export function getSharedDesignImage(designId: string): string | undefined {
 /** Attaches all known shared images to a set of body builders. */
 export function attachSharedImages(builders: Record<string, BodyBuilder>): Record<string, BodyBuilder> {
   const result: Record<string, BodyBuilder> = JSON.parse(JSON.stringify(builders))
-  for (const b of Object.values(result)) {
+  for (const [bId, b] of Object.entries(result)) {
     for (const d of b.designs) {
+      if (!d.layoutKind) {
+        d.layoutKind =
+          DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKind
+          ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')
+      }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
       } else if (memoryCacheImages[d.id]) {
@@ -142,9 +147,15 @@ export function applySharedToState(
   const result: Record<string, BodyBuilder> = JSON.parse(JSON.stringify(base))
   let sharedUpdated = false
 
-  // First attach any globally known images to the base result
-  for (const b of Object.values(result)) {
+  // First attach any globally known images and ensure layoutKind to the base result
+  for (const [bId, b] of Object.entries(result)) {
     for (const d of b.designs) {
+      if (!d.layoutKind) {
+        d.layoutKind =
+          DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKind
+          ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')
+        sharedUpdated = true
+      }
       if (d.image) {
         if (!memoryCacheImages[d.id]) {
           memoryCacheImages[d.id] = d.image
@@ -161,6 +172,9 @@ export function applySharedToState(
       if (!result[builderId]) {
         result[builderId] = JSON.parse(JSON.stringify(b))
         for (const d of result[builderId].designs) {
+          if (!d.layoutKind) {
+            d.layoutKind = d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'
+          }
           if (d.image) memoryCacheImages[d.id] = d.image
         }
         sharedUpdated = true
@@ -179,6 +193,9 @@ export function applySharedToState(
         if (!found) {
           // Custom design only present in this save
           const copy = JSON.parse(JSON.stringify(d))
+          if (!copy.layoutKind) {
+            copy.layoutKind = copy.name.toLowerCase().includes('semi') ? 'semi' : copy.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'
+          }
           if (!copy.image && memoryCacheImages[copy.id]) {
             copy.image = memoryCacheImages[copy.id]
           }
@@ -188,6 +205,10 @@ export function applySharedToState(
           // Ensure image is attached
           if (!found.image && (d.image || memoryCacheImages[d.id])) {
             found.image = d.image || memoryCacheImages[d.id]
+            sharedUpdated = true
+          }
+          if (d.layoutKind && found.layoutKind !== d.layoutKind) {
+            found.layoutKind = d.layoutKind
             sharedUpdated = true
           }
         }

@@ -11,7 +11,13 @@ import {
   LOCAL_KEY_DESIGNS,
   LOCAL_KEY_IMAGES,
 } from '../src/store/sharedBodyDesigns'
-import { DEFAULT_BODY_BUILDERS, cloneDefaultBodyBuilders } from '../src/engine/data/bodyBuilders'
+import {
+  DEFAULT_BODY_BUILDERS,
+  cloneDefaultBodyBuilders,
+  resolveModelForChassisAndDesign,
+} from '../src/engine/data/bodyBuilders'
+import { BUS_MODELS } from '../src/engine/data/busModels'
+import { rebodyBus } from '../src/engine/sim/maintenance'
 import { clearSaveStores } from '../src/store/saveCodec'
 
 // Mock localStorage for node environment
@@ -130,5 +136,32 @@ const resetDefaults = cloneDefaultBodyBuilders()
 saveSharedBodyDesigns(resetDefaults)
 const afterReset = getSharedBodyBuildersSync()!
 assert.equal(afterReset.prakesh.designs[0].name, 'Prakesh Standard', 'Reset cleans name back to default')
+
+// 9. Test Seating Layout on Body Designs & Model Resolution
+const bbChassis = BUS_MODELS.bb917
+assert.ok(bbChassis, 'bb917 chassis exists')
+
+const sleeperDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'sleeper' as const }
+const semiDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'semi' as const }
+const hybridDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'hybrid' as const }
+
+const resolvedSleep = resolveModelForChassisAndDesign(bbChassis, sleeperDesign)
+assert.equal(resolvedSleep.id, 'bb917sleep', 'BB 1017 + Sleeper design resolves to bb917sleep')
+assert.equal(resolvedSleep.layout.kind, 'sleeper')
+
+const resolvedSemi = resolveModelForChassisAndDesign(bbChassis, semiDesign)
+assert.equal(resolvedSemi.id, 'bb917', 'BB 1017 + Semi design resolves to bb917')
+assert.equal(resolvedSemi.layout.kind, 'semi')
+
+const resolvedHybrid = resolveModelForChassisAndDesign(bbChassis, hybridDesign)
+assert.equal(resolvedHybrid.id, 'bb917hybrid', 'BB 1017 + Hybrid design resolves to bb917hybrid')
+assert.equal(resolvedHybrid.layout.kind, 'hybrid')
+
+// AL 12M Chassis
+const alChassis = BUS_MODELS.cheetah
+assert.ok(alChassis, 'cheetah (AL 12M) chassis exists')
+assert.equal(resolveModelForChassisAndDesign(alChassis, sleeperDesign).id, 'leyacsleep')
+assert.equal(resolveModelForChassisAndDesign(alChassis, semiDesign).id, 'cheetah')
+assert.equal(resolveModelForChassisAndDesign(alChassis, hybridDesign).id, 'leyhybrid')
 
 console.log('✓ All shared body design tests passed successfully!')

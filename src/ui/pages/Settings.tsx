@@ -20,6 +20,9 @@ import {
   matchBodyQualityTier,
   bodyPackageLakhs,
   bodyPackagePriceRange,
+  COACH_LAYOUT_OPTIONS,
+  coachLayoutLabel,
+  type CoachLayoutKind,
 } from '../../engine/data/bodyBuilders'
 import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups } from '../../engine/sim/groups'
 import { KV, Panel, Modal, GroupBadge } from '../bits'
@@ -123,6 +126,7 @@ export function SettingsPage() {
     leadDaysAdd: number
     comfortDelta: number
     maintDeltaPct: number
+    layoutKind: CoachLayoutKind
     image?: string
     chassisNames: string[]
     availableUsed: boolean
@@ -133,6 +137,7 @@ export function SettingsPage() {
     leadDaysAdd: 0,
     comfortDelta: 0,
     maintDeltaPct: 0,
+    layoutKind: 'sleeper',
     image: undefined,
     chassisNames: [],
     availableUsed: true,
@@ -148,6 +153,7 @@ export function SettingsPage() {
       leadDaysAdd: d.leadDaysAdd,
       comfortDelta: d.comfortDelta,
       maintDeltaPct: Math.round(d.maintDelta * 100),
+      layoutKind: d.layoutKind ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'),
       image: d.image,
       chassisNames: d.chassisNames ? [...d.chassisNames] : [],
       availableUsed: d.availableUsed !== undefined ? d.availableUsed : baseSecondary,
@@ -165,6 +171,7 @@ export function SettingsPage() {
       leadDaysAdd: standard.leadDaysAdd,
       comfortDelta: standard.comfortDelta,
       maintDelta: standard.maintDeltaPct / 100,
+      layoutKind: 'sleeper',
       availableUsed: true,
       availableLeaseAttach: true,
       secondaryMarket: true,
@@ -176,6 +183,7 @@ export function SettingsPage() {
       leadDaysAdd: standard.leadDaysAdd,
       comfortDelta: standard.comfortDelta,
       maintDeltaPct: standard.maintDeltaPct,
+      layoutKind: 'sleeper',
       image: undefined,
       chassisNames: [],
       availableUsed: true,
@@ -207,6 +215,7 @@ export function SettingsPage() {
       leadDaysAdd: Number(designForm.leadDaysAdd) || 0,
       comfortDelta: Math.round(Number(designForm.comfortDelta) * 10) / 10,
       maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
+      layoutKind: designForm.layoutKind,
       image: designForm.image,
       chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
       availableUsed: designForm.availableUsed,
@@ -2026,6 +2035,9 @@ export function SettingsPage() {
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{d.name}</div>
                                 <div className="small dim mt4">
+                                  Layout: <b className="accent">{coachLayoutLabel(d.layoutKind)}</b>
+                                </div>
+                                <div className="small dim">
                                   Chassis:{' '}
                                   <b>
                                     {d.chassisNames && d.chassisNames.length > 0
@@ -2293,6 +2305,30 @@ export function SettingsPage() {
                 placeholder="e.g. ARVEX Elite Sleeper"
                 style={{ width: 280 }}
               />
+            </div>
+
+            <div className="form-row" style={{ alignItems: 'flex-start' }}>
+              <label style={{ paddingTop: 6 }}>Seating Layout</label>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {COACH_LAYOUT_OPTIONS.map((opt) => {
+                    const selected = designForm.layoutKind === opt.id
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        className={`small ${selected ? 'primary' : ''}`}
+                        onClick={() => setDesignForm((f) => ({ ...f, layoutKind: opt.id }))}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="small dim" style={{ marginTop: 6 }}>
+                  {COACH_LAYOUT_OPTIONS.find((o) => o.id === designForm.layoutKind)?.desc}
+                </div>
+              </div>
             </div>
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>

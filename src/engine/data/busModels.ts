@@ -35,6 +35,38 @@ export const BUS_MODELS: Record<string, BusModel> = {
     comfort: 6, leadTimeDays: 18, fareIndex: 0.55, maintCostIndex: 0.98,
     launchedYear: 2012, cargoCapKg: 600, cargoVolumeCbm: 5.5,
   },
+  leysemi13: {
+    id: 'leysemi13', name: '13.5M', maker: 'Ashok Leyland',
+    cls: 'AC_SEMI', priceNew: L(48), seats: 50,
+    layout: { kind: 'semi', cols: '2+2', rows: 12 },
+    mileage: 4.1, electric: false, ac: true, sleeper: false,
+    comfort: 6, leadTimeDays: 20, fareIndex: 0.52, maintCostIndex: 0.98,
+    launchedYear: 2012, cargoCapKg: 600, cargoVolumeCbm: 5.5,
+  },
+  leysemi15: {
+    id: 'leysemi15', name: '15M', maker: 'Ashok Leyland',
+    cls: 'AC_SEMI', priceNew: L(56), seats: 54,
+    layout: { kind: 'semi', cols: '2+2', rows: 13 },
+    mileage: 3.8, electric: false, ac: true, sleeper: false,
+    comfort: 7, leadTimeDays: 22, fareIndex: 0.54, maintCostIndex: 1.0,
+    launchedYear: 2024, cargoCapKg: 600, cargoVolumeCbm: 5.5,
+  },
+  bb1624semi: {
+    id: 'bb1624semi', name: '1624', maker: 'BharatBenz',
+    cls: 'AC_SEMI', priceNew: L(40), seats: 46,
+    layout: { kind: 'semi', cols: '2+2', rows: 11 },
+    mileage: 4.0, electric: false, ac: true, sleeper: false,
+    comfort: 7, leadTimeDays: 20, fareIndex: 0.58, maintCostIndex: 0.98,
+    launchedYear: 2013, cargoCapKg: 600, cargoVolumeCbm: 5.5,
+  },
+  bb1824semi: {
+    id: 'bb1824semi', name: '1824hd', maker: 'BharatBenz',
+    cls: 'AC_SEMI', priceNew: L(45), seats: 52,
+    layout: { kind: 'semi', cols: '2+2', rows: 12 },
+    mileage: 3.7, electric: false, ac: true, sleeper: false,
+    comfort: 8, leadTimeDays: 22, fareIndex: 0.60, maintCostIndex: 1.10,
+    launchedYear: 2013, cargoCapKg: 600, cargoVolumeCbm: 5.5,
+  },
   volvo9400semi: {
     id: 'volvo9400semi', name: '9400', maker: 'Volvo',
     cls: 'AC_SEMI', priceNew: Cr(1.15), seats: 45,
@@ -61,6 +93,14 @@ export const BUS_MODELS: Record<string, BusModel> = {
   },
 
   /* ---------- AC sleeper ---------- */
+  bb917sleep: {
+    id: 'bb917sleep', name: '1017', maker: 'BharatBenz',
+    cls: 'AC_SLEEPER', priceNew: L(37), seats: 30,
+    layout: { kind: 'sleeper', cols: '2+1', rows: 5 },
+    mileage: 4.0, electric: false, ac: true, sleeper: true,
+    comfort: 7, leadTimeDays: 18, fareIndex: 0.95, maintCostIndex: 0.98,
+    launchedYear: 2012, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
   leyacsleep: {
     id: 'leyacsleep', name: '12M', maker: 'Ashok Leyland',
     cls: 'AC_SLEEPER', priceNew: L(38), seats: 30,
@@ -104,6 +144,14 @@ export const BUS_MODELS: Record<string, BusModel> = {
   },
 
   /* ---------- AC hybrid (half berths, half rear cabin) ---------- */
+  bb917hybrid: {
+    id: 'bb917hybrid', name: '1017', maker: 'BharatBenz',
+    cls: 'AC_HYBRID', priceNew: L(37), seats: 36,
+    layout: { kind: 'hybrid', cols: '2+1', rows: 4 },
+    mileage: 4.0, electric: false, ac: true, sleeper: true,
+    comfort: 7, leadTimeDays: 18, fareIndex: 0.74, maintCostIndex: 0.98,
+    launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
   leyhybrid: {
     id: 'leyhybrid', name: '12M', maker: 'Ashok Leyland',
     cls: 'AC_HYBRID', priceNew: L(38), seats: 40,
@@ -112,22 +160,22 @@ export const BUS_MODELS: Record<string, BusModel> = {
     comfort: 6, leadTimeDays: 18, fareIndex: 0.74, maintCostIndex: 0.98,
     launchedYear: 2014, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
+  leyhybrid13: {
+    id: 'leyhybrid13', name: '13.5M', maker: 'Ashok Leyland',
+    cls: 'AC_HYBRID', priceNew: L(48), seats: 44,
+    layout: { kind: 'hybrid', cols: '2+1', rows: 6 },
+    mileage: 3.8, electric: false, ac: true, sleeper: true,
+    comfort: 7, leadTimeDays: 20, fareIndex: 0.76, maintCostIndex: 1.0,
+    launchedYear: 2014, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
   leyhybrid15: {
     id: 'leyhybrid15', name: '15M', maker: 'Ashok Leyland',
-    cls: 'AC_HYBRID', priceNew: L(46), seats: 48,
+    cls: 'AC_HYBRID', priceNew: L(56), seats: 48,
     layout: { kind: 'hybrid', cols: '2+1', rows: 6 },
     mileage: 3.4, electric: false, ac: true, sleeper: true,
     comfort: 7, leadTimeDays: 22, fareIndex: 0.80, maintCostIndex: 1.05,
     launchedYear: 2024, cargoCapKg: 400, cargoVolumeCbm: 3.8,
   },
-  // bb917hybrid: {
-  //   id: 'bb917hybrid', name: '917 Hybrid', maker: 'BharatBenz',
-  //   cls: 'AC_HYBRID', priceNew: L(37), seats: 36,
-  //   layout: { kind: 'hybrid', cols: '2+1', rows: 3 },
-  //   mileage: 3.9, electric: false, ac: true, sleeper: true,
-  //   comfort: 7, leadTimeDays: 20, fareIndex: 0.74, maintCostIndex: 1.0,
-  //   launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
-  // },
   bb1624hybrid: {
     id: 'bb1624hybrid', name: '1624', maker: 'BharatBenz',
     cls: 'AC_HYBRID', priceNew: L(40), seats: 40,

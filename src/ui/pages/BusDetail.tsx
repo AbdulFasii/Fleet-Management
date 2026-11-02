@@ -42,6 +42,7 @@ import {
   getBuilderForDesign,
   shortBuilderName,
   bodyPackagePrice,
+  coachLayoutLabel,
 } from '../../engine/data/bodyBuilders'
 import { hasUnfilledHpDuty, isStaffResting } from '../../engine/sim/staffing'
 import { canCrewBus, crewLimit, crewOnBus, freeCrew } from '../crew'
@@ -756,7 +757,7 @@ export function BusDetailPage() {
                           >
                             {designOpts.map(({ builder, design }) => (
                               <option key={design.id} value={design.id}>
-                                {builder.name} — {design.name} (+{fmtCompact(bodyPackagePrice(builder.id, design, model?.name ?? ''))})
+                                {builder.name} — {design.name} ({coachLayoutLabel(design.layoutKind)}) (+{fmtCompact(bodyPackagePrice(builder.id, design, model?.name ?? ''))})
                               </option>
                             ))}
                           </select>

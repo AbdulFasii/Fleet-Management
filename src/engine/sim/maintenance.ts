@@ -26,6 +26,7 @@ import {
   designFitsChassis,
   busMaintCostIndex,
   bodyPackagePrice,
+  resolveModelForChassisAndDesign,
 } from '../data/bodyBuilders'
 
 export type RetrofitFeature = string
@@ -707,6 +708,12 @@ export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string): strin
     bus.bodyDesignId = design.id
     bus.bodyBuilderId = builder.id
     bus.bodyDesignName = design.name
+    if (model) {
+      const resolved = resolveModelForChassisAndDesign(model, design)
+      if (resolved && resolved.id !== bus.modelId) {
+        bus.modelId = resolved.id
+      }
+    }
   }
   bus.status = 'workshop'
   bus.workshopUntilDay = s.day + q.days

@@ -11,7 +11,6 @@ import {
   coachSpec,
   dealerCatalogRows,
   isCargoModel,
-  layoutOptionLabel,
   modelTitle,
 } from '../../engine/data/busModels'
 import { BAL } from '../../engine/data/balance'
@@ -27,6 +26,8 @@ import {
   coachTitle,
   fleetModelLabel,
   bodyPackagePrice,
+  coachLayoutLabel,
+  resolveModelForChassisAndDesign,
 } from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel } from '../bits'
 
@@ -41,18 +42,20 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
   const s = useGame((g) => g.state)!
   const seedModel = modelId ? BUS_MODELS[modelId] : undefined
   const supportsCustomBody = Boolean(isNew && seedModel && modelSupportsBodyDesigns(seedModel))
-  const layoutVariants = supportsCustomBody && seedModel ? chassisLayoutVariants(seedModel) : []
-  const [selectedModelId, setSelectedModelId] = useState<string>(modelId ?? '')
-  const model = selectedModelId ? BUS_MODELS[selectedModelId] : seedModel
-  const designOptions = supportsCustomBody && model ? designsForModel(s, model) : []
+  const designOptions = supportsCustomBody && seedModel ? designsForModel(s, seedModel) : []
   const [selectedDesignId, setSelectedDesignId] = useState<string>(designOptions[0]?.design.id ?? '')
   useEffect(() => {
     if (!designOptions.some((o) => o.design.id === selectedDesignId)) {
       setSelectedDesignId(designOptions[0]?.design.id ?? '')
     }
-  }, [selectedModelId, designOptions, selectedDesignId])
+  }, [designOptions, selectedDesignId])
   const selectedDesign = designOptions.find((o) => o.design.id === selectedDesignId)?.design
   const selectedBuilder = designOptions.find((o) => o.design.id === selectedDesignId)?.builder
+
+  // Concrete model variant (sleeper/semi/hybrid) resolved directly from the chosen body design
+  const model = (supportsCustomBody && seedModel)
+    ? resolveModelForChassisAndDesign(seedModel, selectedDesign)
+    : seedModel
 
   const price = supportsCustomBody && model ? effectiveNewPrice(s, model.id, selectedDesignId) : initialPrice
   const leadDays = isNew && model ? composeLeadTime(model, selectedDesign) : undefined
@@ -89,7 +92,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               onConfirm(
                 productId === 'cash' ? {} : { loanProductId: productId, months },
                 supportsCustomBody ? selectedDesignId : undefined,
-                supportsCustomBody ? selectedModelId : undefined,
+                supportsCustomBody && model ? model.id : undefined,
               )
               if (!isNew) {
                 onClose()
@@ -111,53 +114,32 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
     >
       {supportsCustomBody && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--panel-alt, #151a21)', borderRadius: 6, border: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Chassis Body Selection</div>
-          {layoutVariants.length > 0 && (
-            <div className="form-row" style={{ marginBottom: 8 }}>
-              <label style={{ minWidth: 100 }}>Layout</label>
-              <select
-                value={selectedModelId}
-                onChange={(e) => setSelectedModelId(e.target.value)}
-                style={{ flex: 1 }}
-              >
-                {layoutVariants.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {layoutOptionLabel(v)} · {CLASS_LABEL[v.cls]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {model && (
-            <div className="dim small" style={{ marginBottom: 8 }}>
-              Chassis {modelTitle(model)} ·{' '}
-              <span className={coachKindClass(model)}>{coachKind(model)}</span>
-              <span> {model.layout.cols}</span>
-              {!model.isCargoOnly && <> · {model.seats} {coachKind(model) === 'Sleeper' || coachKind(model) === 'Hybrid' ? 'berths' : 'seats'}</>}
-              {' · '}base {fmtCompact(model.priceNew)}
-            </div>
-          )}
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Chassis & Coach Body Configuration</div>
           {designOptions.length > 0 && (
-            <div className="form-row" style={{ margin: 0 }}>
+            <div className="form-row" style={{ marginBottom: 8 }}>
               <label style={{ minWidth: 100 }}>Body Design</label>
               <select
                 value={selectedDesignId}
                 onChange={(e) => setSelectedDesignId(e.target.value)}
                 style={{ flex: 1 }}
               >
-                {designOptions.length === 0 ? (
-                  <option value="">No body designs for this chassis length</option>
-                ) : (
-                  designOptions.map(({ builder, design }) => {
-                    const body = bodyPackagePrice(builder.id, design, model?.name ?? '')
-                    return (
-                      <option key={design.id} value={design.id}>
-                        {builder.name} — {design.name} (+{fmtCompact(body)})
-                      </option>
-                    )
-                  })
-                )}
+                {designOptions.map(({ builder, design }) => {
+                  const body = bodyPackagePrice(builder.id, design, seedModel?.name ?? '')
+                  const layoutTag = coachLayoutLabel(design.layoutKind)
+                  return (
+                    <option key={design.id} value={design.id}>
+                      {builder.name} — {design.name} ({layoutTag}) (+{fmtCompact(body)})
+                    </option>
+                  )
+                })}
               </select>
+            </div>
+          )}
+          {model && seedModel && (
+            <div className="dim small" style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '6px 12px' }}>
+              <span>Chassis: <strong>{seedModel.maker} {seedModel.name}</strong> (base {fmtCompact(seedModel.priceNew)})</span>
+              <span>Layout: <strong className={coachKindClass(model)}>{coachKind(model)}</strong> ({model.layout.cols} · {model.seats} {coachKind(model) === 'Sleeper' || coachKind(model) === 'Hybrid' ? 'berths' : 'seats'})</span>
+              <span>Class: <strong>{CLASS_LABEL[model.cls]}</strong></span>
             </div>
           )}
           {selectedDesign && (
@@ -176,7 +158,9 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               <div style={{ flex: 1, fontSize: '0.8rem', lineHeight: 1.4 }}>
                 <div style={{ fontWeight: 600 }}>{selectedBuilder?.name} · {selectedDesign.name}</div>
                 <div className="dim mt4">
-                  <span>Body: <b>+{fmtCompact(bodyPackagePrice(selectedBuilder?.id, selectedDesign, model?.name ?? ''))}</b></span>
+                  <span>Layout: <b className={coachKindClass(model)}>{coachLayoutLabel(selectedDesign.layoutKind)}</b></span>
+                  {' · '}
+                  <span>Body: <b>+{fmtCompact(bodyPackagePrice(selectedBuilder?.id, selectedDesign, seedModel?.name ?? ''))}</b></span>
                   {' · '}
                   <span>Lead: <b>{selectedDesign.leadDaysAdd >= 0 ? `+${selectedDesign.leadDaysAdd}d` : `${selectedDesign.leadDaysAdd}d`}</b> ({leadDays}d total)</span>
                 </div>

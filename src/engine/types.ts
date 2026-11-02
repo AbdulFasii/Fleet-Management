@@ -25,6 +25,8 @@ export interface BodyDesign {
    * Empty / omitted = fits every chassis length for the builder's makers.
    */
   chassisNames?: string[]
+  /** Coach seating layout built by this body design: sleeper 2+1, semi-sleeper 2+2, or hybrid 2+1. */
+  layoutKind?: 'sleeper' | 'semi' | 'hybrid'
   /** When false, design never rolls on used market. Default true. */
   availableUsed?: boolean
   /** When false, design never rolls on dry-lease or attach market. Default true. */
