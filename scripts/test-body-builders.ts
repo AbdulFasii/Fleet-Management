@@ -9,6 +9,7 @@ import {
   coachTitle,
   busComfort,
   busMaintCostIndex,
+  composeNewPrice,
 } from '../src/engine/data/bodyBuilders'
 import { orderNewBus, deliverOrdersPass, refreshMarkets } from '../src/engine/sim/fleet'
 import { quoteRebody, rebodyBus } from '../src/engine/sim/maintenance'
@@ -33,7 +34,9 @@ assert(!alDesigns.some((d) => d.builder.id === 'mg_group'), 'AL should NOT have 
 assert(bbDesigns.some((d) => d.builder.id === 'mg_group'), 'BB should have MG Group')
 assert(!alDesigns.some((d) => d.builder.id === 'veera'), 'Veera should be removed')
 assert(!bbDesigns.some((d) => d.builder.id === 'veera'), 'Veera should be removed from BB')
-for (const id of ['prakesh', 'rec', 'maruthi', 'arvex']) {
+assert(!alDesigns.some((d) => d.builder.id === 'maruthi'), 'Maruthi should be removed')
+assert(!bbDesigns.some((d) => d.builder.id === 'maruthi'), 'Maruthi should be removed from BB')
+for (const id of ['prakesh', 'rec', 'arvex']) {
   assert(alDesigns.some((d) => d.builder.id === id), `AL should have ${id}`)
   assert(bbDesigns.some((d) => d.builder.id === id), `BB should have ${id}`)
 }
@@ -55,7 +58,7 @@ s.company.cash = 10_000_000_000
 const arvexElite = getDesign(s, 'arvex_elite')!
 assert(arvexElite, 'ARVEX Elite design exists')
 const alModel = BUS_MODELS['leyacsleep15']!
-const expectedPrice = alModel.priceNew + arvexElite.bodyPrice
+const expectedPrice = composeNewPrice(alModel, arvexElite, 'arvex')
 const expectedLead = alModel.leadTimeDays + arvexElite.leadDaysAdd
 
 assert(!!orderNewBus(s, 'leyacsleep', {}, undefined, 'arvex_elite'), '12M cannot order ARVEX Elite')
@@ -66,7 +69,7 @@ const order = s.busOrders[0]
 assert(order.bodyDesignId === 'arvex_elite', 'Order stamped with bodyDesignId')
 assert(order.bodyDesignName === 'ARVEX Elite', 'Order stamped with bodyDesignName')
 assert(order.bodyBuilderId === 'arvex', 'Order stamped with bodyBuilderId')
-assert(order.price === expectedPrice, `Order price matches chassis + design (${order.price} vs ${expectedPrice})`)
+assert(order.price === expectedPrice, `Order price matches chassis + auto body (${order.price} vs ${expectedPrice})`)
 assert(order.deliveryDay === s.day + expectedLead, `Order lead time matches`)
 
 console.log('✓ orderNewBus with design package passed')

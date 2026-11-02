@@ -90,6 +90,10 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
                 supportsCustomBody ? selectedDesignId : undefined,
                 supportsCustomBody ? selectedModelId : undefined,
               )
+              if (!isNew) {
+                onClose()
+                return
+              }
               setOrderedCount((c) => c + 1)
             }}
           >

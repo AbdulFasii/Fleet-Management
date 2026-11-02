@@ -1247,7 +1247,7 @@ function migrate(raw: unknown): GameState | null {
   }
 
   if (s.version < 27) {
-    // Body-builder roster: Prakesh, REC, Maruthi, MG Group (BB-only), ARVEX.
+    // Body-builder roster: Prakesh, REC, MG Group (BB-only), ARVEX.
     s.bodyBuilders = cloneDefaultBodyBuilders()
   }
 
@@ -1275,6 +1275,17 @@ function migrate(raw: unknown): GameState | null {
   if (s.version < 29) {
     // Drop Veera from the body-builder roster.
     s.bodyBuilders = cloneDefaultBodyBuilders()
+  }
+
+  if (s.version < 30) {
+    // Drop Maruthi from the body-builder roster; keep other custom designs.
+    if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+    else {
+      delete s.bodyBuilders.maruthi
+      for (const [id, def] of Object.entries(DEFAULT_BODY_BUILDERS)) {
+        if (!s.bodyBuilders[id]) s.bodyBuilders[id] = JSON.parse(JSON.stringify(def))
+      }
+    }
   }
 
   s.version = SAVE_VERSION

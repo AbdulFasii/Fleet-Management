@@ -14,7 +14,7 @@ import { nextId } from './core/ids'
 import { GROUP_PALETTE } from './sim/groups'
 import { cloneDefaultBodyBuilders } from './data/bodyBuilders'
 
-export const SAVE_VERSION = 29
+export const SAVE_VERSION = 30
 
 export function initialBrandCode(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean)

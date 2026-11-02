@@ -63,31 +63,6 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
       },
     ],
   },
-  maruthi: {
-    id: 'maruthi',
-    name: 'Maruthi',
-    makers: ['Ashok Leyland', 'BharatBenz'],
-    designs: [
-      {
-        id: 'maruthi_classic',
-        name: 'Maruthi Classic',
-        bodyPrice: L(27),
-        leadDaysAdd: 15,
-        comfortDelta: 0.05,
-        maintDelta: 0.02,
-        notes: 'Classic South-India coach lines with practical luggage bays.',
-      },
-      {
-        id: 'maruthi_prime',
-        name: 'Maruthi Prime',
-        bodyPrice: L(32),
-        leadDaysAdd: 18,
-        comfortDelta: 0.35,
-        maintDelta: -0.02,
-        notes: 'Prime touring package with sharper mask and better NVH seals.',
-      },
-    ],
-  },
   mg_group: {
     id: 'mg_group',
     name: 'MG Group',
@@ -150,10 +125,9 @@ export function cloneDefaultBodyBuilders(): Record<string, BodyBuilder> {
 /** Preset coachwork grades for the design editor — sets comfort, upkeep, lead, and body price add-on. */
 export const BODY_QUALITY_TIERS = [
   { id: 'budget', label: 'Budget', comfortDelta: -0.3, maintDeltaPct: 6, leadDaysAdd: 12, bodyPriceAddLakhs: -2, blurb: 'Basic shell · cheaper build, higher upkeep' },
-  { id: 'standard', label: 'Standard', comfortDelta: 0, maintDeltaPct: 0, leadDaysAdd: 16, bodyPriceAddLakhs: 0, blurb: 'Typical corridor coachwork' },
-  { id: 'comfort', label: 'Comfort', comfortDelta: 0.3, maintDeltaPct: -2, leadDaysAdd: 18, bodyPriceAddLakhs: 3, blurb: 'Better trim · slight upkeep saving' },
-  { id: 'premium', label: 'Premium', comfortDelta: 0.6, maintDeltaPct: -4, leadDaysAdd: 22, bodyPriceAddLakhs: 6, blurb: 'Refined cabin · lower service burden' },
-  { id: 'luxury', label: 'Luxury', comfortDelta: 0.9, maintDeltaPct: -6, leadDaysAdd: 26, bodyPriceAddLakhs: 10, blurb: 'Flagship finish · best passenger feel' },
+  { id: 'standard', label: 'Standard', comfortDelta: 0.1, maintDeltaPct: 2, leadDaysAdd: 16, bodyPriceAddLakhs: 1, blurb: 'Typical corridor coachwork' },
+  { id: 'comfort', label: 'Comfort', comfortDelta: 0.5, maintDeltaPct: -2, leadDaysAdd: 20, bodyPriceAddLakhs: 5, blurb: 'Better trim · clear upkeep saving' },
+  { id: 'premium', label: 'Premium', comfortDelta: 0.9, maintDeltaPct: -6, leadDaysAdd: 24, bodyPriceAddLakhs: 10, blurb: 'Flagship finish · best passenger feel' },
 ] as const
 
 export type BodyQualityTierId = (typeof BODY_QUALITY_TIERS)[number]['id']
@@ -161,7 +135,6 @@ export type BodyQualityTierId = (typeof BODY_QUALITY_TIERS)[number]['id']
 /** Brand base body package (₹ Lakh) before chassis length & coach grade. */
 export const BODY_BUILDER_BASE_LAKHS: Record<string, number> = {
   prakesh: 22,
-  maruthi: 25,
   rec: 27,
   arvex: 29,
   mg_group: 32,
@@ -382,7 +355,6 @@ export function shortBuilderName(builderName: string): string {
   const known: Record<string, string> = {
     Prakesh: 'Prakesh',
     REC: 'REC',
-    Maruthi: 'Maruthi',
     'MG Group': 'MG',
     ARVEX: 'ARVEX',
   }
@@ -400,7 +372,7 @@ export function coachTitle(model: BusModel | undefined, designOrName?: BodyDesig
 
 /**
  * Fleet MODEL column:
- * - AL / BB: "Prakesh . Prakesh Standard . AL12M" (builder . design . chassis)
+ * - AL / BB: "Prakesh·Prakesh Standard·AL12M" (builder·design·chassis)
  * - Volvo / Olectra: full maker + name ("Volvo 9600slx", "Olectra eBuzz K9")
  * - Others: full "Scania Metrolink"
  */
@@ -432,10 +404,10 @@ export function fleetModelLabel(
       opts?.bodyDesignName
       ?? (opts?.bodyDesignId ? getDesign(stateHint, opts.bodyDesignId)?.name : undefined)
     if (builderName && designName) {
-      return `${shortBuilderName(builderName)} . ${designName} . ${chassis}`
+      return `${shortBuilderName(builderName)}·${designName}·${chassis}`
     }
-    if (builderName) return `${shortBuilderName(builderName)} . ${chassis}`
-    if (designName) return `${designName} . ${chassis}`
+    if (builderName) return `${shortBuilderName(builderName)}·${chassis}`
+    if (designName) return `${designName}·${chassis}`
     return chassis
   }
   return modelTitle(model)
