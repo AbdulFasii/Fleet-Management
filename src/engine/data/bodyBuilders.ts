@@ -18,20 +18,32 @@ export function coachLayoutLabel(kind?: 'sleeper' | 'semi' | 'hybrid'): string {
   return 'Sleeper (2+1)'
 }
 
+export function designLayoutKinds(design?: BodyDesign): CoachLayoutKind[] {
+  if (!design) return ['sleeper']
+  if (design.layoutKinds && design.layoutKinds.length > 0) {
+    if (design.layoutKind && !design.layoutKinds.includes(design.layoutKind)) {
+      return [design.layoutKind, ...design.layoutKinds]
+    }
+    return design.layoutKinds
+  }
+  if (design.layoutKind) return [design.layoutKind]
+  if (design.name.toLowerCase().includes('semi')) return ['semi']
+  if (design.name.toLowerCase().includes('hybrid')) return ['hybrid']
+  return ['sleeper']
+}
+
 export function resolveModelForChassisAndDesign(
   chassisModel: BusModel,
   design?: BodyDesign,
+  desiredKind?: CoachLayoutKind,
 ): BusModel {
   if (!modelSupportsBodyDesigns(chassisModel)) return chassisModel
-  const desiredKind: CoachLayoutKind = design?.layoutKind ?? (
-    design?.name.toLowerCase().includes('semi')
-      ? 'semi'
-      : design?.name.toLowerCase().includes('hybrid')
-        ? 'hybrid'
-        : 'sleeper'
-  )
+  const allowed = designLayoutKinds(design)
+  const kind: CoachLayoutKind = (desiredKind && allowed.includes(desiredKind))
+    ? desiredKind
+    : allowed[0]
   const variants = chassisLayoutVariants(chassisModel)
-  const exact = variants.find((m) => m.layout.kind === desiredKind)
+  const exact = variants.find((m) => m.layout.kind === kind)
   if (exact) return exact
   return variants[0] ?? chassisModel
 }
@@ -56,6 +68,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: -0.2,
         maintDelta: 0.05,
         layoutKind: 'semi',
+        layoutKinds: ['semi'],
         chassisNames: ['12M', '1017'],
         notes: 'Budget regional coach shell — sized for 12M / 1017 chassis.',
         availableUsed: true,
@@ -70,6 +83,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.1,
         maintDelta: 0.02,
         layoutKind: 'sleeper',
+        layoutKinds: ['sleeper', 'semi'],
         chassisNames: ['12M', '13.5M', '1017', '1624'],
         notes: 'Reinforced panelling for mid-length intercity chassis.',
         availableUsed: true,
@@ -91,6 +105,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.15,
         maintDelta: 0,
         layoutKind: 'semi',
+        layoutKinds: ['semi', 'hybrid'],
         notes: 'Reliable corridor coachwork with balanced weight and service access.',
         availableUsed: true,
         availableLeaseAttach: true,
@@ -104,6 +119,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.4,
         maintDelta: -0.02,
         layoutKind: 'sleeper',
+        layoutKinds: ['sleeper'],
         notes: 'Executive finish with quieter cabin and upgraded berth packs.',
         availableUsed: true,
         availableLeaseAttach: true,
@@ -124,6 +140,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.45,
         maintDelta: -0.03,
         layoutKind: 'sleeper',
+        layoutKinds: ['sleeper', 'semi'],
         chassisNames: ['1624', '1824hd'],
         notes: 'BharatBenz-exclusive MG coach body for 1624 / 1824hd.',
         availableUsed: true,
@@ -138,6 +155,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.85,
         maintDelta: -0.05,
         layoutKind: 'sleeper',
+        layoutKinds: ['sleeper'],
         chassisNames: ['1824hd'],
         notes: 'Exclusive BB luxury shell — 1824hd chassis only.',
         availableUsed: true,
@@ -159,6 +177,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.25,
         maintDelta: -0.01,
         layoutKind: 'semi',
+        layoutKinds: ['semi', 'sleeper'],
         notes: 'Smooth-line touring body with good highway aero and tidy underbelly bays.',
         availableUsed: true,
         availableLeaseAttach: true,
@@ -172,6 +191,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.65,
         maintDelta: -0.04,
         layoutKind: 'sleeper',
+        layoutKinds: ['sleeper'],
         chassisNames: ['13.5M', '15M', '1824hd'],
         notes: 'Elite long-haul package — long chassis only.',
         availableUsed: true,

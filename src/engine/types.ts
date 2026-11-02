@@ -27,6 +27,8 @@ export interface BodyDesign {
   chassisNames?: string[]
   /** Coach seating layout built by this body design: sleeper 2+1, semi-sleeper 2+2, or hybrid 2+1. */
   layoutKind?: 'sleeper' | 'semi' | 'hybrid'
+  /** Supported seating layouts built by this body design (multi-select). */
+  layoutKinds?: ('sleeper' | 'semi' | 'hybrid')[]
   /** When false, design never rolls on used market. Default true. */
   availableUsed?: boolean
   /** When false, design never rolls on dry-lease or attach market. Default true. */

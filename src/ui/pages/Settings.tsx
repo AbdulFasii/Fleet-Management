@@ -126,7 +126,7 @@ export function SettingsPage() {
     leadDaysAdd: number
     comfortDelta: number
     maintDeltaPct: number
-    layoutKind: CoachLayoutKind
+    layoutKinds: CoachLayoutKind[]
     image?: string
     chassisNames: string[]
     availableUsed: boolean
@@ -137,7 +137,7 @@ export function SettingsPage() {
     leadDaysAdd: 0,
     comfortDelta: 0,
     maintDeltaPct: 0,
-    layoutKind: 'sleeper',
+    layoutKinds: ['sleeper'],
     image: undefined,
     chassisNames: [],
     availableUsed: true,
@@ -147,13 +147,16 @@ export function SettingsPage() {
   const openEditDesign = (builderId: string, d: BodyDesign) => {
     setEditingDesign({ builderId, design: d, isNew: false })
     const baseSecondary = d.secondaryMarket !== false
+    const lKinds: CoachLayoutKind[] = (d.layoutKinds && d.layoutKinds.length > 0)
+      ? [...d.layoutKinds]
+      : [d.layoutKind ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')]
     setDesignForm({
       id: d.id,
       name: d.name,
       leadDaysAdd: d.leadDaysAdd,
       comfortDelta: d.comfortDelta,
       maintDeltaPct: Math.round(d.maintDelta * 100),
-      layoutKind: d.layoutKind ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'),
+      layoutKinds: lKinds,
       image: d.image,
       chassisNames: d.chassisNames ? [...d.chassisNames] : [],
       availableUsed: d.availableUsed !== undefined ? d.availableUsed : baseSecondary,
@@ -172,6 +175,7 @@ export function SettingsPage() {
       comfortDelta: standard.comfortDelta,
       maintDelta: standard.maintDeltaPct / 100,
       layoutKind: 'sleeper',
+      layoutKinds: ['sleeper'],
       availableUsed: true,
       availableLeaseAttach: true,
       secondaryMarket: true,
@@ -183,7 +187,7 @@ export function SettingsPage() {
       leadDaysAdd: standard.leadDaysAdd,
       comfortDelta: standard.comfortDelta,
       maintDeltaPct: standard.maintDeltaPct,
-      layoutKind: 'sleeper',
+      layoutKinds: ['sleeper'],
       image: undefined,
       chassisNames: [],
       availableUsed: true,
@@ -208,6 +212,7 @@ export function SettingsPage() {
       ?? '12M'
     // Stored for save compat; live order/rebody price uses builder × chassis × grade.
     const bodyPrice = L(bodyPackageLakhs(editingDesign.builderId, refChassis, gradeId))
+    const chosenLayoutKinds = designForm.layoutKinds.length > 0 ? designForm.layoutKinds : (['sleeper'] as CoachLayoutKind[])
     const newDesign: BodyDesign = {
       id: designForm.id || `bd_${Date.now()}`,
       name,
@@ -215,7 +220,8 @@ export function SettingsPage() {
       leadDaysAdd: Number(designForm.leadDaysAdd) || 0,
       comfortDelta: Math.round(Number(designForm.comfortDelta) * 10) / 10,
       maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
-      layoutKind: designForm.layoutKind,
+      layoutKind: chosenLayoutKinds[0],
+      layoutKinds: [...chosenLayoutKinds],
       image: designForm.image,
       chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
       availableUsed: designForm.availableUsed,
@@ -2035,17 +2041,6 @@ export function SettingsPage() {
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{d.name}</div>
                                 <div className="small dim mt4">
-                                  Layout: <b className="accent">{coachLayoutLabel(d.layoutKind)}</b>
-                                </div>
-                                <div className="small dim">
-                                  Chassis:{' '}
-                                  <b>
-                                    {d.chassisNames && d.chassisNames.length > 0
-                                      ? d.chassisNames.map(chassisPlatformLabel).join(' ')
-                                      : 'All lengths'}
-                                  </b>
-                                </div>
-                                <div className="small dim">
                                   {(() => {
                                     const pool = chassisNameOptions(builder.makers)
                                     const range = bodyPackagePriceRange(builder.id, d, pool)
@@ -2312,21 +2307,27 @@ export function SettingsPage() {
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {COACH_LAYOUT_OPTIONS.map((opt) => {
-                    const selected = designForm.layoutKind === opt.id
+                    const selected = designForm.layoutKinds.includes(opt.id)
                     return (
                       <button
                         key={opt.id}
                         type="button"
                         className={`small ${selected ? 'primary' : ''}`}
-                        onClick={() => setDesignForm((f) => ({ ...f, layoutKind: opt.id }))}
+                        onClick={() => {
+                          setDesignForm((f) => {
+                            const exists = f.layoutKinds.includes(opt.id)
+                            if (exists) {
+                              if (f.layoutKinds.length <= 1) return f
+                              return { ...f, layoutKinds: f.layoutKinds.filter((k) => k !== opt.id) }
+                            }
+                            return { ...f, layoutKinds: [...f.layoutKinds, opt.id] }
+                          })
+                        }}
                       >
                         {opt.label}
                       </button>
                     )
                   })}
-                </div>
-                <div className="small dim" style={{ marginTop: 6 }}>
-                  {COACH_LAYOUT_OPTIONS.find((o) => o.id === designForm.layoutKind)?.desc}
                 </div>
               </div>
             </div>
@@ -2334,9 +2335,6 @@ export function SettingsPage() {
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 4 }}>Chassis lengths</label>
               <div style={{ flex: 1 }}>
-                <div className="small dim" style={{ marginBottom: 6 }}>
-                  Leave all unchecked to allow every chassis. Tick only the platforms this body fits.
-                </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                   {chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']).map((name) => {
                     const checked = designForm.chassisNames.includes(name)
@@ -2378,7 +2376,6 @@ export function SettingsPage() {
                         key={tier.id}
                         type="button"
                         className={`small ${selected ? 'primary' : ''}`}
-                        title={`${tier.blurb} · comfort ${tier.comfortDelta >= 0 ? '+' : ''}${tier.comfortDelta} · upkeep ${tier.maintDeltaPct >= 0 ? '+' : ''}${tier.maintDeltaPct}% · +${tier.leadDaysAdd}d · body ${tier.bodyPriceAddLakhs >= 0 ? '+' : ''}${tier.bodyPriceAddLakhs}L`}
                         onClick={() =>
                           setDesignForm((f) => ({
                             ...f,
@@ -2393,51 +2390,12 @@ export function SettingsPage() {
                     )
                   })}
                 </div>
-                <div className="small dim" style={{ marginTop: 6 }}>
-                  {(() => {
-                    const tier = BODY_QUALITY_TIERS.find(
-                      (t) =>
-                        t.id
-                        === matchBodyQualityTier(
-                          designForm.comfortDelta,
-                          designForm.maintDeltaPct,
-                          designForm.leadDaysAdd,
-                        ),
-                    )!
-                    return (
-                      <>
-                        {tier.blurb} · comfort{' '}
-                        <b className={tier.comfortDelta >= 0 ? 'good' : 'bad'}>
-                          {tier.comfortDelta >= 0 ? '+' : ''}
-                          {tier.comfortDelta}
-                        </b>
-                        {' · '}
-                        upkeep{' '}
-                        <b className={tier.maintDeltaPct <= 0 ? 'good' : 'bad'}>
-                          {tier.maintDeltaPct >= 0 ? '+' : ''}
-                          {tier.maintDeltaPct}%
-                        </b>
-                        {' · '}
-                        body lead <b>+{tier.leadDaysAdd}d</b>
-                        {' · '}
-                        price{' '}
-                        <b>
-                          {tier.bodyPriceAddLakhs >= 0 ? '+' : ''}
-                          {tier.bodyPriceAddLakhs}L
-                        </b>
-                      </>
-                    )
-                  })()}
-                </div>
               </div>
             </div>
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 4 }}>Body package</label>
               <div style={{ flex: 1 }}>
-                <div className="small dim" style={{ marginBottom: 6 }}>
-                  Auto from builder brand × chassis length × coach grade (not editable).
-                </div>
                 {(() => {
                   const builderId = editingDesign.builderId
                   const makers = bodyBuilders[builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']

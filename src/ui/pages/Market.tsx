@@ -27,6 +27,8 @@ import {
   fleetModelLabel,
   bodyPackagePrice,
   coachLayoutLabel,
+  designLayoutKinds,
+  type CoachLayoutKind,
   resolveModelForChassisAndDesign,
 } from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel } from '../bits'
@@ -52,9 +54,17 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
   const selectedDesign = designOptions.find((o) => o.design.id === selectedDesignId)?.design
   const selectedBuilder = designOptions.find((o) => o.design.id === selectedDesignId)?.builder
 
-  // Concrete model variant (sleeper/semi/hybrid) resolved directly from the chosen body design
+  const allowedLayouts = designLayoutKinds(selectedDesign)
+  const [selectedLayoutKind, setSelectedLayoutKind] = useState<CoachLayoutKind>(allowedLayouts[0] ?? 'sleeper')
+  useEffect(() => {
+    if (!allowedLayouts.includes(selectedLayoutKind)) {
+      setSelectedLayoutKind(allowedLayouts[0] ?? 'sleeper')
+    }
+  }, [allowedLayouts, selectedLayoutKind])
+
+  // Concrete model variant (sleeper/semi/hybrid) resolved directly from the chosen body design and selected layout
   const model = (supportsCustomBody && seedModel)
-    ? resolveModelForChassisAndDesign(seedModel, selectedDesign)
+    ? resolveModelForChassisAndDesign(seedModel, selectedDesign, selectedLayoutKind)
     : seedModel
 
   const price = supportsCustomBody && model ? effectiveNewPrice(s, model.id, selectedDesignId) : initialPrice
@@ -125,14 +135,30 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               >
                 {designOptions.map(({ builder, design }) => {
                   const body = bodyPackagePrice(builder.id, design, seedModel?.name ?? '')
-                  const layoutTag = coachLayoutLabel(design.layoutKind)
                   return (
                     <option key={design.id} value={design.id}>
-                      {builder.name} — {design.name} ({layoutTag}) (+{fmtCompact(body)})
+                      {builder.name} — {design.name} (+{fmtCompact(body)})
                     </option>
                   )
                 })}
               </select>
+            </div>
+          )}
+          {allowedLayouts.length > 1 && (
+            <div className="form-row" style={{ marginBottom: 8 }}>
+              <label style={{ minWidth: 100 }}>Layout</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
+                {allowedLayouts.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`small ${selectedLayoutKind === k ? 'primary' : ''}`}
+                    onClick={() => setSelectedLayoutKind(k)}
+                  >
+                    {coachLayoutLabel(k)}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {model && seedModel && (
@@ -158,7 +184,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               <div style={{ flex: 1, fontSize: '0.8rem', lineHeight: 1.4 }}>
                 <div style={{ fontWeight: 600 }}>{selectedBuilder?.name} · {selectedDesign.name}</div>
                 <div className="dim mt4">
-                  <span>Layout: <b className={coachKindClass(model)}>{coachLayoutLabel(selectedDesign.layoutKind)}</b></span>
+                  <span>Layout: <b className={coachKindClass(model)}>{coachLayoutLabel(model.layout.kind as any)}</b></span>
                   {' · '}
                   <span>Body: <b>+{fmtCompact(bodyPackagePrice(selectedBuilder?.id, selectedDesign, seedModel?.name ?? ''))}</b></span>
                   {' · '}

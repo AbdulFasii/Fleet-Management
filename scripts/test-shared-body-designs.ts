@@ -141,9 +141,9 @@ assert.equal(afterReset.prakesh.designs[0].name, 'Prakesh Standard', 'Reset clea
 const bbChassis = BUS_MODELS.bb917
 assert.ok(bbChassis, 'bb917 chassis exists')
 
-const sleeperDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'sleeper' as const }
-const semiDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'semi' as const }
-const hybridDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'hybrid' as const }
+const sleeperDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'sleeper' as const, layoutKinds: ['sleeper' as const] }
+const semiDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'semi' as const, layoutKinds: ['semi' as const] }
+const hybridDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'hybrid' as const, layoutKinds: ['hybrid' as const] }
 
 const resolvedSleep = resolveModelForChassisAndDesign(bbChassis, sleeperDesign)
 assert.equal(resolvedSleep.id, 'bb917sleep', 'BB 1017 + Sleeper design resolves to bb917sleep')
@@ -163,5 +163,10 @@ assert.ok(alChassis, 'cheetah (AL 12M) chassis exists')
 assert.equal(resolveModelForChassisAndDesign(alChassis, sleeperDesign).id, 'leyacsleep')
 assert.equal(resolveModelForChassisAndDesign(alChassis, semiDesign).id, 'cheetah')
 assert.equal(resolveModelForChassisAndDesign(alChassis, hybridDesign).id, 'leyhybrid')
+
+// 10. Test Multi-select Layouts on Body Design
+const multiDesign = { ...afterReset.prakesh.designs[0], layoutKinds: ['sleeper' as const, 'semi' as const] }
+assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'semi').id, 'bb917')
+assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'sleeper').id, 'bb917sleep')
 
 console.log('✓ All shared body design tests passed successfully!')

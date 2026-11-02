@@ -114,10 +114,16 @@ export function attachSharedImages(builders: Record<string, BodyBuilder>): Recor
   const result: Record<string, BodyBuilder> = JSON.parse(JSON.stringify(builders))
   for (const [bId, b] of Object.entries(result)) {
     for (const d of b.designs) {
+      if (!d.layoutKinds || d.layoutKinds.length === 0) {
+        if (d.layoutKind) {
+          d.layoutKinds = [d.layoutKind]
+        } else {
+          const defaultL = DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKinds
+          d.layoutKinds = defaultL ?? [d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper']
+        }
+      }
       if (!d.layoutKind) {
-        d.layoutKind =
-          DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKind
-          ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')
+        d.layoutKind = d.layoutKinds[0]
       }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
@@ -150,10 +156,17 @@ export function applySharedToState(
   // First attach any globally known images and ensure layoutKind to the base result
   for (const [bId, b] of Object.entries(result)) {
     for (const d of b.designs) {
-      if (!d.layoutKind) {
-        d.layoutKind =
-          DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKind
-          ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')
+      if (!d.layoutKinds || d.layoutKinds.length === 0) {
+        if (d.layoutKind) {
+          d.layoutKinds = [d.layoutKind]
+        } else {
+          const defaultL = DEFAULT_BODY_BUILDERS[bId]?.designs.find((x) => x.id === d.id)?.layoutKinds
+          d.layoutKinds = defaultL ?? [d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper']
+        }
+        d.layoutKind = d.layoutKinds[0]
+        sharedUpdated = true
+      } else if (!d.layoutKind) {
+        d.layoutKind = d.layoutKinds[0]
         sharedUpdated = true
       }
       if (d.image) {
@@ -172,9 +185,10 @@ export function applySharedToState(
       if (!result[builderId]) {
         result[builderId] = JSON.parse(JSON.stringify(b))
         for (const d of result[builderId].designs) {
-          if (!d.layoutKind) {
-            d.layoutKind = d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'
+          if (!d.layoutKinds || d.layoutKinds.length === 0) {
+            d.layoutKinds = [d.layoutKind ?? (d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')]
           }
+          if (!d.layoutKind) d.layoutKind = d.layoutKinds[0]
           if (d.image) memoryCacheImages[d.id] = d.image
         }
         sharedUpdated = true
@@ -193,9 +207,10 @@ export function applySharedToState(
         if (!found) {
           // Custom design only present in this save
           const copy = JSON.parse(JSON.stringify(d))
-          if (!copy.layoutKind) {
-            copy.layoutKind = copy.name.toLowerCase().includes('semi') ? 'semi' : copy.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper'
+          if (!copy.layoutKinds || copy.layoutKinds.length === 0) {
+            copy.layoutKinds = [copy.layoutKind ?? (copy.name.toLowerCase().includes('semi') ? 'semi' : copy.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper')]
           }
+          if (!copy.layoutKind) copy.layoutKind = copy.layoutKinds[0]
           if (!copy.image && memoryCacheImages[copy.id]) {
             copy.image = memoryCacheImages[copy.id]
           }
@@ -207,8 +222,9 @@ export function applySharedToState(
             found.image = d.image || memoryCacheImages[d.id]
             sharedUpdated = true
           }
-          if (d.layoutKind && found.layoutKind !== d.layoutKind) {
-            found.layoutKind = d.layoutKind
+          if (d.layoutKinds && d.layoutKinds.length > 0 && JSON.stringify(found.layoutKinds) !== JSON.stringify(d.layoutKinds)) {
+            found.layoutKinds = [...d.layoutKinds]
+            found.layoutKind = d.layoutKinds[0]
             sharedUpdated = true
           }
         }
