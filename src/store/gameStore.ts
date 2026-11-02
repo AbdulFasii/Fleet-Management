@@ -33,6 +33,8 @@ import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
 import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
 import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
 import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS, getDesign } from '../engine/data/bodyBuilders'
+import { usedPrice } from '../engine/sim/fleet'
+import { rngFor, rJitter } from '../engine/core/rng'
 import { L } from '../engine/core/money'
 import {
   clearSaveStores,
@@ -579,6 +581,13 @@ function migrate(raw: unknown): GameState | null {
     if (RETIRED_MODEL_MAP[o.modelId]) o.modelId = RETIRED_MODEL_MAP[o.modelId]
   }
   s.usedMarket = (s.usedMarket ?? []).filter((l) => Boolean(BUS_MODELS[l.modelId]))
+  for (const l of s.usedMarket) {
+    const fair = usedPrice(l.modelId, l.ageYears, l.bodyDesignId, s)
+    if (fair > 0 && (l.askPrice < fair * 0.85 || l.askPrice > fair * 1.15)) {
+      const rng = rngFor(s.seed, 'reanchor-used', l.id)
+      l.askPrice = Math.round(rJitter(rng, fair, 0.05) * (l.accidentHistory ? 0.95 : 1))
+    }
+  }
   s.leaseOffers = (s.leaseOffers ?? []).filter((o) => Boolean(BUS_MODELS[o.modelId]))
   s.attachOffers = (s.attachOffers ?? []).filter((o) => Boolean(BUS_MODELS[o.modelId]))
   delete (s as { charterJobs?: unknown }).charterJobs
@@ -1304,6 +1313,18 @@ function migrate(raw: unknown): GameState | null {
         for (const d of b.designs) {
           if (d.availableUsed === undefined) d.availableUsed = d.secondaryMarket !== false
           if (d.availableLeaseAttach === undefined) d.availableLeaseAttach = d.secondaryMarket !== false
+        }
+      }
+    }
+  }
+
+  if (s.version < 33) {
+    if (s.usedMarket) {
+      for (const l of s.usedMarket) {
+        const fair = usedPrice(l.modelId, l.ageYears, l.bodyDesignId, s)
+        if (fair > 0 && (l.askPrice < fair * 0.85 || l.askPrice > fair * 1.15)) {
+          const rng = rngFor(s.seed, 'reanchor-used', l.id)
+          l.askPrice = Math.round(rJitter(rng, fair, 0.05) * (l.accidentHistory ? 0.95 : 1))
         }
       }
     }

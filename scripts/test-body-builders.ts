@@ -133,7 +133,14 @@ assert(customPrice > basePrice, `Used price with premium MG Luxe body is higher 
 const baseRent = leaseMonthlyRent('bb1824', 3, 120_000)
 const customRent = leaseMonthlyRent('bb1824', 3, 120_000, 'mg_luxe', s)
 assert(customRent > baseRent, `Lease rent with premium body is higher (${customRent} > ${baseRent})`)
-console.log('✓ Body-aware used pricing and lease rent passed')
+
+// Verify used market asking prices are in slight differences to fair value
+for (const l of s.usedMarket) {
+  const fair = usedPrice(l.modelId, l.ageYears, l.bodyDesignId, s)
+  const ratio = l.askPrice / fair
+  assert(ratio >= 0.88 && ratio <= 1.12, `Used ask price is close to fair value: fair=${fair}, ask=${l.askPrice}, ratio=${ratio.toFixed(2)}`)
+}
+console.log('✓ Body-aware used pricing and close fair-vs-ask price range passed')
 
 // 2. Secondary market separate flags (used vs lease & attach)
 const bbModel = BUS_MODELS['bb1824']!

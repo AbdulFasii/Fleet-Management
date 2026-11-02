@@ -339,8 +339,8 @@ export function refreshMarkets(s: GameState): void {
       }
     }
     const fair = usedPrice(model.id, age, usedDesignId, s)
-    // sellers of rough buses still ask near fair price - that's the trap
-    const ask = Math.round(rJitter(rng, fair, 0.12) * (accident ? 0.93 : 1))
+    // sellers ask near fair price with slight variation
+    const ask = Math.round(rJitter(rng, fair, 0.05) * (accident ? 0.95 : 1))
     const notes = [
       'Single owner, all papers clear.',
       'Fleet-operated, service records available.',
@@ -488,7 +488,7 @@ function appendCargoOffers(s: GameState, rng: Rng): void {
     modelId: usedModel.id,
     ageYears: usedAge,
     odometer: usedOdo,
-    askPrice: Math.round(rJitter(rng, usedFair, 0.08)),
+    askPrice: Math.round(rJitter(rng, usedFair, 0.05)),
     expiresDay: s.day + BAL.marketRefreshDays,
     condition: usedCond,
     accidentHistory: false,
