@@ -25,6 +25,7 @@ import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroup
 import { KV, Panel, Modal, GroupBadge } from '../bits'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
+import { exportSharedDesignsJson, importSharedDesignsJson } from '../../store/sharedBodyDesigns'
 
 const EXPORT_SERIES_KEY = 'busraj_export_series'
 
@@ -245,6 +246,32 @@ export function SettingsPage() {
     g.resetBodyDesignsToDefault()
     setConfirmResetDesigns(false)
     g.toast('Reset coach designs to default catalog across all game saves.', 'good')
+  }
+
+  const importDesignsRef = useRef<HTMLInputElement>(null)
+  const handleExportDesigns = () => {
+    const json = exportSharedDesignsJson()
+    const blob = new Blob([json], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'shared_coach_designs.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+    g.toast('Exported coach designs and photos backup.', 'good')
+  }
+
+  const handleImportDesigns = (file: File) => {
+    file.text()
+      .then((text) => {
+        const res = importSharedDesignsJson(text)
+        if (!res.ok) {
+          g.toast(res.error ?? 'Could not import designs file.', 'bad')
+          return
+        }
+        g.initSharedBodyDesigns()
+        g.toast('Imported coach designs and photos successfully!', 'good')
+      })
+      .catch(() => g.toast('Could not read file from disk.', 'bad'))
   }
   /** Amenities + fittings cards inside a brand — hidden by default. */
   const [amenityCardOpen, setAmenityCardOpen] = useState<Record<string, boolean>>({})
@@ -1877,13 +1904,40 @@ export function SettingsPage() {
             flat
             info="Custom body designs and coach images are saved globally and automatically shared across all your game saves and new games. You configure them once, and they remain across all saves."
             action={
-              <button
-                className="small dim"
-                onClick={() => setConfirmResetDesigns(true)}
-                title="Reset designs and images back to default factory catalog"
-              >
-                Reset Defaults…
-              </button>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button
+                  className="small"
+                  onClick={handleExportDesigns}
+                  title="Export custom coach designs and photos to a JSON file"
+                >
+                  📥 Export
+                </button>
+                <button
+                  className="small"
+                  onClick={() => importDesignsRef.current?.click()}
+                  title="Import coach designs and photos from a JSON file"
+                >
+                  📤 Import
+                </button>
+                <button
+                  className="small dim"
+                  onClick={() => setConfirmResetDesigns(true)}
+                  title="Reset designs and images back to default factory catalog"
+                >
+                  Reset Defaults…
+                </button>
+                <input
+                  ref={importDesignsRef}
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    e.target.value = ''
+                    if (f) handleImportDesigns(f)
+                  }}
+                />
+              </div>
             }
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>

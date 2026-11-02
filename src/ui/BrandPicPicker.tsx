@@ -12,12 +12,12 @@ export function fileToBrandPicDataUrl(file: File): Promise<string> {
         return
       }
 
-      // Automatically downscale high-resolution images to fit within 1200x800 for crisp display
-      // while reducing file size from megabytes down to ~50-80KB.
+      // Automatically downscale high-resolution images to fit within 800x600 for crisp display
+      // while reducing file size from megabytes down to ~25-40KB so it never exceeds storage limits.
       const img = new Image()
       img.onload = () => {
         try {
-          const maxDim = 1200
+          const maxDim = 800
           let { width, height } = img
           if (width > maxDim || height > maxDim) {
             if (width > height) {
@@ -37,8 +37,7 @@ export function fileToBrandPicDataUrl(file: File): Promise<string> {
             return
           }
           ctx.drawImage(img, 0, 0, width, height)
-          const isPng = file.type === 'image/png'
-          const compressed = canvas.toDataURL(isPng ? 'image/png' : 'image/jpeg', 0.85)
+          const compressed = canvas.toDataURL('image/jpeg', 0.8)
           resolve(compressed.length < result.length ? compressed : result)
         } catch {
           resolve(result)

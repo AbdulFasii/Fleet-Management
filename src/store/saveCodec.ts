@@ -273,7 +273,13 @@ export function clearSaveStores(): void {
     const keysToRemove: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)
-      if (k && (k.startsWith('busgame_') || k.startsWith('busraj_') || k.startsWith('bus_pref_'))) {
+      if (
+        k &&
+        !k.includes('coach') &&
+        !k.includes('shared_body') &&
+        !k.includes('global_design') &&
+        (k.startsWith('busgame_') || k.startsWith('busraj_') || k.startsWith('bus_pref_'))
+      ) {
         keysToRemove.push(k)
       }
     }

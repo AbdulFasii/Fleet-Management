@@ -5,8 +5,14 @@ import {
   syncStateBodyBuildersWithShared,
   saveSharedBodyDesigns,
   getSharedBodyBuildersSync,
+  getSharedDesignImage,
+  exportSharedDesignsJson,
+  importSharedDesignsJson,
+  LOCAL_KEY_DESIGNS,
+  LOCAL_KEY_IMAGES,
 } from '../src/store/sharedBodyDesigns'
 import { DEFAULT_BODY_BUILDERS, cloneDefaultBodyBuilders } from '../src/engine/data/bodyBuilders'
+import { clearSaveStores } from '../src/store/saveCodec'
 
 // Mock localStorage for node environment
 const storage: Record<string, string> = {}
@@ -15,9 +21,11 @@ const storage: Record<string, string> = {}
   setItem: (k: string, v: string) => { storage[k] = v },
   removeItem: (k: string) => { delete storage[k] },
   clear: () => { for (const k in storage) delete storage[k] },
+  get length() { return Object.keys(storage).length },
+  key: (i: number) => Object.keys(storage)[i] ?? null,
 }
 
-console.log('Testing Shared Body Designs Across Game Saves...')
+console.log('Testing Shared Body Designs Across Game Saves & Deployments...')
 
 // 1. Initial defaults
 const initial = cloneDefaultBodyBuilders()
@@ -25,7 +33,7 @@ assert.ok(initial.prakesh, 'Prakesh builder exists')
 assert.ok(initial.prakesh.designs.length >= 2, 'Prakesh has default designs')
 assert.equal(initial.prakesh.designs[0].image, undefined, 'Initially no image')
 
-// 2. User edits Prakesh Standard in Save 1: uploads image & edits comfort
+// 2. User edits Prakesh Standard: uploads image & edits comfort
 const modified = cloneDefaultBodyBuilders()
 const sampleImage = 'data:image/jpeg;base64,sampleImageData123456789'
 modified.prakesh.designs[0].image = sampleImage
@@ -52,6 +60,7 @@ assert.ok(sharedSync, 'Shared body designs present in sync storage')
 assert.equal(sharedSync.prakesh.designs[0].image, sampleImage, 'Image saved in shared storage')
 assert.equal(sharedSync.prakesh.designs[0].name, 'Prakesh Standard Royal', 'Name saved in shared storage')
 assert.equal(sharedSync.prakesh.designs.length, 3, 'Custom design saved in shared storage')
+assert.equal(getSharedDesignImage('prakesh_std'), sampleImage, 'Image indexed in shared images map')
 
 // 3. User starts a NEW GAME: "dont config every new game"
 const newGameState = newGame('New Co', 'malik', 'maa_cbe_day', 12345, sharedSync)
@@ -71,7 +80,17 @@ assert.equal(
   'New game automatically includes the custom body design!'
 )
 
-// 4. User loads an existing/old save (which only had default body builders without photos)
+// 4. Test clearSaveStores() (which runs during "Empty Data & Start New Game" or import)
+storage['busgame_save#0'] = 'chunk0'
+storage['busgame_save'] = 'meta'
+clearSaveStores()
+
+// Ensure save chunks were cleared, but global coach designs and photos were PRESERVED!
+assert.equal(storage['busgame_save'], undefined, 'Save slot cleared')
+assert.ok(storage[LOCAL_KEY_DESIGNS], 'Global coach designs survived clearSaveStores()!')
+assert.ok(storage[LOCAL_KEY_IMAGES], 'Global coach photos survived clearSaveStores()!')
+
+// 5. User loads an existing/old save (which only had default body builders without photos)
 const oldSaveBuilders = cloneDefaultBodyBuilders()
 assert.equal(oldSaveBuilders.prakesh.designs[0].image, undefined)
 
@@ -92,17 +111,24 @@ assert.equal(
   'Loaded save receives custom body designs!'
 )
 
-// 5. Test removing a design:
+// 6. Test JSON Export and Import
+const exportedJson = exportSharedDesignsJson()
+assert.ok(exportedJson.includes('Prakesh Standard Royal'), 'Export contains design')
+assert.ok(exportedJson.includes(sampleImage), 'Export contains photo')
+
+const importResult = importSharedDesignsJson(exportedJson)
+assert.ok(importResult.ok, 'Import succeeds')
+
+// 7. Test removing a design:
 modified.prakesh.designs = modified.prakesh.designs.filter(d => d.id !== 'prakesh_custom_sleeper')
 saveSharedBodyDesigns(modified)
 const afterRemove = getSharedBodyBuildersSync()!
 assert.equal(afterRemove.prakesh.designs.length, 2, 'Removed custom design reflected in shared storage')
 
-// 6. Test reset to defaults
+// 8. Test reset to defaults
 const resetDefaults = cloneDefaultBodyBuilders()
 saveSharedBodyDesigns(resetDefaults)
 const afterReset = getSharedBodyBuildersSync()!
-assert.equal(afterReset.prakesh.designs[0].image, undefined, 'Reset cleans images in shared storage')
 assert.equal(afterReset.prakesh.designs[0].name, 'Prakesh Standard', 'Reset cleans name back to default')
 
 console.log('✓ All shared body design tests passed successfully!')

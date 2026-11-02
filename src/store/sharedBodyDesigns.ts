@@ -1,31 +1,56 @@
 import type { BodyBuilder, BodyDesign } from '../engine/types'
 import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS } from '../engine/data/bodyBuilders'
 
-const LOCAL_STORAGE_KEY = 'busgame_shared_body_builders'
-const IDB_NAME = 'busgame_shared_storage'
+// Safe keys protected from clearSaveStores()
+export const LOCAL_KEY_DESIGNS = 'busgame_global_coach_designs'
+export const LOCAL_KEY_IMAGES = 'busgame_coach_images'
+
+const IDB_NAME = 'busgame_coach_storage_v2'
 const IDB_STORE = 'keyval'
-const IDB_KEY = 'shared_body_builders'
+const IDB_KEY_DESIGNS = 'coach_designs'
+const IDB_KEY_IMAGES = 'coach_images'
 
-// In-memory cache for synchronous access (e.g. at game start or newGame)
-let memoryCache: Record<string, BodyBuilder> | null = null
+// In-memory caches for instant synchronous availability
+let memoryCacheDesigns: Record<string, BodyBuilder> | null = null
+let memoryCacheImages: Record<string, string> = {}
 
-// Initialize synchronous memory cache from localStorage if available
+// ---------------------------------------------------------------------------
+// Synchronous Startup Hydration (from LocalStorage)
+// ---------------------------------------------------------------------------
 try {
   if (typeof localStorage !== 'undefined') {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
+    const rawImgs = localStorage.getItem(LOCAL_KEY_IMAGES)
+    if (rawImgs) {
+      const parsedImgs = JSON.parse(rawImgs)
+      if (parsedImgs && typeof parsedImgs === 'object') {
+        memoryCacheImages = parsedImgs
+      }
+    }
+
+    const rawDesigns = localStorage.getItem(LOCAL_KEY_DESIGNS)
+    if (rawDesigns) {
+      const parsed = JSON.parse(rawDesigns)
       if (parsed && typeof parsed === 'object') {
-        memoryCache = parsed
+        memoryCacheDesigns = parsed
+        // Backfill any images
+        for (const b of Object.values(memoryCacheDesigns)) {
+          for (const d of b.designs) {
+            if (d.image) {
+              memoryCacheImages[d.id] = d.image
+            } else if (memoryCacheImages[d.id]) {
+              d.image = memoryCacheImages[d.id]
+            }
+          }
+        }
       }
     }
   }
 } catch {
-  // localStorage may be unavailable or disabled
+  // Storage unavailable or disabled
 }
 
 // ---------------------------------------------------------------------------
-// IndexedDB Helpers
+// IndexedDB Persistence Helpers
 // ---------------------------------------------------------------------------
 
 function openIdb(): Promise<IDBDatabase> {
@@ -76,42 +101,95 @@ async function idbSet<T>(key: string, val: T): Promise<boolean> {
 }
 
 // ---------------------------------------------------------------------------
-// Merging & Synchronization Logic
+// Image Lookup & Attachment
+// ---------------------------------------------------------------------------
+
+/** Get shared photo for a design ID, even if a save didn't serialize it. */
+export function getSharedDesignImage(designId: string): string | undefined {
+  return memoryCacheImages[designId]
+}
+
+/** Attaches all known shared images to a set of body builders. */
+export function attachSharedImages(builders: Record<string, BodyBuilder>): Record<string, BodyBuilder> {
+  const result: Record<string, BodyBuilder> = JSON.parse(JSON.stringify(builders))
+  for (const b of Object.values(result)) {
+    for (const d of b.designs) {
+      if (d.image) {
+        memoryCacheImages[d.id] = d.image
+      } else if (memoryCacheImages[d.id]) {
+        d.image = memoryCacheImages[d.id]
+      }
+    }
+  }
+  return result
+}
+
+// ---------------------------------------------------------------------------
+// Merging & State Synchronization
 // ---------------------------------------------------------------------------
 
 /**
  * Merges shared body designs with a save state's body designs.
  * - `shared` is the authoritative source for designs, configs, and images.
- * - Any unique custom designs or images only present in `stateBuilders` are adopted into `shared`.
- * - Returns the resulting `bodyBuilders` to apply, and whether `shared` storage was updated.
+ * - Any unique custom designs or images in `stateBuilders` are preserved & adopted globally.
+ * - Images are sticky: once associated with a design ID, they never disappear.
  */
 export function applySharedToState(
   stateBuilders: Record<string, BodyBuilder> | undefined | null,
   shared: Record<string, BodyBuilder> | undefined | null,
 ): { bodyBuilders: Record<string, BodyBuilder>; sharedUpdated: boolean } {
-  const base = shared ?? memoryCache ?? cloneDefaultBodyBuilders()
+  const base = shared ?? memoryCacheDesigns ?? cloneDefaultBodyBuilders()
   const result: Record<string, BodyBuilder> = JSON.parse(JSON.stringify(base))
   let sharedUpdated = false
+
+  // First attach any globally known images to the base result
+  for (const b of Object.values(result)) {
+    for (const d of b.designs) {
+      if (d.image) {
+        if (!memoryCacheImages[d.id]) {
+          memoryCacheImages[d.id] = d.image
+          sharedUpdated = true
+        }
+      } else if (memoryCacheImages[d.id]) {
+        d.image = memoryCacheImages[d.id]
+      }
+    }
+  }
 
   if (stateBuilders) {
     for (const [builderId, b] of Object.entries(stateBuilders)) {
       if (!result[builderId]) {
         result[builderId] = JSON.parse(JSON.stringify(b))
+        for (const d of result[builderId].designs) {
+          if (d.image) memoryCacheImages[d.id] = d.image
+        }
         sharedUpdated = true
         continue
       }
 
       const resBuilder = result[builderId]
       for (const d of b.designs) {
+        // Collect image if state had one
+        if (d.image && !memoryCacheImages[d.id]) {
+          memoryCacheImages[d.id] = d.image
+          sharedUpdated = true
+        }
+
         const found = resBuilder.designs.find((x) => x.id === d.id)
         if (!found) {
-          // Custom design in this save that isn't in shared yet -> adopt it globally
-          resBuilder.designs.push(JSON.parse(JSON.stringify(d)))
+          // Custom design only present in this save
+          const copy = JSON.parse(JSON.stringify(d))
+          if (!copy.image && memoryCacheImages[copy.id]) {
+            copy.image = memoryCacheImages[copy.id]
+          }
+          resBuilder.designs.push(copy)
           sharedUpdated = true
-        } else if (d.image && !found.image) {
-          // Save has an image that shared doesn't have yet -> adopt it globally
-          found.image = d.image
-          sharedUpdated = true
+        } else {
+          // Ensure image is attached
+          if (!found.image && (d.image || memoryCacheImages[d.id])) {
+            found.image = d.image || memoryCacheImages[d.id]
+            sharedUpdated = true
+          }
         }
       }
     }
@@ -122,24 +200,23 @@ export function applySharedToState(
 
 /**
  * Returns current shared body builders synchronously.
- * Falls back to null if nothing has been saved yet.
+ * Always has all cached photos attached.
  */
 export function getSharedBodyBuildersSync(): Record<string, BodyBuilder> | null {
-  return memoryCache ? JSON.parse(JSON.stringify(memoryCache)) : null
+  if (!memoryCacheDesigns) return null
+  return attachSharedImages(memoryCacheDesigns)
 }
 
 /**
  * Synchronize a save state's body builders with the global shared body designs.
- * - Any designs or images in shared storage are applied to the save state.
- * - Any unique custom designs or images in the save state are adopted into shared storage.
  */
 export function syncStateBodyBuildersWithShared(
   stateBuilders?: Record<string, BodyBuilder> | null,
 ): { bodyBuilders: Record<string, BodyBuilder>; changed: boolean } {
-  const currentShared = memoryCache ?? cloneDefaultBodyBuilders()
+  const currentShared = memoryCacheDesigns ?? cloneDefaultBodyBuilders()
   const { bodyBuilders, sharedUpdated } = applySharedToState(stateBuilders, currentShared)
 
-  memoryCache = bodyBuilders
+  memoryCacheDesigns = bodyBuilders
   return { bodyBuilders: JSON.parse(JSON.stringify(bodyBuilders)), changed: sharedUpdated }
 }
 
@@ -149,50 +226,89 @@ export function syncStateBodyBuildersWithShared(
 
 /**
  * Persist body builders globally across all game saves:
- * 1. Updates memory cache
- * 2. Saves to localStorage
- * 3. Saves to IndexedDB (for high capacity & image binary safety)
- * 4. Saves to backend disk (/api/shared-body-designs in gameSave/ folder)
+ * 1. Updates memory caches (designs + images map)
+ * 2. Saves designs & images to LocalStorage
+ * 3. Saves designs & images to IndexedDB
+ * 4. Saves to backend disk (/api/shared-body-designs) if local server is active
  */
 export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBuilder>): Promise<void> {
   const clone = JSON.parse(JSON.stringify(bodyBuilders))
-  memoryCache = clone
+
+  // Update images cache
+  for (const b of Object.values(clone as Record<string, BodyBuilder>)) {
+    for (const d of b.designs) {
+      if (d.image) {
+        memoryCacheImages[d.id] = d.image
+      } else if (memoryCacheImages[d.id]) {
+        d.image = memoryCacheImages[d.id]
+      }
+    }
+  }
+  memoryCacheDesigns = clone
 
   // 1. LocalStorage
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(clone))
+      localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(clone))
+      localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
     }
   } catch {
-    // Quota might be hit if uncompressed images are large; IndexedDB and disk handle it
+    // Quota fallback to IDB
   }
 
   // 2. IndexedDB
   try {
-    await idbSet(IDB_KEY, clone)
+    await Promise.all([
+      idbSet(IDB_KEY_DESIGNS, clone),
+      idbSet(IDB_KEY_IMAGES, memoryCacheImages),
+    ])
   } catch {
     // IndexedDB failure fallback
   }
 
-  // 3. Backend disk file (Downloads/gameSave/shared_body_designs.json)
+  // 3. Local Vite server disk persistence
   if (typeof window !== 'undefined') {
     try {
-      await fetch('/api/shared-body-designs', {
+      fetch('/api/shared-body-designs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodyBuilders: clone }),
-      })
+        body: JSON.stringify({ bodyBuilders: clone, images: memoryCacheImages }),
+      }).catch(() => {})
     } catch {
-      // Hosted or server unreachable, client storage remains valid
+      // Hosted / offline
     }
   }
 }
 
 /**
- * Load shared body designs from persistent storage (Backend -> IndexedDB -> LocalStorage).
+ * Load shared body designs and images from persistent storage (IndexedDB -> Backend -> LocalStorage).
  */
 export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilder> | null> {
-  // 1. Try backend
+  // 1. Try IndexedDB first (most reliable for binary/image data in browsers)
+  try {
+    const [idbDesigns, idbImgs] = await Promise.all([
+      idbGet<Record<string, BodyBuilder>>(IDB_KEY_DESIGNS),
+      idbGet<Record<string, string>>(IDB_KEY_IMAGES),
+    ])
+    if (idbImgs && typeof idbImgs === 'object') {
+      memoryCacheImages = { ...memoryCacheImages, ...idbImgs }
+    }
+    if (idbDesigns && typeof idbDesigns === 'object') {
+      memoryCacheDesigns = attachSharedImages(idbDesigns)
+      // Mirror to localStorage
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(memoryCacheDesigns))
+          localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
+        }
+      } catch {}
+      return memoryCacheDesigns
+    }
+  } catch {
+    // IndexedDB not ready
+  }
+
+  // 2. Try backend (local Vite server)
   if (typeof window !== 'undefined') {
     try {
       const res = await fetch('/api/shared-body-designs')
@@ -202,14 +318,19 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
         if (!looksHtml) {
           const data = JSON.parse(text)
           if (data.ok && data.bodyBuilders && typeof data.bodyBuilders === 'object') {
-            memoryCache = data.bodyBuilders
+            if (data.images && typeof data.images === 'object') {
+              memoryCacheImages = { ...memoryCacheImages, ...data.images }
+            }
+            memoryCacheDesigns = attachSharedImages(data.bodyBuilders)
             try {
               if (typeof localStorage !== 'undefined') {
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data.bodyBuilders))
+                localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(memoryCacheDesigns))
+                localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
               }
             } catch {}
-            idbSet(IDB_KEY, data.bodyBuilders).catch(() => {})
-            return data.bodyBuilders
+            idbSet(IDB_KEY_DESIGNS, memoryCacheDesigns).catch(() => {})
+            idbSet(IDB_KEY_IMAGES, memoryCacheImages).catch(() => {})
+            return memoryCacheDesigns
           }
         }
       }
@@ -218,35 +339,64 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
     }
   }
 
-  // 2. Try IndexedDB
-  try {
-    const idbData = await idbGet<Record<string, BodyBuilder>>(IDB_KEY)
-    if (idbData && typeof idbData === 'object') {
-      memoryCache = idbData
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(idbData))
-        }
-      } catch {}
-      return idbData
-    }
-  } catch {
-    // IndexedDB error
-  }
-
   // 3. Try LocalStorage
   try {
     if (typeof localStorage !== 'undefined') {
-      const raw = localStorage.getItem(LOCAL_STORAGE_KEY)
+      const rawImgs = localStorage.getItem(LOCAL_KEY_IMAGES)
+      if (rawImgs) {
+        const parsedImgs = JSON.parse(rawImgs)
+        if (parsedImgs && typeof parsedImgs === 'object') {
+          memoryCacheImages = { ...memoryCacheImages, ...parsedImgs }
+        }
+      }
+
+      const raw = localStorage.getItem(LOCAL_KEY_DESIGNS)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed && typeof parsed === 'object') {
-          memoryCache = parsed
-          return parsed
+          memoryCacheDesigns = attachSharedImages(parsed)
+          return memoryCacheDesigns
         }
       }
     }
   } catch {}
 
-  return memoryCache
+  return memoryCacheDesigns ? attachSharedImages(memoryCacheDesigns) : null
+}
+
+// ---------------------------------------------------------------------------
+// JSON Export & Import (Manual Backup & Transfer)
+// ---------------------------------------------------------------------------
+
+export function exportSharedDesignsJson(): string {
+  const current = memoryCacheDesigns ?? cloneDefaultBodyBuilders()
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    bodyBuilders: attachSharedImages(current),
+    images: memoryCacheImages,
+  }
+  return JSON.stringify(payload, null, 2)
+}
+
+export function importSharedDesignsJson(text: string): { ok: boolean; error?: string } {
+  try {
+    const data = JSON.parse(text)
+    if (!data || typeof data !== 'object') {
+      return { ok: false, error: 'Invalid JSON file format.' }
+    }
+    const builders = data.bodyBuilders ?? data
+    if (!builders || typeof builders !== 'object') {
+      return { ok: false, error: 'No body builders found in file.' }
+    }
+    if (data.images && typeof data.images === 'object') {
+      memoryCacheImages = { ...memoryCacheImages, ...data.images }
+    }
+    const attached = attachSharedImages(builders)
+    memoryCacheDesigns = attached
+    saveSharedBodyDesigns(attached).catch(() => {})
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Failed to parse JSON file.' }
+  }
 }
