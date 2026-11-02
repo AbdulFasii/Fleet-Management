@@ -1,6 +1,6 @@
 import { GAME_START_DAY, ymKey } from './core/calendar'
 import { BAL, DIFFICULTIES } from './data/balance'
-import type { Difficulty, GameState } from './types'
+import type { Difficulty, GameState, BodyBuilder } from './types'
 import { capitalIn, emptyMonth } from './sim/finance'
 import { refreshMarkets } from './sim/fleet'
 import { refreshHiringPool, defaultHrAutoFire } from './sim/staffing'
@@ -36,7 +36,13 @@ export function starterRoutes(): string[] {
     .map((r) => r.id)
 }
 
-export function newGame(name: string, difficulty: Difficulty, homeRouteId: string, seed: number): GameState {
+export function newGame(
+  name: string,
+  difficulty: Difficulty,
+  homeRouteId: string,
+  seed: number,
+  initialBodyBuilders?: Record<string, BodyBuilder>,
+): GameState {
   const day = GAME_START_DAY
   const preset = DIFFICULTIES.find((d) => d.id === difficulty)!
 
@@ -112,7 +118,9 @@ export function newGame(name: string, difficulty: Difficulty, homeRouteId: strin
     },
 
     buses: {},
-    bodyBuilders: cloneDefaultBodyBuilders(),
+    bodyBuilders: initialBodyBuilders
+      ? JSON.parse(JSON.stringify(initialBodyBuilders))
+      : cloneDefaultBodyBuilders(),
     busOrders: [],
     usedMarket: [],
     leaseOffers: [],

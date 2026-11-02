@@ -312,7 +312,18 @@ export function BusDetailPage() {
                     ? (builder ? `${shortBuilderName(builder.name)} · ${designName}` : designName)
                     : null
                   return ['Body design', bodyLabel
-                    ? <span>{bodyLabel}</span>
+                    ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {design?.image && (
+                          <img
+                            src={design.image}
+                            alt={designName ?? ''}
+                            style={{ width: 34, height: 22, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border)', verticalAlign: 'middle' }}
+                          />
+                        )}
+                        <span>{bodyLabel}</span>
+                      </span>
+                    )
                     : <span className="dim">not set</span>] as [string, React.ReactNode]
                 })(),
               ] : []),

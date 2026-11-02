@@ -11,7 +11,7 @@
     "probe": "tsx scripts/demand-probe.ts",
     "distress": "tsx scripts/distress-probe.ts",
     "preview": "vite preview",
-    "deploy": "vite build && copy dist\\index.html dist\\200.html && surge dist bus-management-sim.surge.sh"
+    "deploy": "vite build && copy dist\\index.html dist\\200.html && npx surge dist bus-management-sim.surge.sh"
   },
   "dependencies": {
     "fflate": "^0.8.3",

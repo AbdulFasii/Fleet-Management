@@ -33,6 +33,12 @@ import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
 import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
 import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
 import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS, getDesign } from '../engine/data/bodyBuilders'
+import {
+  getSharedBodyBuildersSync,
+  loadSharedBodyDesigns,
+  saveSharedBodyDesigns,
+  syncStateBodyBuildersWithShared,
+} from './sharedBodyDesigns'
 import { usedPrice } from '../engine/sim/fleet'
 import { rngFor, rJitter } from '../engine/core/rng'
 import { L } from '../engine/core/money'
@@ -183,6 +189,8 @@ interface GameStore {
   addBodyDesign: (builderId: string, design: BodyDesign) => { ok: boolean; error?: string }
   updateBodyDesign: (builderId: string, designId: string, patch: Partial<BodyDesign>) => { ok: boolean; error?: string }
   removeBodyDesign: (builderId: string, designId: string) => { ok: boolean; error?: string }
+  resetBodyDesignsToDefault: () => { ok: boolean }
+  initSharedBodyDesigns: () => Promise<void>
   upgradeWorkshop: () => void
   openWorkshopLocation: (cityId: string, groupIds: ID[]) => void
   addWorkshopBayAtLocation: (locationId: ID) => void
@@ -1344,7 +1352,10 @@ export const useGame = create<GameStore>()(
 
     startNew: (name, difficulty, homeRouteId) => {
       const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0
-      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed)
+      const shared = getSharedBodyBuildersSync()
+      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed, shared ?? undefined)
+      const { bodyBuilders } = syncStateBodyBuildersWithShared(s.bodyBuilders)
+      s.bodyBuilders = bodyBuilders
       const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
       dropPendingSave()
       set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
@@ -1359,6 +1370,11 @@ export const useGame = create<GameStore>()(
         if (!raw) return false
         const s = migrate(decodeSaveString(raw))
         if (!s) return false
+        const { bodyBuilders, changed } = syncStateBodyBuildersWithShared(s.bodyBuilders)
+        s.bodyBuilders = bodyBuilders
+        if (changed) {
+          saveSharedBodyDesigns(bodyBuilders).catch(() => {})
+        }
         schedules.pruneRetiredRoutes(s)
         // A save written before the data budget existed can carry years of
         // ledger rows and resolved claims; trim it as soon as it is loaded.
@@ -1384,6 +1400,11 @@ export const useGame = create<GameStore>()(
         const parsed = decodeSaveString(text)
         const s = migrate(parsed)
         if (!s) return { ok: false, persisted: false, error: 'That file is not a valid save.' }
+        const { bodyBuilders, changed } = syncStateBodyBuildersWithShared(s.bodyBuilders)
+        s.bodyBuilders = bodyBuilders
+        if (changed) {
+          saveSharedBodyDesigns(bodyBuilders).catch(() => {})
+        }
         schedules.pruneRetiredRoutes(s)
         retainDay(s)
         const notice = s.pendingMigrationNotice
@@ -1672,6 +1693,10 @@ export const useGame = create<GameStore>()(
         return null
       })
       if (err) return { ok: false, error: err }
+      const live = get().state
+      if (live?.bodyBuilders) {
+        saveSharedBodyDesigns(live.bodyBuilders).catch(() => {})
+      }
       return { ok: true }
     },
     updateBodyDesign: (builderId, designId, patch) => {
@@ -1693,6 +1718,10 @@ export const useGame = create<GameStore>()(
         return null
       })
       if (err) return { ok: false, error: err }
+      const live = get().state
+      if (live?.bodyBuilders) {
+        saveSharedBodyDesigns(live.bodyBuilders).catch(() => {})
+      }
       return { ok: true }
     },
     removeBodyDesign: (builderId, designId) => {
@@ -1714,7 +1743,43 @@ export const useGame = create<GameStore>()(
         return null
       })
       if (err) return { ok: false, error: err }
+      const live = get().state
+      if (live?.bodyBuilders) {
+        saveSharedBodyDesigns(live.bodyBuilders).catch(() => {})
+      }
       return { ok: true }
+    },
+    resetBodyDesignsToDefault: () => {
+      get().intent((s) => {
+        s.bodyBuilders = cloneDefaultBodyBuilders()
+        pushLog(s, 'info', 'Reset coach body designs to default catalog.')
+        return null
+      })
+      const live = get().state
+      if (live?.bodyBuilders) {
+        saveSharedBodyDesigns(live.bodyBuilders).catch(() => {})
+      }
+      return { ok: true }
+    },
+    initSharedBodyDesigns: async () => {
+      try {
+        await loadSharedBodyDesigns()
+        const current = get().state
+        if (current) {
+          const { bodyBuilders, changed } = syncStateBodyBuildersWithShared(current.bodyBuilders)
+          if (changed || JSON.stringify(current.bodyBuilders) !== JSON.stringify(bodyBuilders)) {
+            set({
+              state: {
+                ...current,
+                bodyBuilders,
+              },
+            })
+            saveSharedBodyDesigns(bodyBuilders).catch(() => {})
+          }
+        }
+      } catch {
+        // Shared designs background init
+      }
     },
     upgradeWorkshop: () => get().intent((s) => maintenance.upgradeWorkshop(s)),
     openWorkshopLocation: (cityId, groupIds) => get().intent((s) => maintenance.openWorkshopLocation(s, cityId, groupIds)),

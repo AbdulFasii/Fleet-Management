@@ -495,11 +495,15 @@ function Shell() {
   )
 }
 
-// Load any existing save once, before first render.
+// Load any existing save and sync shared body designs once, before first render.
 useGame.getState().loadSave()
+useGame.getState().initSharedBodyDesigns()
 
 export default function App() {
   const hasState = useGame((g) => g.state !== null)
+  useEffect(() => {
+    useGame.getState().initSharedBodyDesigns()
+  }, [])
   if (!hasState) return <><SetupScreen /><Toasts /></>
   return <Shell />
 }

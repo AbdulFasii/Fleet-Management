@@ -56,6 +56,57 @@ function gameSavePlugin(): Plugin {
       return
     }
 
+    if (pathname === '/api/shared-body-designs' && req.method === 'GET') {
+      try {
+        if (!fs.existsSync(saveDir)) {
+          fs.mkdirSync(saveDir, { recursive: true })
+        }
+        const filePath = path.join(saveDir, 'shared_body_designs.json')
+        if (fs.existsSync(filePath)) {
+          const raw = fs.readFileSync(filePath, 'utf-8')
+          const data = JSON.parse(raw)
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: true, bodyBuilders: data }))
+        } else {
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: true, bodyBuilders: null }))
+        }
+      } catch (err: any) {
+        res.statusCode = 500
+        res.setHeader('Content-Type', 'application/json')
+        res.end(JSON.stringify({ ok: false, error: err?.message || 'Error reading shared body designs' }))
+      }
+      return
+    }
+
+    if (pathname === '/api/shared-body-designs' && req.method === 'POST') {
+      let body = ''
+      req.on('data', (chunk) => {
+        body += chunk
+      })
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          if (!fs.existsSync(saveDir)) {
+            fs.mkdirSync(saveDir, { recursive: true })
+          }
+          const filePath = path.join(saveDir, 'shared_body_designs.json')
+          const content = data.bodyBuilders ?? data
+          fs.writeFileSync(filePath, JSON.stringify(content, null, 2), 'utf-8')
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: true }))
+        } catch (err: any) {
+          res.statusCode = 500
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ ok: false, error: err?.message || 'Failed to save shared body designs' }))
+        }
+      })
+      return
+    }
+
     if (pathname === '/api/export-save' && req.method === 'POST') {
       let body = ''
       req.on('data', (chunk) => {

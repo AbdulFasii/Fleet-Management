@@ -239,6 +239,13 @@ export function SettingsPage() {
     }
     g.toast('Body design removed.', 'good')
   }
+
+  const [confirmResetDesigns, setConfirmResetDesigns] = useState(false)
+  const handleResetDefaults = () => {
+    g.resetBodyDesignsToDefault()
+    setConfirmResetDesigns(false)
+    g.toast('Reset coach designs to default catalog across all game saves.', 'good')
+  }
   /** Amenities + fittings cards inside a brand — hidden by default. */
   const [amenityCardOpen, setAmenityCardOpen] = useState<Record<string, boolean>>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -1850,9 +1857,34 @@ export function SettingsPage() {
       {activeTab === 'body_designs' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Panel
-            title="Chassis Coachwork & Body Builders"
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span>Chassis Coachwork & Body Builders</span>
+                <span
+                  className="pill small"
+                  style={{
+                    background: 'rgba(34, 197, 94, 0.12)',
+                    color: '#4ade80',
+                    border: '1px solid rgba(34, 197, 94, 0.3)',
+                    fontSize: '0.75rem',
+                    fontWeight: 500,
+                  }}
+                >
+                  ✓ Shared Across All Saves
+                </span>
+              </div>
+            }
             flat
-            info="Custom body designs apply strictly to Ashok Leyland and BharatBenz passenger chassis. BharatBenz includes its OEM Factory builder, while Ashok Leyland uses specialist third-party builders. Player can adjust design packages, pricing, lead times, and upload coach images."
+            info="Custom body designs and coach images are saved globally and automatically shared across all your game saves and new games. You configure them once, and they remain across all saves."
+            action={
+              <button
+                className="small dim"
+                onClick={() => setConfirmResetDesigns(true)}
+                title="Reset designs and images back to default factory catalog"
+              >
+                Reset Defaults…
+              </button>
+            }
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               {Object.values(bodyBuilders).map((builder) => {
@@ -2378,6 +2410,32 @@ export function SettingsPage() {
                 </label>
               </div>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {confirmResetDesigns && (
+        <Modal
+          title="Reset Body Designs to Defaults?"
+          onClose={() => setConfirmResetDesigns(false)}
+          actions={
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="danger" onClick={handleResetDefaults}>
+                Yes, Reset All Designs
+              </button>
+              <button onClick={() => setConfirmResetDesigns(false)}>
+                Cancel
+              </button>
+            </div>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p>
+              This will reset all coach builders and designs back to the initial default catalog (Prakesh, REC, MG Group, ARVEX) and remove any custom designs or uploaded photos across all game saves.
+            </p>
+            <p className="dim small">
+              This action updates global storage immediately.
+            </p>
           </div>
         </Modal>
       )}
