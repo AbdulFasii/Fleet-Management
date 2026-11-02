@@ -22,7 +22,7 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
   },
   {
     label: 'Fleet',
-    heads: [['maintenance', 'Maintenance & repairs'], ['accident_repair', 'Accident & repair'], ['tyres', 'Tyres'], ['insurance', 'Insurance'], ['fitness', 'Fitness certs'], ['road_tax', 'Annual road tax'], ['permit_tax', 'Route permits'], ['gps_telematics', 'GPS'], ['lease_rent', 'Lease rents'], ['attach_owner_share', 'Attach owner share'], ['inspection', 'Inspections']],
+    heads: [['maintenance', 'Maintenance & repairs'], ['accident_repair', 'Accident & repair'], ['tyres', 'Tyres'], ['insurance', 'Insurance'], ['fitness', 'Fitness certs'], ['road_tax', 'Annual road tax'], ['permit_tax', 'Route permits'], ['gps_telematics', 'GPS'], ['lease_rent', 'Lease rents'], ['attach_owner_share', 'Attach owner share'], ['inspection', 'Inspections'], ['rebranding', 'Rebranding'], ['amenity_retrofit', 'Amenity retrofits']],
   },
   {
     label: 'People & admin',

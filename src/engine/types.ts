@@ -21,6 +21,11 @@ export interface BodyDesign {
   maintDelta: number
   image?: string // optional data-URL (as-uploaded, same as branding pic)
   notes?: string
+  /**
+   * Chassis platform names this design fits (e.g. "12M", "13.5M", "1824hd").
+   * Empty / omitted = fits every chassis length for the builder's makers.
+   */
+  chassisNames?: string[]
 }
 
 export interface BodyBuilder {
@@ -46,6 +51,11 @@ export interface BusModel {
   name: string
   maker: string
   cls: BusClassId
+  /**
+   * New list price. For Ashok Leyland / BharatBenz passenger coaches this is the
+   * chassis on-road price; body design `bodyPrice` is added at order time.
+   * Fully-built makers (Volvo, Scania, Olectra, cargo) keep complete-vehicle price.
+   */
   priceNew: Money
   seats: number
   layout: LayoutSpec
@@ -55,7 +65,8 @@ export interface BusModel {
   ac: boolean
   sleeper: boolean
   comfort: number // 1-10, drives reviews and demand
-  leadTimeDays: number // chassis + body building
+  /** Chassis delivery days for AL/BB; body design adds leadDaysAdd. Fully-built = total lead. */
+  leadTimeDays: number
   /** multiplier vs the route's benchmark AC-sleeper market fare */
   fareIndex: number
   maintCostIndex: number // 1 = average; Volvos cost more to keep alive
@@ -643,7 +654,7 @@ export type TxnHead =
   | 'redbus_commission' | 'agent_commission' | 'pg_fees' | 'marketing' | 'app_opex'
   // fleet cost
   | 'maintenance' | 'accident_repair' | 'tyres' | 'insurance' | 'fitness' | 'puc' | 'permit_tax' | 'road_tax' | 'gps_telematics' | 'gps_fit'
-  | 'lease_rent' | 'attach_owner_share' | 'inspection' | 'cargo_liability' | 'cleaning' | 'amenity_retrofit'
+  | 'lease_rent' | 'attach_owner_share' | 'inspection' | 'cargo_liability' | 'cleaning' | 'amenity_retrofit' | 'rebranding'
   // people & admin
   | 'salary' | 'training' | 'office_admin' | 'depot_rent' | 'staff_welfare'
   // finance & statutory
@@ -1379,6 +1390,10 @@ export interface BusGroup {
   color: string                // hex used for the badge
   /** Optional branding photo (e.g. livery / bus shot) as a downscaled image data URL. */
   brandingPic?: string
+  /**
+   * UI-only parent subsidiary reference. Not used by sim/finance; for org chart display.
+   */
+  parentGroupId?: ID
   foundedDay: number
   /** Retired brands stay for reporting and can be restored; only purged on request. */
   status: 'active' | 'retired'

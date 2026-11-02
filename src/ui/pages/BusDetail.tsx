@@ -37,8 +37,11 @@ import {
   coachTitle,
   busComfort,
   modelSupportsBodyDesigns,
-  designsForMaker,
+  designsForModel,
   getDesign,
+  getBuilderForDesign,
+  shortBuilderName,
+  bodyPackagePrice,
 } from '../../engine/data/bodyBuilders'
 import { hasUnfilledHpDuty, isStaffResting } from '../../engine/sim/staffing'
 import { canCrewBus, crewLimit, crewOnBus, freeCrew } from '../crew'
@@ -46,6 +49,7 @@ import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
 import { Bar, KV, M, Panel, ratingTone, GroupBadge } from '../bits'
 import { activeGroups } from '../../engine/sim/groups'
+import { canAfford } from '../../engine/sim/finance'
 import { pushLog } from '../../engine/sim/log'
 
 
@@ -182,9 +186,14 @@ export function BusDetailPage() {
   }
   const model = BUS_MODELS[bus.modelId]
   const [targetGroupId, setTargetGroupId] = useState<string>(bus.groupId ?? '')
+  const [doRebrand, setDoRebrand] = useState(false)
   const supportsBody = modelSupportsBodyDesigns(model)
-  const designOpts = supportsBody && model ? designsForMaker(s, model.maker) : []
-  const [rebodyDesignId, setRebodyDesignId] = useState<string>(bus.bodyDesignId ?? designOpts[0]?.design.id ?? '')
+  const designOpts = supportsBody && model ? designsForModel(s, model) : []
+  const [rebodyDesignId, setRebodyDesignId] = useState<string>(
+    (bus.bodyDesignId && designOpts.some((o) => o.design.id === bus.bodyDesignId)
+      ? bus.bodyDesignId
+      : designOpts[0]?.design.id) ?? '',
+  )
   const crewed = canCrewBus(bus)
   const tyreLife = tyreLifeFor(bus)
   const tyreReady = tyresDue(bus)
@@ -291,8 +300,21 @@ export function BusDetailPage() {
               ['Odometer', <span className={odoFar ? 'bad' : odoOver ? 'warn' : undefined}>{Math.round(bus.odometer).toLocaleString('en-IN')} km{odoOver ? ` · past ${odoMark.toLocaleString('en-IN')} km mark` : ''}</span>],
               ['Accident history', bus.accidentHistory ? <span className="warn">yes</span> : 'clean'],
               ['Quality (reviews)', <span className={ratingTone(bus.qualityScore)} style={{ fontWeight: 600 }}>{bus.qualityScore.toFixed(1)} <span style={{ color: '#f59e0b' }}>★</span> <span className="dim">/ 5</span></span>],
-              ...(bus.bodyDesignName ? [
-                ['Body package', bus.bodyDesignName] as [string, React.ReactNode],
+              ...(model && modelSupportsBodyDesigns(model) ? [
+                (() => {
+                  const design = getDesign(s, bus.bodyDesignId)
+                  const builder = getBuilderForDesign(s, bus.bodyDesignId)
+                    ?? (bus.bodyBuilderId && s.bodyBuilders?.[bus.bodyBuilderId]
+                      ? s.bodyBuilders[bus.bodyBuilderId]
+                      : undefined)
+                  const designName = bus.bodyDesignName ?? design?.name
+                  const bodyLabel = designName
+                    ? (builder ? `${shortBuilderName(builder.name)} · ${designName}` : designName)
+                    : null
+                  return ['Body design', bodyLabel
+                    ? <span>{bodyLabel}</span>
+                    : <span className="dim">not set</span>] as [string, React.ReactNode]
+                })(),
               ] : []),
               ...(!isCargoModel(model) ? [
               ['Comfort', `${busComfort(s, bus).toFixed(1)}/10${(bus.comfortBonus ?? 0) > 0 ? ` · seats +${(bus.comfortBonus ?? 0).toFixed(1)}` : ''}`],
@@ -723,7 +745,7 @@ export function BusDetailPage() {
                           >
                             {designOpts.map(({ builder, design }) => (
                               <option key={design.id} value={design.id}>
-                                {builder.name} — {design.name} ({design.bodyPrice >= 0 ? `+${fmtCompact(design.bodyPrice)}` : `-${fmtCompact(-design.bodyPrice)}`})
+                                {builder.name} — {design.name} (+{fmtCompact(bodyPackagePrice(builder.id, design, model?.name ?? ''))})
                               </option>
                             ))}
                           </select>
@@ -860,33 +882,68 @@ export function BusDetailPage() {
           )}
 
           <div className="panel-title" style={{ margin: '10px -10px 8px', borderTop: '1px solid var(--border)' }}><span>Subsidiary</span></div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-            <GroupBadge group={bus.groupId && s.groups ? s.groups[bus.groupId] : undefined} />
-            <select
-              value={targetGroupId}
-              onChange={(e) => setTargetGroupId(e.target.value)}
-              style={{ minWidth: 160 }}
-            >
-              {activeGroups(s).map((grp) => (
-                <option key={grp.id} value={grp.id}>
-                  {grp.code} - {grp.name}
-                </option>
-              ))}
-              <option value="">Unassigned</option>
-            </select>
-            <button
-              disabled={targetGroupId === (bus.groupId ?? '')}
-              onClick={() => {
-                const nextGid = targetGroupId ? targetGroupId : undefined
-                const oldName = bus.groupId && s.groups?.[bus.groupId] ? s.groups[bus.groupId].name : 'Unassigned'
-                const newName = nextGid && s.groups?.[nextGid] ? s.groups[nextGid].name : 'Unassigned'
-                g.assignBusToGroup(bus.id, nextGid)
-                pushLog(s, 'info', `Coach ${bus.reg} transferred from ${oldName} to ${newName}.`)
-              }}
-            >
-              Transfer
-            </button>
-          </div>
+          {(() => {
+            const nextGid = targetGroupId ? targetGroupId : undefined
+            const same = targetGroupId === (bus.groupId ?? '')
+            const canRebrand = !same && nextGid !== undefined
+            const rebrandFee = canRebrand && doRebrand ? BAL.rebrandCost : 0
+            const afford = rebrandFee <= 0 || canAfford(s, rebrandFee)
+            return (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <GroupBadge group={bus.groupId && s.groups ? s.groups[bus.groupId] : undefined} />
+                  <select
+                    value={targetGroupId}
+                    onChange={(e) => {
+                      setTargetGroupId(e.target.value)
+                      setDoRebrand(false)
+                    }}
+                    style={{ minWidth: 160 }}
+                  >
+                    {activeGroups(s).map((grp) => (
+                      <option key={grp.id} value={grp.id}>
+                        {grp.code} - {grp.name}
+                      </option>
+                    ))}
+                    <option value="">Unassigned</option>
+                  </select>
+                  <button
+                    disabled={same || !afford}
+                    onClick={() => {
+                      const oldName = bus.groupId && s.groups?.[bus.groupId] ? s.groups[bus.groupId].name : 'Unassigned'
+                      const newName = nextGid && s.groups?.[nextGid] ? s.groups[nextGid].name : 'Unassigned'
+                      const err = g.assignBusToGroup(bus.id, nextGid, { chargeRebrand: rebrandFee > 0 })
+                      if (err) {
+                        pushLog(s, 'warn', err)
+                        return
+                      }
+                      setDoRebrand(false)
+                      pushLog(
+                        s,
+                        'info',
+                        rebrandFee > 0
+                          ? `Coach ${bus.reg} transferred from ${oldName} to ${newName} (rebranding ${fmtCompact(rebrandFee)}).`
+                          : `Coach ${bus.reg} transferred from ${oldName} to ${newName}.`,
+                      )
+                    }}
+                  >
+                    Transfer
+                  </button>
+                </div>
+                {canRebrand && (
+                  <label className={`small ${afford || !doRebrand ? 'dim' : 'bad'}`} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={doRebrand}
+                      onChange={(e) => setDoRebrand(e.target.checked)}
+                    />
+                    Rebrand livery (+<M v={BAL.rebrandCost} />)
+                    {doRebrand && !afford && ' — not enough liquidity'}
+                  </label>
+                )}
+              </div>
+            )
+          })()}
 
           <div className="panel-title" style={{ margin: '10px -10px 8px', borderTop: '1px solid var(--border)' }}><span>Exit</span></div>
           {bus.ownership === 'owned' && (() => {

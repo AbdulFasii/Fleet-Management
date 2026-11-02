@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { fmtCompact, fmtINR, fmtSigned, type Money } from '../engine/core/money'
 import type { SpanMeter as SpanMeterType } from '../engine/types'
+import { isLightBadgeColor } from '../engine/sim/groups'
 import { qty } from './format'
 
 /* ---------- money ---------- */
@@ -278,6 +279,7 @@ export function GroupBadge({ group }: { group?: { name: string; code: string; co
   if (!group) {
     return <span className="dim" title="Unassigned">—</span>
   }
+  const light = isLightBadgeColor(group.color)
   return (
     <span
       className="group-badge"
@@ -288,7 +290,8 @@ export function GroupBadge({ group }: { group?: { name: string; code: string; co
         fontWeight: 600,
         borderRadius: '4px',
         backgroundColor: group.color,
-        color: '#ffffff',
+        color: light ? '#111111' : '#ffffff',
+        border: light ? '1px solid rgba(255,255,255,0.35)' : undefined,
         letterSpacing: '0.5px',
         whiteSpace: 'nowrap',
       }}

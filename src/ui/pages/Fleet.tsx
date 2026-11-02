@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { BUS_MODELS, coachKind, coachKindClass, modelTitleById, isCargoModel } from '../../engine/data/busModels'
-import { coachTitle, getDesign } from '../../engine/data/bodyBuilders'
+import { coachTitle, fleetModelLabel } from '../../engine/data/bodyBuilders'
 import { ROUTES, routeName } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
 import { fmtClock, festivalEffect } from '../../engine/core/calendar'
@@ -123,11 +123,15 @@ export function FleetPage() {
       label: 'Model',
       sort: (b) => b.modelId,
       render: (b) => {
-        const img = b.bodyDesignId ? getDesign(s, b.bodyDesignId)?.image : undefined
+        const label = fleetModelLabel(BUS_MODELS[b.modelId], {
+          bodyBuilderId: b.bodyBuilderId,
+          bodyDesignId: b.bodyDesignId,
+          bodyDesignName: b.bodyDesignName,
+          bodyBuilders: s.bodyBuilders,
+        })
         return (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {img && <img src={img} alt="" style={{ width: 28, height: 18, objectFit: 'cover', borderRadius: 2 }} />}
-            <span>{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</span>
+          <span title={coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}>
+            {label}
           </span>
         )
       },
@@ -565,7 +569,14 @@ export function FleetPage() {
                 const grp = o.groupId && s.groups ? s.groups[o.groupId] : undefined
                 return (
                   <tr key={o.id}>
-                    <td>{coachTitle(BUS_MODELS[o.modelId], o.bodyDesignName)}</td>
+                    <td title={coachTitle(BUS_MODELS[o.modelId], o.bodyDesignName)}>
+                      {fleetModelLabel(BUS_MODELS[o.modelId], {
+                        bodyBuilderId: o.bodyBuilderId,
+                        bodyDesignId: o.bodyDesignId,
+                        bodyDesignName: o.bodyDesignName,
+                        bodyBuilders: s.bodyBuilders,
+                      })}
+                    </td>
                     <td>
                       {grp ? (
                         <span className="flex" style={{ alignItems: 'center', gap: 6 }}>

@@ -1,6 +1,9 @@
 /**
  * Full passenger amenity + cabin fitting catalog.
  * Trim entries here later — UI, cost, PSS, demand, delivery and retrofit all read this list.
+ *
+ * PSS lifts are intentionally soft: stacking uses diminishing returns and hard caps so a
+ * full amenities + fittings pack cannot push every trip review to 10/10.
  */
 import { rs } from '../core/money'
 import type { Bus } from '../types'
@@ -28,31 +31,37 @@ export interface FittingDef {
 }
 
 export const AMENITY_CATALOG: AmenityDef[] = [
-  { id: 'waterBottle', title: 'Mineral Water', shortLabel: 'Water', blurb: '₹7/pax · Sealed 500ml water bottle.', cost: rs(7), pssBonus: 0.4 },
-  { id: 'snackHamper', title: 'Snack Hamper', shortLabel: 'Hamper', blurb: '₹35/pax · Biscuit pack, savouries & wet wipe.', cost: rs(35), pssBonus: 0.8 },
-  { id: 'sanitizedBedding', title: 'Sanitized Bedding', shortLabel: 'Bedding', blurb: '₹25/pax (night) · Pillow, sheet & blanket.', cost: rs(25), pssBonus: 1.0, nightOnly: true },
-  { id: 'travelKit', title: 'Sleep Travel Kit', shortLabel: 'Sleep kit', blurb: '₹18/pax · Eye mask & soft ear plugs.', cost: rs(18), pssBonus: 0.45 },
-  { id: 'fruitJuice', title: 'Chilled Fruit Juice', shortLabel: 'Juice', blurb: '₹20/pax · Tetra-pack juice with the hamper.', cost: rs(20), pssBonus: 0.4 },
-  { id: 'breakfastBox', title: 'Breakfast Box', shortLabel: 'Breakfast', blurb: '₹45/pax · Packaged breakfast on morning arrivals.', cost: rs(45), pssBonus: 0.55 },
-  { id: 'sanitaryKit', title: 'Sanitary Comfort Kit', shortLabel: 'Sanitary kit', blurb: '₹15/pax · Discreet women-friendly travel kit.', cost: rs(15), pssBonus: 0.3 },
-  { id: 'namkeen', title: 'Namkeen Mix', shortLabel: 'Namkeen', blurb: '₹20/pax · Spicy savory mix pouch.', cost: rs(20), pssBonus: 0.22 },
-  { id: 'oralKit', title: 'Oral Care Kit', shortLabel: 'Oral kit', blurb: '₹12/pax · Mini toothbrush & paste.', cost: rs(12), pssBonus: 0.25 },
-  { id: 'wetWipes', title: 'Wet Wipes Pack', shortLabel: 'Wipes', blurb: '₹10/pax · Multi-wipe hygiene pack.', cost: rs(10), pssBonus: 0.18 },
-  { id: 'comboMeal', title: 'Combo Meal (Veg / Non-Veg)', shortLabel: 'Meal', blurb: '₹95/pax · Veg thali / wrap or chicken / egg packed meal.', cost: rs(95), pssBonus: 0.72 },
-  { id: 'multiLingualCard', title: 'Multi-lingual Welcome Card', shortLabel: 'Card', blurb: '₹2/pax · Route & safety card in TN/KN/ML/EN.', cost: rs(2), pssBonus: 0.05 },
+  { id: 'waterBottle', title: 'Mineral Water', shortLabel: 'Water', blurb: '₹7/pax · Sealed 500ml water bottle.', cost: rs(7), pssBonus: 0.18 },
+  { id: 'snackHamper', title: 'Snack Hamper', shortLabel: 'Hamper', blurb: '₹35/pax · Biscuit pack, savouries & wet wipe.', cost: rs(35), pssBonus: 0.28 },
+  { id: 'sanitizedBedding', title: 'Sanitized Bedding', shortLabel: 'Bedding', blurb: '₹25/pax (night) · Pillow, sheet & blanket.', cost: rs(25), pssBonus: 0.35, nightOnly: true },
+  { id: 'travelKit', title: 'Sleep Travel Kit', shortLabel: 'Sleep kit', blurb: '₹18/pax · Eye mask & soft ear plugs.', cost: rs(18), pssBonus: 0.16 },
+  { id: 'fruitJuice', title: 'Chilled Fruit Juice', shortLabel: 'Juice', blurb: '₹20/pax · Tetra-pack juice with the hamper.', cost: rs(20), pssBonus: 0.14 },
+  { id: 'breakfastBox', title: 'Breakfast Box', shortLabel: 'Breakfast', blurb: '₹45/pax · Packaged breakfast on morning arrivals.', cost: rs(45), pssBonus: 0.2 },
+  { id: 'sanitaryKit', title: 'Sanitary Comfort Kit', shortLabel: 'Sanitary kit', blurb: '₹15/pax · Discreet women-friendly travel kit.', cost: rs(15), pssBonus: 0.12 },
+  { id: 'namkeen', title: 'Namkeen Mix', shortLabel: 'Namkeen', blurb: '₹20/pax · Spicy savory mix pouch.', cost: rs(20), pssBonus: 0.08 },
+  { id: 'oralKit', title: 'Oral Care Kit', shortLabel: 'Oral kit', blurb: '₹12/pax · Mini toothbrush & paste.', cost: rs(12), pssBonus: 0.1 },
+  { id: 'wetWipes', title: 'Wet Wipes Pack', shortLabel: 'Wipes', blurb: '₹10/pax · Multi-wipe hygiene pack.', cost: rs(10), pssBonus: 0.07 },
+  { id: 'comboMeal', title: 'Combo Meal (Veg / Non-Veg)', shortLabel: 'Meal', blurb: '₹95/pax · Veg thali / wrap or chicken / egg packed meal.', cost: rs(95), pssBonus: 0.25 },
+  { id: 'multiLingualCard', title: 'Multi-lingual Welcome Card', shortLabel: 'Card', blurb: '₹2/pax · Route & safety card in TN/KN/ML/EN.', cost: rs(2), pssBonus: 0.02 },
 ]
 
 export const FITTING_CATALOG: FittingDef[] = [
-  { id: 'wifi', title: '4G/5G Wi-Fi Router', shortLabel: 'WiFi', blurb: 'Cabin hotspot & OTA appeal.', retrofitCost: rs(18_000), pssBonus: 0.25, demandMult: 1.03 },
-  { id: 'cctv', title: 'Cabin CCTV Security Cameras', shortLabel: 'CCTV', blurb: 'Door & aisle cameras; women-friendly badge.', retrofitCost: rs(15_000), pssBonus: 0.15, demandMult: 1.02 },
-  { id: 'airPurifier', title: 'Cabin Air Purifier', shortLabel: 'Purifier', blurb: 'HEPA / ion purifier for AC coaches.', retrofitCost: rs(14_000), pssBonus: 0.2, demandMult: 1.01 },
-  { id: 'cabinFreshener', title: 'Cabin Freshener Dispenser', shortLabel: 'Freshener', blurb: 'Auto perfume mist between trips.', retrofitCost: rs(5_000), pssBonus: 0.15, demandMult: 1.005 },
-  { id: 'powerSockets', title: '220V AC Power Sockets', shortLabel: 'AC sockets', blurb: 'Laptop sockets at seats/berths.', retrofitCost: rs(10_000), pssBonus: 0.2, demandMult: 1.01 },
-  { id: 'pantryCounter', title: 'Mini Pantry Counter', shortLabel: 'Pantry', blurb: 'Hot-water urn & service counter.', retrofitCost: rs(28_000), pssBonus: 0.25, demandMult: 1.01 },
-  { id: 'fridge', title: 'Cabin Mini Fridge', shortLabel: 'Fridge', blurb: 'Chilled drinks fridge for attendant.', retrofitCost: rs(18_000), pssBonus: 0.2, demandMult: 1.008 },
+  { id: 'wifi', title: '4G/5G Wi-Fi Router', shortLabel: 'WiFi', blurb: 'Cabin hotspot & OTA appeal.', retrofitCost: rs(18_000), pssBonus: 0.1, demandMult: 1.012 },
+  { id: 'cctv', title: 'Cabin CCTV Security Cameras', shortLabel: 'CCTV', blurb: 'Door & aisle cameras; women-friendly badge.', retrofitCost: rs(15_000), pssBonus: 0.06, demandMult: 1.008 },
+  { id: 'airPurifier', title: 'Cabin Air Purifier', shortLabel: 'Purifier', blurb: 'HEPA / ion purifier for AC coaches.', retrofitCost: rs(14_000), pssBonus: 0.08, demandMult: 1.005 },
+  { id: 'cabinFreshener', title: 'Cabin Freshener Dispenser', shortLabel: 'Freshener', blurb: 'Auto perfume mist between trips.', retrofitCost: rs(5_000), pssBonus: 0.05, demandMult: 1.002 },
+  { id: 'powerSockets', title: '220V AC Power Sockets', shortLabel: 'AC sockets', blurb: 'Laptop sockets at seats/berths.', retrofitCost: rs(10_000), pssBonus: 0.08, demandMult: 1.005 },
+  { id: 'pantryCounter', title: 'Mini Pantry Counter', shortLabel: 'Pantry', blurb: 'Hot-water urn & service counter.', retrofitCost: rs(28_000), pssBonus: 0.1, demandMult: 1.005 },
+  { id: 'fridge', title: 'Cabin Mini Fridge', shortLabel: 'Fridge', blurb: 'Chilled drinks fridge for attendant.', retrofitCost: rs(18_000), pssBonus: 0.08, demandMult: 1.003 },
   { id: 'solarAssist', title: 'Roof Solar Assist Pack', shortLabel: 'Solar', blurb: 'Aux solar for lights / USB overnight — ops only, no passenger effect.', retrofitCost: rs(55_000), pssBonus: 0, demandMult: 1 },
-  { id: 'leatheretteSeats', title: 'Leatherette Seat Covers', shortLabel: 'Leatherette', blurb: 'Premium wipe-clean seat/berth covers.', retrofitCost: rs(32_000), pssBonus: 0.3, demandMult: 1.015 },
+  { id: 'leatheretteSeats', title: 'Leatherette Seat Covers', shortLabel: 'Leatherette', blurb: 'Premium wipe-clean seat/berth covers.', retrofitCost: rs(32_000), pssBonus: 0.12, demandMult: 1.006 },
 ]
+
+/** Hard caps so a fully loaded pack stays a nudge, not a free 10/10. */
+export const AMENITY_PSS_CAP = 0.9
+export const FITTING_PSS_CAP = 0.45
+/** Each extra amenity/fitting adds this fraction of the previous item's weight. */
+const STACK_DECAY = 0.72
 
 /** Legacy Bus flags still synced for older saves / code paths. */
 const LEGACY_FITTING_FIELDS: Record<string, keyof Bus> = {
@@ -86,7 +95,6 @@ export function setBusFitting(bus: Bus, id: string, on: boolean): void {
   bus.cabinFittings[id] = on
   const legacy = LEGACY_FITTING_FIELDS[id]
   if (legacy) {
-    // Legacy boolean flags kept in sync for older code paths / saves.
     ;(bus as unknown as Record<string, boolean>)[legacy] = on
   }
 }
@@ -115,21 +123,33 @@ export function tripAmenityCost(
   return total
 }
 
+function stackedBonus(values: number[], cap: number): number {
+  let bonus = 0
+  let weight = 1
+  for (const v of values) {
+    if (v <= 0) continue
+    bonus += v * weight
+    weight *= STACK_DECAY
+  }
+  return Math.min(cap, Math.round(bonus * 100) / 100)
+}
+
 export function tripAmenityPssBonus(
   amenities: Record<string, boolean>,
   depHour: number,
 ): number {
-  let bonus = 0
   const night = isNightDep(depHour)
+  const values: number[] = []
   for (const a of AMENITY_CATALOG) {
     if (!amenities[a.id]) continue
     if (a.nightOnly && !night) continue
-    bonus += a.pssBonus
+    values.push(a.pssBonus)
   }
-  return bonus
+  values.sort((a, b) => b - a)
+  return stackedBonus(values, AMENITY_PSS_CAP)
 }
 
-/** Night sleeper without sanitized bedding — keep the historic penalty. */
+/** Night sleeper without sanitized bedding — keep a noticeable gap vs bedded coaches. */
 export function missingBeddingPenalty(
   amenities: Record<string, boolean>,
   depHour: number,
@@ -137,15 +157,16 @@ export function missingBeddingPenalty(
 ): number {
   if (!sleeper || !isNightDep(depHour)) return 0
   if (amenities.sanitizedBedding) return 0
-  return -0.8
+  return -0.45
 }
 
 export function busFittingsPssBonus(bus: Bus): number {
-  let bonus = 0
+  const values: number[] = []
   for (const f of FITTING_CATALOG) {
-    if (busHasFitting(bus, f.id)) bonus += f.pssBonus
+    if (busHasFitting(bus, f.id)) values.push(f.pssBonus)
   }
-  return bonus
+  values.sort((a, b) => b - a)
+  return stackedBonus(values, FITTING_PSS_CAP)
 }
 
 export function busFittingsDemandMult(bus: Bus): number {
@@ -153,7 +174,7 @@ export function busFittingsDemandMult(bus: Bus): number {
   for (const f of FITTING_CATALOG) {
     if (busHasFitting(bus, f.id)) mult *= f.demandMult
   }
-  return mult
+  return Math.min(1.06, mult)
 }
 
 export function fittingById(id: string): FittingDef | undefined {

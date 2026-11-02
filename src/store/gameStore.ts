@@ -32,7 +32,8 @@ import { applyDecision } from '../engine/sim/events'
 import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
 import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
 import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
-import { cloneDefaultBodyBuilders, getDesign } from '../engine/data/bodyBuilders'
+import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS, getDesign } from '../engine/data/bodyBuilders'
+import { L } from '../engine/core/money'
 import {
   clearSaveStores,
   decodeSaveString,
@@ -97,12 +98,19 @@ interface GameStore {
   uiPrefs: UiPrefs
   setFleetGroupFilter: (id: 'all' | 'none' | ID) => void
 
-  createGroup: (input: { name: string; code: string; color?: string; cargoBrand?: boolean; brandingPic?: string }) => { id: ID } | { error: string }
+  createGroup: (input: {
+    name: string
+    code: string
+    color?: string
+    cargoBrand?: boolean
+    brandingPic?: string
+    parentGroupId?: ID
+  }) => { id: ID } | { error: string }
   updateGroup: (id: ID, patch: Partial<Omit<BusGroup, 'id'>>) => string | null
   retireGroup: (id: ID, moveTo: ID | undefined) => string | null
   restoreGroup: (id: ID) => string | null
   deleteGroup: (id: ID) => string | null
-  assignBusToGroup: (busId: ID, groupId: ID | undefined) => string | null
+  assignBusToGroup: (busId: ID, groupId: ID | undefined, opts?: { chargeRebrand?: boolean }) => string | null
   assignScheduleToGroup: (schId: ID, groupId: ID | undefined) => string | null
 
   startNew: (name: string, difficulty: Difficulty, homeRouteId: string) => void
@@ -1214,6 +1222,61 @@ function migrate(raw: unknown): GameState | null {
     s.seasonalStats.lifetime.profit = s.seasonalStats.history.reduce((sum, r) => sum + r.profit, 0)
   }
 
+  if (s.version < 26) {
+    // AL/BB priceNew is now chassis on-road; seed body packages use absolute bodyPrice.
+    // Refresh known seed designs still on the old relative (± few lakh) scale.
+    if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+    for (const [builderId, defBuilder] of Object.entries(DEFAULT_BODY_BUILDERS)) {
+      const live = s.bodyBuilders[builderId]
+      if (!live) {
+        s.bodyBuilders[builderId] = JSON.parse(JSON.stringify(defBuilder))
+        continue
+      }
+      for (const defDesign of defBuilder.designs) {
+        const d = live.designs.find((x) => x.id === defDesign.id)
+        if (!d) {
+          live.designs.push(JSON.parse(JSON.stringify(defDesign)))
+          continue
+        }
+        if (Math.abs(d.bodyPrice) < L(15)) {
+          d.bodyPrice = defDesign.bodyPrice
+          d.leadDaysAdd = defDesign.leadDaysAdd
+        }
+      }
+    }
+  }
+
+  if (s.version < 27) {
+    // Body-builder roster: Prakesh, REC, Maruthi, MG Group (BB-only), ARVEX.
+    s.bodyBuilders = cloneDefaultBodyBuilders()
+  }
+
+  if (s.version < 28) {
+    // Chassis-length fit rules on seed body designs (12M / 13.5M / 15M / 1624…).
+    if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+    for (const [builderId, defBuilder] of Object.entries(DEFAULT_BODY_BUILDERS)) {
+      if (!s.bodyBuilders[builderId]) {
+        s.bodyBuilders[builderId] = JSON.parse(JSON.stringify(defBuilder))
+        continue
+      }
+      for (const defDesign of defBuilder.designs) {
+        const live = s.bodyBuilders[builderId].designs.find((d) => d.id === defDesign.id)
+        if (!live) {
+          s.bodyBuilders[builderId].designs.push(JSON.parse(JSON.stringify(defDesign)))
+        } else if (defDesign.chassisNames) {
+          live.chassisNames = [...defDesign.chassisNames]
+        } else {
+          delete live.chassisNames
+        }
+      }
+    }
+  }
+
+  if (s.version < 29) {
+    // Drop Veera from the body-builder roster.
+    s.bodyBuilders = cloneDefaultBodyBuilders()
+  }
+
   s.version = SAVE_VERSION
   return s
 }
@@ -1487,10 +1550,10 @@ export const useGame = create<GameStore>()(
       }
       return err
     },
-    assignBusToGroup: (busId, groupId) => {
+    assignBusToGroup: (busId, groupId, opts) => {
       let err: string | null = null
       get().intent((s) => {
-        err = groups.assignBusToGroup(s, busId, groupId)
+        err = groups.assignBusToGroup(s, busId, groupId, opts)
         return err
       }, 'Coach transferred.')
       return err

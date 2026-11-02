@@ -21,11 +21,13 @@ import { serviceCostMult } from './serviceCost'
 import { assignBusToGroup } from './groups'
 import { FITTING_CATALOG, busHasFitting, setBusFitting } from '../data/amenitiesCatalog'
 import {
-  designsForMaker,
+  designsForModel,
   getDesign,
   getBuilderForDesign,
   composeLeadTime,
+  composeNewPrice,
   modelSupportsBodyDesigns,
+  designFitsChassis,
   effectiveComfort,
   coachTitle,
 } from '../data/bodyBuilders'
@@ -290,7 +292,7 @@ export function refreshMarkets(s: GameState): void {
     let usedBuilderId: string | undefined
     let usedDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
-      const designOpts = designsForMaker(s, model.maker)
+      const designOpts = designsForModel(s, model)
       if (designOpts.length > 0) {
         const picked = rPick(rng, designOpts)
         usedDesignId = picked.design.id
@@ -624,7 +626,8 @@ export function effectiveNewPrice(s: GameState, modelId: string, bodyDesignId?: 
   const model = BUS_MODELS[modelId]
   if (!model) return 0
   const design = modelSupportsBodyDesigns(model) ? getDesign(s, bodyDesignId) : undefined
-  let price = model.priceNew + (design ? design.bodyPrice : 0)
+  const builder = design ? getBuilderForDesign(s, design.id) : undefined
+  let price = composeNewPrice(model, design, builder?.id)
   if (model.electric && s.world.evSubsidyUntilDay >= s.day) price = Math.round(price * 0.8)
   return Math.max(0, price)
 }
@@ -643,12 +646,17 @@ export function orderNewBus(
   let design: ReturnType<typeof getDesign> = undefined
   let builder: ReturnType<typeof getBuilderForDesign> = undefined
   if (modelSupportsBodyDesigns(model)) {
-    const available = designsForMaker(s, model.maker)
+    const available = designsForModel(s, model)
     if (bodyDesignId) {
       design = getDesign(s, bodyDesignId)
       builder = getBuilderForDesign(s, bodyDesignId)
-      if (!design || !builder || !builder.makers.includes(model.maker as any)) {
-        return 'Invalid body design for this chassis.'
+      if (
+        !design
+        || !builder
+        || !builder.makers.includes(model.maker as any)
+        || !designFitsChassis(design, model.name)
+      ) {
+        return 'Invalid body design for this chassis length.'
       }
     } else if (available.length > 0) {
       design = available[0].design

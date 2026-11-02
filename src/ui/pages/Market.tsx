@@ -1,17 +1,31 @@
 import { useEffect, useState } from 'react'
 import { useGame } from '../../store/gameStore'
-import { BUS_MODELS, CLASS_LABEL, NEW_MAKERS, NEW_MODEL_LIST, coachKind, coachKindClass, coachSpec, isCargoModel, modelTitle } from '../../engine/data/busModels'
+import {
+  BUS_MODELS,
+  CLASS_LABEL,
+  NEW_MAKERS,
+  NEW_MODEL_LIST,
+  chassisLayoutVariants,
+  coachKind,
+  coachKindClass,
+  coachSpec,
+  dealerCatalogRows,
+  isCargoModel,
+  layoutOptionLabel,
+  modelTitle,
+} from '../../engine/data/busModels'
 import { BAL } from '../../engine/data/balance'
 import { quoteLoan, availableLoanProducts } from '../../engine/sim/banking'
 import { effectiveNewPrice, worstSubsystem, usedPrice, type FinancePlan } from '../../engine/sim/fleet'
 import { activeGroups } from '../../engine/sim/groups'
 import { fmtCompact, type Money } from '../../engine/core/money'
 import {
-  designsForMaker,
+  designsForModel,
   getDesign,
   modelSupportsBodyDesigns,
   composeLeadTime,
   coachTitle,
+  bodyPackagePrice,
 } from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel } from '../bits'
 
@@ -20,14 +34,22 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
   title: string
   isNew?: boolean
   modelId?: string
-  onConfirm: (plan: FinancePlan, bodyDesignId?: string) => void
+  onConfirm: (plan: FinancePlan, bodyDesignId?: string, orderedModelId?: string) => void
   onClose: () => void
 }) {
   const s = useGame((g) => g.state)!
-  const model = modelId ? BUS_MODELS[modelId] : undefined
-  const supportsCustomBody = Boolean(isNew && model && modelSupportsBodyDesigns(model))
-  const designOptions = supportsCustomBody && model ? designsForMaker(s, model.maker) : []
+  const seedModel = modelId ? BUS_MODELS[modelId] : undefined
+  const supportsCustomBody = Boolean(isNew && seedModel && modelSupportsBodyDesigns(seedModel))
+  const layoutVariants = supportsCustomBody && seedModel ? chassisLayoutVariants(seedModel) : []
+  const [selectedModelId, setSelectedModelId] = useState<string>(modelId ?? '')
+  const model = selectedModelId ? BUS_MODELS[selectedModelId] : seedModel
+  const designOptions = supportsCustomBody && model ? designsForModel(s, model) : []
   const [selectedDesignId, setSelectedDesignId] = useState<string>(designOptions[0]?.design.id ?? '')
+  useEffect(() => {
+    if (!designOptions.some((o) => o.design.id === selectedDesignId)) {
+      setSelectedDesignId(designOptions[0]?.design.id ?? '')
+    }
+  }, [selectedModelId, designOptions, selectedDesignId])
   const selectedDesign = designOptions.find((o) => o.design.id === selectedDesignId)?.design
   const selectedBuilder = designOptions.find((o) => o.design.id === selectedDesignId)?.builder
 
@@ -66,6 +88,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               onConfirm(
                 productId === 'cash' ? {} : { loanProductId: productId, months },
                 supportsCustomBody ? selectedDesignId : undefined,
+                supportsCustomBody ? selectedModelId : undefined,
               )
               setOrderedCount((c) => c + 1)
             }}
@@ -81,23 +104,57 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
         </>
       }
     >
-      {supportsCustomBody && designOptions.length > 0 && (
+      {supportsCustomBody && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--panel-alt, #151a21)', borderRadius: 6, border: '1px solid var(--border)' }}>
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Chassis Body Selection</div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label style={{ minWidth: 100 }}>Body Design</label>
-            <select
-              value={selectedDesignId}
-              onChange={(e) => setSelectedDesignId(e.target.value)}
-              style={{ flex: 1 }}
-            >
-              {designOptions.map(({ builder, design }) => (
-                <option key={design.id} value={design.id}>
-                  {builder.name} — {design.name} ({design.bodyPrice >= 0 ? `+${fmtCompact(design.bodyPrice)}` : `-${fmtCompact(-design.bodyPrice)}`})
-                </option>
-              ))}
-            </select>
-          </div>
+          {layoutVariants.length > 0 && (
+            <div className="form-row" style={{ marginBottom: 8 }}>
+              <label style={{ minWidth: 100 }}>Layout</label>
+              <select
+                value={selectedModelId}
+                onChange={(e) => setSelectedModelId(e.target.value)}
+                style={{ flex: 1 }}
+              >
+                {layoutVariants.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {layoutOptionLabel(v)} · {CLASS_LABEL[v.cls]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {model && (
+            <div className="dim small" style={{ marginBottom: 8 }}>
+              Chassis {modelTitle(model)} ·{' '}
+              <span className={coachKindClass(model)}>{coachKind(model)}</span>
+              <span> {model.layout.cols}</span>
+              {!model.isCargoOnly && <> · {model.seats} {coachKind(model) === 'Sleeper' || coachKind(model) === 'Hybrid' ? 'berths' : 'seats'}</>}
+              {' · '}base {fmtCompact(model.priceNew)}
+            </div>
+          )}
+          {designOptions.length > 0 && (
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ minWidth: 100 }}>Body Design</label>
+              <select
+                value={selectedDesignId}
+                onChange={(e) => setSelectedDesignId(e.target.value)}
+                style={{ flex: 1 }}
+              >
+                {designOptions.length === 0 ? (
+                  <option value="">No body designs for this chassis length</option>
+                ) : (
+                  designOptions.map(({ builder, design }) => {
+                    const body = bodyPackagePrice(builder.id, design, model?.name ?? '')
+                    return (
+                      <option key={design.id} value={design.id}>
+                        {builder.name} — {design.name} (+{fmtCompact(body)})
+                      </option>
+                    )
+                  })
+                )}
+              </select>
+            </div>
+          )}
           {selectedDesign && (
             <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'flex-start' }}>
               {selectedDesign.image ? (
@@ -114,16 +171,15 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
               <div style={{ flex: 1, fontSize: '0.8rem', lineHeight: 1.4 }}>
                 <div style={{ fontWeight: 600 }}>{selectedBuilder?.name} · {selectedDesign.name}</div>
                 <div className="dim mt4">
-                  <span>Price: <b>{selectedDesign.bodyPrice >= 0 ? `+${fmtCompact(selectedDesign.bodyPrice)}` : `-${fmtCompact(-selectedDesign.bodyPrice)}`}</b></span>
+                  <span>Body: <b>+{fmtCompact(bodyPackagePrice(selectedBuilder?.id, selectedDesign, model?.name ?? ''))}</b></span>
                   {' · '}
-                  <span>Lead time: <b>{selectedDesign.leadDaysAdd >= 0 ? `+${selectedDesign.leadDaysAdd}d` : `${selectedDesign.leadDaysAdd}d`}</b> ({leadDays}d total)</span>
+                  <span>Lead: <b>{selectedDesign.leadDaysAdd >= 0 ? `+${selectedDesign.leadDaysAdd}d` : `${selectedDesign.leadDaysAdd}d`}</b> ({leadDays}d total)</span>
                 </div>
                 <div className="dim">
                   <span>Comfort: <b className={selectedDesign.comfortDelta >= 0 ? 'good' : 'bad'}>{selectedDesign.comfortDelta >= 0 ? `+${selectedDesign.comfortDelta}` : selectedDesign.comfortDelta}</b></span>
                   {' · '}
                   <span>Maint: <b className={selectedDesign.maintDelta <= 0 ? 'good' : 'bad'}>{selectedDesign.maintDelta >= 0 ? `+${Math.round(selectedDesign.maintDelta * 100)}%` : `${Math.round(selectedDesign.maintDelta * 100)}%`}</b></span>
                 </div>
-                {selectedDesign.notes && <div className="faint mt4">{selectedDesign.notes}</div>}
               </div>
             </div>
           )}
@@ -196,7 +252,10 @@ export function MarketPage() {
   useEffect(() => {
     if (!makers.includes(maker) && makers[0]) setMaker(makers[0])
   }, [maker, makers])
-  const catalog = NEW_MODEL_LIST.filter((m) => m.maker === maker && (subsidiary || !isCargoModel(m)))
+  const catalog = dealerCatalogRows(
+    NEW_MODEL_LIST.filter((m) => m.maker === maker && (subsidiary || !isCargoModel(m))),
+  )
+  const chassisStyleCatalog = maker === 'Ashok Leyland' || maker === 'BharatBenz'
 
   return (
     <>
@@ -240,27 +299,54 @@ export function MarketPage() {
       >
         <table className="data">
           <thead>
-            <tr><th>Model</th><th>Layout</th><th className="num">Seats</th><th>Class</th><th className="num">Mileage</th><th className="num">Comfort</th><th className="num">Delivery</th><th className="num">Price</th><th /></tr>
+            <tr>
+              <th>Model</th>
+              {!chassisStyleCatalog && <th>Layout</th>}
+              <th className="num">Seats</th>
+              <th>Class</th>
+              <th className="num">Mileage</th>
+              <th className="num">Comfort</th>
+              <th className="num">Delivery</th>
+              <th className="num">{chassisStyleCatalog ? 'Chassis' : 'Price'}</th>
+              <th />
+            </tr>
           </thead>
           <tbody>
             {catalog.map((m) => {
-              const price = effectiveNewPrice(s, m.id)
-              const subsidised = price < m.priceNew
+              const variants = chassisStyleCatalog && !isCargoModel(m) ? chassisLayoutVariants(m) : [m]
+              const price = m.priceNew
+              const subsidised = effectiveNewPrice(s, m.id) < m.priceNew
+              const seatLo = Math.min(...variants.map((v) => v.seats))
+              const seatHi = Math.max(...variants.map((v) => v.seats))
               return (
-                <tr key={m.id}>
+                <tr key={chassisStyleCatalog && !isCargoModel(m) ? `${m.maker}::${m.name}` : m.id}>
                   <td>
                     <span className="accent">{modelTitle(m)}</span>
-                    <div className="small faint">{coachSpec(m)}</div>
+                    <div className="small faint">
+                      {chassisStyleCatalog && !isCargoModel(m)
+                        ? 'Chassis · pick layout & body on order'
+                        : coachSpec(m)}
+                    </div>
                   </td>
-                  <td>
-                    <span className={coachKindClass(m)}>{coachKind(m)}</span>
-                    <span className="dim small"> {m.layout.cols}</span>
+                  {!chassisStyleCatalog && (
+                    <td>
+                      <span className={coachKindClass(m)}>{coachKind(m)}</span>
+                      <span className="dim small"> {m.layout.cols}</span>
+                    </td>
+                  )}
+                  <td className="num">
+                    {m.isCargoOnly
+                      ? `${((m.cargoCapKg || 0) / 1000).toFixed(0)}T cargo`
+                      : chassisStyleCatalog && seatLo !== seatHi
+                        ? `${seatLo}–${seatHi}`
+                        : m.seats}
                   </td>
-                  <td className="num">{m.isCargoOnly ? `${((m.cargoCapKg || 0) / 1000).toFixed(0)}T cargo` : m.seats}</td>
-                  <td className="dim">{CLASS_LABEL[m.cls]}</td>
+                  <td className="dim">
+                    {chassisStyleCatalog && !isCargoModel(m) ? 'Chassis + body' : CLASS_LABEL[m.cls]}
+                  </td>
                   <td className="num" title={m.electric ? 'Electric, billed per km' : 'Loaded highway km/l with AC on, cautious driver. Aggressive driving is about 3.0 km/l where this reads 3.5.'}>{m.electric ? `${fmtCompact(BAL.electricCostPerKm)}/km` : `${m.mileage} km/l`}</td>
-                  <td className="num">{m.isCargoOnly ? '—' : `${m.comfort}/10`}</td>
-                  <td className="num">{m.leadTimeDays}d</td>
+                  <td className="num">{m.isCargoOnly ? '—' : chassisStyleCatalog ? 'via body' : `${m.comfort}/10`}</td>
+                  <td className="num">{m.leadTimeDays}d+</td>
                   <td className="num">
                     <M v={price} />{subsidised && <span className="good"> EV-subsidy!</span>}
                   </td>
@@ -456,9 +542,9 @@ export function MarketPage() {
           isNew={buying.kind === 'new'}
           modelId={buying.kind === 'new' ? buying.id : undefined}
           onClose={() => setBuying(null)}
-          onConfirm={(plan, bodyDesignId) => {
+          onConfirm={(plan, bodyDesignId, orderedModelId) => {
             const gid = selectedBrand || undefined
-            if (buying.kind === 'new') g.orderNewBus(buying.id, plan, gid, bodyDesignId)
+            if (buying.kind === 'new') g.orderNewBus(orderedModelId || buying.id, plan, gid, bodyDesignId)
             else g.buyUsed(buying.id, plan, gid)
           }}
         />

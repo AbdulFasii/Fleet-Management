@@ -18,7 +18,8 @@ export function fileToBrandPicDataUrl(file: File): Promise<string> {
   })
 }
 
-export function BrandPicPicker({
+/** Change / Remove controls — can sit in a card header next to other actions. */
+export function BrandPicActions({
   value,
   onChange,
   onError,
@@ -30,6 +31,48 @@ export function BrandPicPicker({
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
 
+  return (
+    <>
+      <button type="button" className="small" disabled={busy} onClick={() => ref.current?.click()}>
+        {value ? 'Change image…' : 'Upload image…'}
+      </button>
+      {value && (
+        <button type="button" className="small" onClick={() => onChange(undefined)}>
+          Remove
+        </button>
+      )}
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const f = e.target.files?.[0]
+          e.target.value = ''
+          if (!f) return
+          setBusy(true)
+          fileToBrandPicDataUrl(f)
+            .then(onChange)
+            .catch((err: Error) => onError?.(err.message))
+            .finally(() => setBusy(false))
+        }}
+      />
+    </>
+  )
+}
+
+export function BrandPicPicker({
+  value,
+  onChange,
+  onError,
+  showActions = true,
+}: {
+  value?: string
+  onChange: (pic: string | undefined) => void
+  onError?: (msg: string) => void
+  /** When false, only the preview is shown (use BrandPicActions elsewhere). */
+  showActions?: boolean
+}) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
       <div
@@ -56,32 +99,9 @@ export function BrandPicPicker({
           <span className="dim small">No pic</span>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button type="button" className="small" disabled={busy} onClick={() => ref.current?.click()}>
-          {value ? 'Change image…' : 'Upload image…'}
-        </button>
-        {value && (
-          <button type="button" className="small" onClick={() => onChange(undefined)}>
-            Remove
-          </button>
-        )}
-      </div>
-      <input
-        ref={ref}
-        type="file"
-        accept="image/*"
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          e.target.value = ''
-          if (!f) return
-          setBusy(true)
-          fileToBrandPicDataUrl(f)
-            .then(onChange)
-            .catch((err: Error) => onError?.(err.message))
-            .finally(() => setBusy(false))
-        }}
-      />
+      {showActions && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <BrandPicActions value={value} onChange={onChange} onError={onError} />
+      </div>}
     </div>
   )
 }

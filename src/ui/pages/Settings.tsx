@@ -9,13 +9,20 @@ import { docsManagerOnDuty } from '../../engine/sim/staffing'
 import { stateFootprint } from '../../engine/sim/retain'
 import { getLastSaveInfo } from '../../store/saveCodec'
 import { CHANNELS, CHANNEL_META } from '../../engine/data/channels'
-import { fmtCompact, toRupees, rs } from '../../engine/core/money'
+import { fmtCompact, toRupees, rs, L } from '../../engine/core/money'
 import { fmtDate } from '../../engine/core/calendar'
 import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup, BodyDesign } from '../../engine/types'
-import { DEFAULT_BODY_BUILDERS } from '../../engine/data/bodyBuilders'
-import { GROUP_PALETTE, brandStars, activeGroups, sortedGroups } from '../../engine/sim/groups'
+import {
+  BODY_QUALITY_TIERS,
+  DEFAULT_BODY_BUILDERS,
+  chassisNameOptions,
+  matchBodyQualityTier,
+  bodyPackageLakhs,
+  bodyPackagePriceRange,
+} from '../../engine/data/bodyBuilders'
+import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups } from '../../engine/sim/groups'
 import { KV, Panel, Modal, GroupBadge } from '../bits'
-import { BrandPicPicker } from '../BrandPicPicker'
+import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
 
 const EXPORT_SERIES_KEY = 'busraj_export_series'
@@ -50,6 +57,7 @@ function BadgeColorPellets({
     <div className="flex" style={{ gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
       {GROUP_PALETTE.map((color) => {
         const selected = value.toLowerCase() === color.toLowerCase()
+        const light = isLightBadgeColor(color)
         return (
           <button
             key={color}
@@ -63,10 +71,16 @@ function BadgeColorPellets({
               height: size,
               borderRadius: 7,
               background: `linear-gradient(145deg, ${color}ee, ${color})`,
-              border: selected ? '2px solid #fff' : '1px solid rgba(255,255,255,0.18)',
+              border: selected
+                ? '2px solid #fff'
+                : light
+                  ? '1px solid rgba(255,255,255,0.55)'
+                  : '1px solid rgba(255,255,255,0.18)',
               boxShadow: selected
                 ? `0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,0.45)`
-                : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.35)',
+                : light
+                  ? 'inset 0 0 0 1px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.35)'
+                  : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.35)',
               cursor: 'pointer',
               padding: 0,
               transform: selected ? 'scale(1.08)' : undefined,
@@ -90,6 +104,7 @@ export function SettingsPage() {
   const [newBrandColor, setNewBrandColor] = useState(GROUP_PALETTE[0])
   const [newBrandCargo, setNewBrandCargo] = useState(false)
   const [newBrandPic, setNewBrandPic] = useState<string | undefined>(undefined)
+  const [newBrandParentId, setNewBrandParentId] = useState('')
   const [retireTarget, setRetireTarget] = useState<BusGroup | null>(null)
   const [retireDestination, setRetireDestination] = useState<string>('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
@@ -103,21 +118,19 @@ export function SettingsPage() {
   const [designForm, setDesignForm] = useState<{
     id: string
     name: string
-    bodyPriceLakhs: number
     leadDaysAdd: number
     comfortDelta: number
     maintDeltaPct: number
-    notes: string
     image?: string
+    chassisNames: string[]
   }>({
     id: '',
     name: '',
-    bodyPriceLakhs: 0,
     leadDaysAdd: 0,
     comfortDelta: 0,
     maintDeltaPct: 0,
-    notes: '',
     image: undefined,
+    chassisNames: [],
   })
 
   const openEditDesign = (builderId: string, d: BodyDesign) => {
@@ -125,36 +138,34 @@ export function SettingsPage() {
     setDesignForm({
       id: d.id,
       name: d.name,
-      bodyPriceLakhs: Math.round((toRupees(d.bodyPrice) / 100_000) * 100) / 100,
       leadDaysAdd: d.leadDaysAdd,
       comfortDelta: d.comfortDelta,
       maintDeltaPct: Math.round(d.maintDelta * 100),
-      notes: d.notes ?? '',
       image: d.image,
+      chassisNames: d.chassisNames ? [...d.chassisNames] : [],
     })
   }
 
   const openAddDesign = (builderId: string) => {
     const newId = `bd_${Date.now()}`
+    const standard = BODY_QUALITY_TIERS.find((t) => t.id === 'standard')!
     const blank: BodyDesign = {
       id: newId,
       name: '',
       bodyPrice: 0,
-      leadDaysAdd: 0,
-      comfortDelta: 0,
-      maintDelta: 0,
-      notes: '',
+      leadDaysAdd: standard.leadDaysAdd,
+      comfortDelta: standard.comfortDelta,
+      maintDelta: standard.maintDeltaPct / 100,
     }
     setEditingDesign({ builderId, design: blank, isNew: true })
     setDesignForm({
       id: newId,
       name: '',
-      bodyPriceLakhs: 0,
-      leadDaysAdd: 0,
-      comfortDelta: 0,
-      maintDeltaPct: 0,
-      notes: '',
+      leadDaysAdd: standard.leadDaysAdd,
+      comfortDelta: standard.comfortDelta,
+      maintDeltaPct: standard.maintDeltaPct,
       image: undefined,
+      chassisNames: [],
     })
   }
 
@@ -165,7 +176,16 @@ export function SettingsPage() {
       g.toast('Please enter a design name.', 'bad')
       return
     }
-    const bodyPrice = Math.round(designForm.bodyPriceLakhs * 100_000)
+    const gradeId = matchBodyQualityTier(
+      designForm.comfortDelta,
+      designForm.maintDeltaPct,
+      designForm.leadDaysAdd,
+    )
+    const refChassis = designForm.chassisNames[0]
+      ?? chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland'])[0]
+      ?? '12M'
+    // Stored for save compat; live order/rebody price uses builder × chassis × grade.
+    const bodyPrice = L(bodyPackageLakhs(editingDesign.builderId, refChassis, gradeId))
     const newDesign: BodyDesign = {
       id: designForm.id || `bd_${Date.now()}`,
       name,
@@ -173,8 +193,8 @@ export function SettingsPage() {
       leadDaysAdd: Number(designForm.leadDaysAdd) || 0,
       comfortDelta: Math.round(Number(designForm.comfortDelta) * 10) / 10,
       maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
-      notes: designForm.notes.trim() || undefined,
       image: designForm.image,
+      chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
     }
 
     if (editingDesign.isNew) {
@@ -224,7 +244,9 @@ export function SettingsPage() {
   const odoMark = cfg.odoHighlightKm ?? BAL.odoHighlightDefaultKm
 
   const [saveFiles, setSaveFiles] = useState<SaveFileInfo[]>([])
-  const [saveDir, setSaveDir] = useState<string>('C:\\Users\\ADMIN\\Downloads\\gameSave')
+  const [saveDir, setSaveDir] = useState<string>('')
+  /** Local Vite plugin can read ~/Downloads/gameSave; static hosts (Surge) cannot. */
+  const [saveFolderMode, setSaveFolderMode] = useState<'unknown' | 'local' | 'hosted'>('unknown')
   const [saveLoading, setSaveLoading] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const saveInfo = getLastSaveInfo()
@@ -237,12 +259,22 @@ export function SettingsPage() {
     setSaveLoading(true)
     setSaveError(null)
     fetch('/api/save-files')
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json()
+      .then(async (r) => {
+        const text = await r.text()
+        const looksHtml = /^\s*</.test(text) || (r.headers.get('content-type') || '').includes('text/html')
+        if (looksHtml) throw new Error('HOSTED')
+        let d: any
+        try {
+          d = JSON.parse(text)
+        } catch {
+          throw new Error('HOSTED')
+        }
+        if (!r.ok) throw new Error(d?.error || `HTTP ${r.status}`)
+        return d
       })
       .then((d) => {
         if (d.ok) {
+          setSaveFolderMode('local')
           if (Array.isArray(d.files)) setSaveFiles(d.files)
           if (typeof d.saveDir === 'string') setSaveDir(d.saveDir)
           if (typeof d.nextSeriesNumber === 'number') {
@@ -254,11 +286,23 @@ export function SettingsPage() {
             } catch { /* ignore */ }
           }
         } else {
+          setSaveFolderMode('local')
           setSaveError(d.error || 'Failed to list save files')
         }
       })
       .catch((err) => {
-        setSaveError(err?.message || 'Could not connect to gameSave folder service')
+        const hosted = err?.message === 'HOSTED' || /Unexpected token|<!doctype|is not valid JSON/i.test(String(err?.message || ''))
+        if (hosted) {
+          setSaveFolderMode('hosted')
+          setSaveFiles([])
+          setSaveDir('')
+          setSaveError(null)
+        } else {
+          setSaveFolderMode('hosted')
+          setSaveFiles([])
+          setSaveDir('')
+          setSaveError(err?.message || 'Could not connect to gameSave folder service')
+        }
       })
       .finally(() => {
         setSaveLoading(false)
@@ -333,14 +377,24 @@ export function SettingsPage() {
   }
 
   const openSaveDir = async () => {
+    if (saveFolderMode === 'hosted') {
+      g.toast('Folder open only works in local dev (npm run dev). On the live site use Export / Import Save File.', 'info')
+      return
+    }
     try {
       const res = await fetch('/api/open-save-dir', { method: 'POST' })
+      const text = await res.text()
+      if (/^\s*</.test(text) || (res.headers.get('content-type') || '').includes('text/html')) {
+        setSaveFolderMode('hosted')
+        g.toast('Folder open only works in local dev. On the live site use Export / Import Save File.', 'info')
+        return
+      }
       if (res.ok) {
         g.toast('Opened gameSave folder in Explorer', 'good')
         return
       }
     } catch { /* ignore */ }
-    g.toast(`Save folder: ${saveDir}`, 'info')
+    g.toast(saveDir ? `Save folder: ${saveDir}` : 'gameSave folder is not available in this build.', 'info')
   }
 
   const loadDirectSave = async (filename: string) => {
@@ -994,7 +1048,7 @@ export function SettingsPage() {
                 Separate fleet branding, passenger amenities, cabin fittings, ratings, and Primo standing. One shared balance sheet, payroll, and workshop.
               </div>
             </div>
-            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined) }}>
+            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined); setNewBrandParentId('') }}>
               + Create Subsidiary Brand
             </button>
           </div>
@@ -1019,6 +1073,7 @@ export function SettingsPage() {
                 const amenityCount = AMENITY_CATALOG.filter((a) => amenities[a.id]).length
                 const fittingCount = FITTING_CATALOG.filter((f) => fittings[f.id]).length
                 const fittingSpend = FITTING_CATALOG.reduce((sum, f) => sum + (fittings[f.id] ? f.retrofitCost : 0), 0)
+                const parentGroup = group.parentGroupId ? s.groups?.[group.parentGroupId] : undefined
 
                 return (
                   <Panel
@@ -1028,36 +1083,39 @@ export function SettingsPage() {
                         <GroupBadge group={group} />
                         <span>{group.name}</span>
                         {isCargoBrand && <span className="pill warn small">Cargo</span>}
-                        <span className="dim small" style={{ fontWeight: 'normal' }}>(Day {group.foundedDay}+)</span>
+                        {parentGroup && (
+                          <span className="dim small" style={{ fontWeight: 'normal' }}>
+                            (Owned by {parentGroup.name})
+                          </span>
+                        )}
                       </div>
                     }
                     right={
-                      <button
-                        className="danger small"
-                        onClick={() => {
-                          setRetireTarget(group)
-                          setRetireDestination('')
-                        }}
-                      >
-                        Close Brand...
-                      </button>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <BrandPicActions
+                          value={group.brandingPic}
+                          onChange={(pic) => {
+                            const err = g.updateGroup(group.id, { brandingPic: pic })
+                            if (err) g.toast(err, 'bad')
+                            else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
+                          }}
+                          onError={(msg) => g.toast(msg, 'bad')}
+                        />
+                        <button
+                          className="danger small"
+                          onClick={() => {
+                            setRetireTarget(group)
+                            setRetireDestination('')
+                          }}
+                        >
+                          Close Brand...
+                        </button>
+                      </div>
                     }
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {/* Brand identity: pic | brand detail | fleet detail */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr 1fr', gap: 16, alignItems: 'start' }}>
-                          <div>
-                            <BrandPicPicker
-                              value={group.brandingPic}
-                              onChange={(pic) => {
-                                const err = g.updateGroup(group.id, { brandingPic: pic })
-                                if (err) g.toast(err, 'bad')
-                                else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
-                              }}
-                              onError={(msg) => g.toast(msg, 'bad')}
-                            />
-                          </div>
-
+                        {/* Brand identity: brand detail | fleet detail | pic */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(120px, 180px)', gap: 16, alignItems: 'start' }}>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             <div className="dim small">Brand detail</div>
                             <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
@@ -1150,6 +1208,19 @@ export function SettingsPage() {
                                 ]}
                               />
                             </div>
+                          </div>
+
+                          <div>
+                            <BrandPicPicker
+                              showActions={false}
+                              value={group.brandingPic}
+                              onChange={(pic) => {
+                                const err = g.updateGroup(group.id, { brandingPic: pic })
+                                if (err) g.toast(err, 'bad')
+                                else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
+                              }}
+                              onError={(msg) => g.toast(msg, 'bad')}
+                            />
                           </div>
                         </div>
 
@@ -1517,7 +1588,14 @@ export function SettingsPage() {
               ['Start Date', fmtDate(s.startDay)],
               ['Days Played', `${s.day - s.startDay} days`],
               ['World Seed', s.seed.toString(36)],
-              ['Save Directory', saveDir],
+              [
+                'Save Directory',
+                saveFolderMode === 'local' && saveDir
+                  ? saveDir
+                  : saveFolderMode === 'hosted'
+                    ? 'Browser only (live site — no local folder)'
+                    : 'Checking…',
+              ],
               ['Save File Size', saveInfo.bytes > 0 ? `${(saveInfo.bytes / 1024).toFixed(0)} KB` : 'In memory'],
               ['Database Footprint', `${footprint.trips} trips · ${footprint.txns} ledger rows · ${footprint.routeDays} route-days`],
             ]} />
@@ -1533,9 +1611,11 @@ export function SettingsPage() {
                 else g.toast('Could not compact save.', 'bad')
               }} title="Compresses completed trips and route-days">Compact Database</button>
 
-              <button className="small" onClick={exportSave} title="Writes directly to gameSave folder">Export Save File</button>
+              <button className="small" onClick={exportSave} title={saveFolderMode === 'local' ? 'Writes to gameSave folder' : 'Download a JSON save file'}>Export Save File</button>
               <button className="small" onClick={() => fileRef.current?.click()}>Import Save File</button>
-              <button className="small" onClick={openSaveDir}>Open gameSave Folder</button>
+              {saveFolderMode === 'local' && (
+                <button className="small" onClick={openSaveDir}>Open gameSave Folder</button>
+              )}
               <input
                 ref={fileRef}
                 type="file"
@@ -1579,32 +1659,52 @@ export function SettingsPage() {
           </Panel>
 
           <Panel
-            title={`gameSave Folder Details & Saves (${saveFiles.length})`}
+            title={
+              saveFolderMode === 'hosted'
+                ? 'Browser Saves (live site)'
+                : `gameSave Folder Details & Saves (${saveFiles.length})`
+            }
             flat
             right={
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  className="small"
-                  onClick={loadSaveList}
-                  disabled={saveLoading}
-                  title="Rescan gameSave directory"
-                >
-                  {saveLoading ? 'Scanning…' : '🔄 Refresh'}
-                </button>
-                <button
-                  className="small"
-                  onClick={openSaveDir}
-                  title="Open gameSave folder in File Explorer"
-                >
-                  📂 Open Folder
-                </button>
-              </div>
+              saveFolderMode === 'local' ? (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button
+                    className="small"
+                    onClick={loadSaveList}
+                    disabled={saveLoading}
+                    title="Rescan gameSave directory"
+                  >
+                    {saveLoading ? 'Scanning…' : '🔄 Refresh'}
+                  </button>
+                  <button
+                    className="small"
+                    onClick={openSaveDir}
+                    title="Open gameSave folder in File Explorer"
+                  >
+                    📂 Open Folder
+                  </button>
+                </div>
+              ) : undefined
             }
           >
+            {saveFolderMode === 'hosted' ? (
+              <div style={{ padding: '20px 16px' }}>
+                <div className="dim small" style={{ marginBottom: 10 }}>
+                  The live hosted build cannot open your PC’s <code>Downloads/gameSave</code> folder
+                  (that only works with local <code>npm run dev</code>). Progress is kept in this browser;
+                  use files to move saves between devices.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="small primary" onClick={exportSave}>Export Save File</button>
+                  <button className="small" onClick={() => fileRef.current?.click()}>Import Save File</button>
+                </div>
+              </div>
+            ) : (
+            <>
             <div style={{ padding: '8px 10px', background: 'var(--surface-sunken)', borderBottom: '1px solid var(--border)', fontSize: '0.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
               <div>
                 <span className="dim">Folder: </span>
-                <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}><b>{saveDir}</b></span>
+                <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}><b>{saveDir || '…'}</b></span>
               </div>
               <div className="dim">
                 {saveFiles.length > 0
@@ -1630,7 +1730,7 @@ export function SettingsPage() {
             ) : saveFiles.length === 0 ? (
               <div style={{ padding: '24px 16px', textAlign: 'center' }}>
                 <div className="dim small" style={{ marginBottom: 10 }}>
-                  No <code>.json</code> save files found in <code>{saveDir}</code>.
+                  No <code>.json</code> save files found in <code>{saveDir || 'gameSave'}</code>.
                 </div>
                 <div className="dim small" style={{ marginBottom: 14 }}>
                   Click <b>Export Save File</b> on the left to write your current game directly into this folder, or click <b>Refresh</b> once you place save files there.
@@ -1685,6 +1785,8 @@ export function SettingsPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+            </>
             )}
           </Panel>
 
@@ -1822,7 +1924,29 @@ export function SettingsPage() {
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{d.name}</div>
                                 <div className="small dim mt4">
-                                  <span>Body package: <b>{d.bodyPrice >= 0 ? `+${fmtCompact(d.bodyPrice)}` : `-${fmtCompact(-d.bodyPrice)}`}</b></span>
+                                  Chassis:{' '}
+                                  <b>
+                                    {d.chassisNames && d.chassisNames.length > 0
+                                      ? d.chassisNames.join(', ')
+                                      : 'All lengths'}
+                                  </b>
+                                </div>
+                                <div className="small dim">
+                                  {(() => {
+                                    const pool = chassisNameOptions(builder.makers)
+                                    const range = bodyPackagePriceRange(builder.id, d, pool)
+                                    return (
+                                      <span>
+                                        Body package:{' '}
+                                        <b>
+                                          {range.minLakhs === range.maxLakhs
+                                            ? `+${fmtCompact(range.min)}`
+                                            : `+${fmtCompact(range.min)}–${fmtCompact(range.max)}`}
+                                        </b>
+                                        <span className="faint"> · auto by length & grade</span>
+                                      </span>
+                                    )
+                                  })()}
                                 </div>
                                 <div className="small dim">
                                   <span>Lead time: <b>{d.leadDaysAdd >= 0 ? `+${d.leadDaysAdd}d` : `${d.leadDaysAdd}d`}</b></span>
@@ -1834,12 +1958,6 @@ export function SettingsPage() {
                                 </div>
                               </div>
                             </div>
-
-                            {d.notes && (
-                              <div className="small faint" style={{ fontStyle: 'italic', lineHeight: 1.3 }}>
-                                {d.notes}
-                              </div>
-                            )}
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
                               <button className="small" onClick={() => openEditDesign(builder.id, d)}>
@@ -1878,6 +1996,7 @@ export function SettingsPage() {
                     color: newBrandColor,
                     cargoBrand: newBrandCargo || undefined,
                     brandingPic: newBrandPic,
+                    parentGroupId: newBrandParentId || undefined,
                   })
                   if ('error' in res) {
                     g.toast(res.error, 'bad')
@@ -1888,6 +2007,7 @@ export function SettingsPage() {
                     setNewBrandCode('')
                     setNewBrandCargo(false)
                     setNewBrandPic(undefined)
+                    setNewBrandParentId('')
                   }
                 }}
               >
@@ -1921,6 +2041,23 @@ export function SettingsPage() {
               <label>Badge Color</label>
               <BadgeColorPellets value={newBrandColor} onChange={setNewBrandColor} size={28} />
             </div>
+            {activeGroups(s).length > 0 && (
+              <div className="form-row">
+                <label>Parent company (optional)</label>
+                <select
+                  value={newBrandParentId}
+                  onChange={(e) => setNewBrandParentId(e.target.value)}
+                  style={{ minWidth: 200 }}
+                >
+                  <option value="">None — top-level brand</option>
+                  {activeGroups(s).map((grp) => (
+                    <option key={grp.id} value={grp.id}>
+                      {grp.code} — {grp.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="form-row">
               <label>Branding pic (optional)</label>
               <BrandPicPicker value={newBrandPic} onChange={setNewBrandPic} onError={(msg) => g.toast(msg, 'bad')} />
@@ -2052,75 +2189,146 @@ export function SettingsPage() {
               <input
                 value={designForm.name}
                 onChange={(e) => setDesignForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. JCBL Royal Sleeper"
+                placeholder="e.g. ARVEX Elite Sleeper"
                 style={{ width: 280 }}
               />
             </div>
 
-            <div className="form-row">
-              <label>Body Package Cost (₹ Lakhs)</label>
-              <input
-                type="number"
-                step="0.5"
-                value={designForm.bodyPriceLakhs}
-                onChange={(e) => setDesignForm((f) => ({ ...f, bodyPriceLakhs: Number(e.target.value) }))}
-                style={{ width: 140 }}
-              />
-              <span className="small dim" style={{ marginLeft: 8 }}>
-                {designForm.bodyPriceLakhs >= 0 ? `+₹${designForm.bodyPriceLakhs} Lakhs added` : `-₹${Math.abs(designForm.bodyPriceLakhs)} Lakhs discount`}
-              </span>
+            <div className="form-row" style={{ alignItems: 'flex-start' }}>
+              <label style={{ paddingTop: 4 }}>Chassis lengths</label>
+              <div style={{ flex: 1 }}>
+                <div className="small dim" style={{ marginBottom: 6 }}>
+                  Leave all unchecked to allow every chassis. Tick only the platforms this body fits.
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']).map((name) => {
+                    const checked = designForm.chassisNames.includes(name)
+                    return (
+                      <label key={name} className="flex" style={{ alignItems: 'center', gap: 6, minWidth: 90 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            setDesignForm((f) => ({
+                              ...f,
+                              chassisNames: e.target.checked
+                                ? [...f.chassisNames, name]
+                                : f.chassisNames.filter((n) => n !== name),
+                            }))
+                          }}
+                        />
+                        <span>{name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
 
-            <div className="form-row">
-              <label>Lead Time Added (Days)</label>
-              <input
-                type="number"
-                value={designForm.leadDaysAdd}
-                onChange={(e) => setDesignForm((f) => ({ ...f, leadDaysAdd: Number(e.target.value) }))}
-                style={{ width: 140 }}
-              />
-              <span className="small dim" style={{ marginLeft: 8 }}>
-                {designForm.leadDaysAdd >= 0 ? `+${designForm.leadDaysAdd} days` : `${designForm.leadDaysAdd} days faster`}
-              </span>
+            <div className="form-row" style={{ alignItems: 'flex-start' }}>
+              <label style={{ paddingTop: 6 }}>Coach grade</label>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {BODY_QUALITY_TIERS.map((tier) => {
+                    const selected =
+                      matchBodyQualityTier(
+                        designForm.comfortDelta,
+                        designForm.maintDeltaPct,
+                        designForm.leadDaysAdd,
+                      ) === tier.id
+                    return (
+                      <button
+                        key={tier.id}
+                        type="button"
+                        className={`small ${selected ? 'primary' : ''}`}
+                        title={`${tier.blurb} · comfort ${tier.comfortDelta >= 0 ? '+' : ''}${tier.comfortDelta} · upkeep ${tier.maintDeltaPct >= 0 ? '+' : ''}${tier.maintDeltaPct}% · +${tier.leadDaysAdd}d · body ${tier.bodyPriceAddLakhs >= 0 ? '+' : ''}${tier.bodyPriceAddLakhs}L`}
+                        onClick={() =>
+                          setDesignForm((f) => ({
+                            ...f,
+                            comfortDelta: tier.comfortDelta,
+                            maintDeltaPct: tier.maintDeltaPct,
+                            leadDaysAdd: tier.leadDaysAdd,
+                          }))
+                        }
+                      >
+                        {tier.label}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="small dim" style={{ marginTop: 6 }}>
+                  {(() => {
+                    const tier = BODY_QUALITY_TIERS.find(
+                      (t) =>
+                        t.id
+                        === matchBodyQualityTier(
+                          designForm.comfortDelta,
+                          designForm.maintDeltaPct,
+                          designForm.leadDaysAdd,
+                        ),
+                    )!
+                    return (
+                      <>
+                        {tier.blurb} · comfort{' '}
+                        <b className={tier.comfortDelta >= 0 ? 'good' : 'bad'}>
+                          {tier.comfortDelta >= 0 ? '+' : ''}
+                          {tier.comfortDelta}
+                        </b>
+                        {' · '}
+                        upkeep{' '}
+                        <b className={tier.maintDeltaPct <= 0 ? 'good' : 'bad'}>
+                          {tier.maintDeltaPct >= 0 ? '+' : ''}
+                          {tier.maintDeltaPct}%
+                        </b>
+                        {' · '}
+                        body lead <b>+{tier.leadDaysAdd}d</b>
+                        {' · '}
+                        price{' '}
+                        <b>
+                          {tier.bodyPriceAddLakhs >= 0 ? '+' : ''}
+                          {tier.bodyPriceAddLakhs}L
+                        </b>
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
             </div>
 
-            <div className="form-row">
-              <label>Comfort Rating Delta</label>
-              <input
-                type="number"
-                step="0.1"
-                value={designForm.comfortDelta}
-                onChange={(e) => setDesignForm((f) => ({ ...f, comfortDelta: Number(e.target.value) }))}
-                style={{ width: 140 }}
-              />
-              <span className="small dim" style={{ marginLeft: 8 }}>
-                Points added to chassis base comfort (e.g. +0.5, -0.2)
-              </span>
-            </div>
-
-            <div className="form-row">
-              <label>Maintenance Upkeep Delta (%)</label>
-              <input
-                type="number"
-                step="1"
-                value={designForm.maintDeltaPct}
-                onChange={(e) => setDesignForm((f) => ({ ...f, maintDeltaPct: Number(e.target.value) }))}
-                style={{ width: 140 }}
-              />
-              <span className="small dim" style={{ marginLeft: 8 }}>
-                % change to repair/service upkeep costs (e.g. -5% for luxury, +8% for budget)
-              </span>
-            </div>
-
-            <div className="form-row">
-              <label>Coach Notes</label>
-              <textarea
-                value={designForm.notes}
-                onChange={(e) => setDesignForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Description of coachwork, saloon styling, panelling..."
-                rows={2}
-                style={{ width: 340 }}
-              />
+            <div className="form-row" style={{ alignItems: 'flex-start' }}>
+              <label style={{ paddingTop: 4 }}>Body package</label>
+              <div style={{ flex: 1 }}>
+                <div className="small dim" style={{ marginBottom: 6 }}>
+                  Auto from builder brand × chassis length × coach grade (not editable).
+                </div>
+                {(() => {
+                  const builderId = editingDesign.builderId
+                  const makers = bodyBuilders[builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']
+                  const pool = chassisNameOptions(makers)
+                  const names = designForm.chassisNames.length > 0 ? designForm.chassisNames : pool
+                  const gradeId = matchBodyQualityTier(
+                    designForm.comfortDelta,
+                    designForm.maintDeltaPct,
+                    designForm.leadDaysAdd,
+                  )
+                  return (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {names.map((name) => {
+                        const lakhs = bodyPackageLakhs(builderId, name, gradeId)
+                        return (
+                          <span
+                            key={name}
+                            className="pill small"
+                            style={{ background: 'var(--bg3)', border: '1px solid var(--border)' }}
+                          >
+                            {name}: <b>+{fmtCompact(L(lakhs))}</b>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>

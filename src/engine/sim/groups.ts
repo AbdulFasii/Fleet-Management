@@ -1,5 +1,7 @@
 import { nextId } from '../core/ids'
+import { BAL } from '../data/balance'
 import type { BusGroup, GameState, ID, PassengerAmenities, Schedule, Trip } from '../types'
+import { canAfford, spend } from './finance'
 import { pushLog } from './log'
 
 /** Distinct brand badge hues — spaced so neighbouring pellets read differently. */
@@ -16,14 +18,29 @@ export const GROUP_PALETTE = [
   '#ca8a04', // Gold
   '#ea580c', // Orange
   '#b45309', // Bronze
+  '#92400e', // Brown
   '#dc2626', // Crimson
+  '#7f1d1d', // Burgundy
   '#be123c', // Rose
   '#c026d3', // Magenta
+  '#a855f7', // Purple
   '#7c3aed', // Violet
   '#4338ca', // Indigo
-  '#475569', // Slate
-  '#78716c', // Stone
+  '#c0c7d1', // Silver
+  '#111111', // Black
+  '#f5f5f5', // White
 ]
+
+/** Light badge fills need dark text / a visible edge on the dark UI. */
+export function isLightBadgeColor(color: string): boolean {
+  const hex = color.trim().replace('#', '')
+  if (hex.length !== 6) return false
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  // Relative luminance (sRGB-ish)
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.72
+}
 
 /** Passenger brands first, then cargo; stable name/code within each band. */
 export function compareGroupsPassengerFirst(a: BusGroup, b: BusGroup): number {
@@ -45,7 +62,14 @@ export function activeGroups(s: GameState): BusGroup[] {
 
 export function createGroup(
   s: GameState,
-  input: { name: string; code: string; color?: string; cargoBrand?: boolean; brandingPic?: string },
+  input: {
+    name: string
+    code: string
+    color?: string
+    cargoBrand?: boolean
+    brandingPic?: string
+    parentGroupId?: ID
+  },
 ): { id: ID } | { error: string } {
   const name = input.name?.trim()
   if (!name) return { error: 'Brand name cannot be empty.' }
@@ -58,6 +82,9 @@ export function createGroup(
   if (s.groups && Object.values(s.groups).some((g) => g.code.toUpperCase() === code)) {
     return { error: 'Brand code is already in use.' }
   }
+
+  const parentGroupId =
+    input.parentGroupId && s.groups?.[input.parentGroupId] ? input.parentGroupId : undefined
 
   if (!s.groups) s.groups = {}
   const id = nextId(s.ids, 'grp')
@@ -72,6 +99,7 @@ export function createGroup(
     code,
     color,
     ...(brandingPic ? { brandingPic } : {}),
+    ...(parentGroupId ? { parentGroupId } : {}),
     foundedDay: s.day,
     status: 'active',
     cargoBrand: cargoBrand || undefined,
@@ -124,6 +152,7 @@ export function updateGroup(
 
   Object.assign(g, patch)
   if (!g.brandingPic) delete g.brandingPic
+  if (!g.parentGroupId) delete g.parentGroupId
   return null
 }
 
@@ -203,7 +232,12 @@ export function deleteGroup(s: GameState, id: ID): string | null {
   return null
 }
 
-export function assignBusToGroup(s: GameState, busId: ID, groupId: ID | undefined): string | null {
+export function assignBusToGroup(
+  s: GameState,
+  busId: ID,
+  groupId: ID | undefined,
+  opts?: { chargeRebrand?: boolean },
+): string | null {
   const bus = s.buses?.[busId]
   if (!bus) return 'Bus not found.'
 
@@ -213,6 +247,14 @@ export function assignBusToGroup(s: GameState, busId: ID, groupId: ID | undefine
   }
 
   if (bus.groupId === groupId) return null
+
+  // Applying a brand identity needs fresh livery; stripping to Unassigned does not.
+  if (opts?.chargeRebrand && groupId !== undefined) {
+    const cost = BAL.rebrandCost
+    if (!canAfford(s, cost)) return 'Cannot afford rebranding.'
+    const toName = s.groups?.[groupId]?.name ?? 'brand'
+    spend(s, 'rebranding', cost, { busId, note: `Rebrand to ${toName}` })
+  }
 
   if (!bus.groupHistory) bus.groupHistory = []
   if (bus.groupHistory.length === 0 && bus.groupId) {

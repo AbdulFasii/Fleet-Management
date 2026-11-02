@@ -23,7 +23,9 @@ import {
   getDesign,
   getBuilderForDesign,
   modelSupportsBodyDesigns,
+  designFitsChassis,
   busMaintCostIndex,
+  bodyPackagePrice,
 } from '../data/bodyBuilders'
 
 export type RetrofitFeature = string
@@ -653,10 +655,12 @@ function upkeepPosition(maintCostIndex: number): number {
 export function quoteRebody(s: GameState, bus: Bus, bodyDesignId?: string): { cost: Money; days: number } {
   const model = BUS_MODELS[bus.modelId]
   const design = modelSupportsBodyDesigns(model) ? getDesign(s, bodyDesignId ?? bus.bodyDesignId) : undefined
+  const builder = design ? getBuilderForDesign(s, design.id) : undefined
   const t = upkeepPosition(model?.maintCostIndex ?? 1)
   // Body building is specialist outside work — the own shop only shortens the job.
   const baseCost = Math.round(BAL.refurb.rebodyCostMin + (BAL.refurb.rebodyCostMax - BAL.refurb.rebodyCostMin) * t)
-  const cost = Math.max(0, baseCost + (design ? design.bodyPrice : 0))
+  const bodyPkg = design && model ? bodyPackagePrice(builder?.id, design, model.name) : 0
+  const cost = Math.max(0, baseCost + bodyPkg)
   const baseDays = jobDays(s, BAL.refurb.rebodyDays, bus)
   const days = Math.max(1, baseDays + (design ? design.leadDaysAdd : 0))
   return { cost, days }
@@ -676,8 +680,14 @@ export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string): strin
     if (chosenId) {
       design = getDesign(s, chosenId)
       builder = getBuilderForDesign(s, chosenId)
-      if (!design || !builder || !builder.makers.includes(model.maker as any)) {
-        return 'Invalid body design for this chassis.'
+      if (
+        !design
+        || !builder
+        || !model
+        || !builder.makers.includes(model.maker as any)
+        || !designFitsChassis(design, model.name)
+      ) {
+        return 'Invalid body design for this chassis length.'
       }
     }
   }

@@ -12,23 +12,27 @@ export const BUS_MODELS: Record<string, BusModel> = {
    * mileage is loaded highway km/l with AC on, for a cautious driver.
    * An aggressive driver lands at about 86% of that (3.5 → 3.0 on the 1824HD).
    * Cargo figures are the light-truck book; a full payload burns about 40% more.
+   *
+   * Ashok Leyland / BharatBenz passenger priceNew = chassis on-road (India dealer band).
+   * Third-party / factory body package is added via body design bodyPrice.
+   * Volvo / Scania / Olectra stay fully-built coach list prices.
    */
 
   /* ---------- AC semi-sleeper ---------- */
   cheetah: {
     id: 'cheetah', name: '12M', maker: 'Ashok Leyland',
-    cls: 'AC_SEMI', priceNew: L(65), seats: 44,
+    cls: 'AC_SEMI', priceNew: L(38), seats: 44,
     layout: { kind: 'semi', cols: '2+2', rows: 11 },
     mileage: 4.4, electric: false, ac: true, sleeper: false,
-    comfort: 5, leadTimeDays: 35, fareIndex: 0.50, maintCostIndex: 0.95,
+    comfort: 5, leadTimeDays: 18, fareIndex: 0.50, maintCostIndex: 0.95,
     launchedYear: 2010, cargoCapKg: 600, cargoVolumeCbm: 5.5,
   },
   bb917: {
     id: 'bb917', name: '1017', maker: 'BharatBenz',
-    cls: 'AC_SEMI', priceNew: L(72), seats: 44,
+    cls: 'AC_SEMI', priceNew: L(37), seats: 44,
     layout: { kind: 'semi', cols: '2+2', rows: 11 },
     mileage: 4.2, electric: false, ac: true, sleeper: false,
-    comfort: 6, leadTimeDays: 38, fareIndex: 0.55, maintCostIndex: 0.98,
+    comfort: 6, leadTimeDays: 18, fareIndex: 0.55, maintCostIndex: 0.98,
     launchedYear: 2012, cargoCapKg: 600, cargoVolumeCbm: 5.5,
   },
   volvo9400semi: {
@@ -59,68 +63,85 @@ export const BUS_MODELS: Record<string, BusModel> = {
   /* ---------- AC sleeper ---------- */
   leyacsleep: {
     id: 'leyacsleep', name: '12M', maker: 'Ashok Leyland',
-    cls: 'AC_SLEEPER', priceNew: L(72), seats: 30,
+    cls: 'AC_SLEEPER', priceNew: L(38), seats: 30,
     layout: { kind: 'sleeper', cols: '2+1', rows: 5 },
     mileage: 4.0, electric: false, ac: true, sleeper: true,
-    comfort: 7, leadTimeDays: 30, fareIndex: 0.92, maintCostIndex: 0.98,
+    comfort: 7, leadTimeDays: 18, fareIndex: 0.92, maintCostIndex: 0.98,
     launchedYear: 2012, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
   leyacsleep2: {
     id: 'leyacsleep2', name: '13.5M', maker: 'Ashok Leyland',
-    cls: 'AC_SLEEPER', priceNew: L(78), seats: 36,
+    cls: 'AC_SLEEPER', priceNew: L(48), seats: 36,
     layout: { kind: 'sleeper', cols: '2+1', rows: 6 },
     mileage: 3.8, electric: false, ac: true, sleeper: true,
-    comfort: 7, leadTimeDays: 30, fareIndex: 0.92, maintCostIndex: 1,
+    comfort: 7, leadTimeDays: 20, fareIndex: 0.92, maintCostIndex: 1,
     launchedYear: 2012, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
+  leyacsleep15: {
+    id: 'leyacsleep15', name: '15M', maker: 'Ashok Leyland',
+    // Multi-axle 15M chassis sits above 13.5M (₹48L)
+    cls: 'AC_SLEEPER', priceNew: L(56), seats: 40,
+    layout: { kind: 'sleeper', cols: '2+1', rows: 7 },
+    mileage: 3.5, electric: false, ac: true, sleeper: true,
+    comfort: 8, leadTimeDays: 22, fareIndex: 0.96, maintCostIndex: 1.05,
+    launchedYear: 2024, cargoCapKg: 400, cargoVolumeCbm: 3.8,
   },
   bb1624: {
     id: 'bb1624', name: '1624', maker: 'BharatBenz',
-    cls: 'AC_SLEEPER', priceNew: L(80), seats: 30,
+    cls: 'AC_SLEEPER', priceNew: L(40), seats: 30,
     layout: { kind: 'sleeper', cols: '2+1', rows: 5 },
     mileage: 3.7, electric: false, ac: true, sleeper: true,
-    comfort: 8, leadTimeDays: 45, fareIndex: 1.00, maintCostIndex: 1.0,
+    comfort: 8, leadTimeDays: 20, fareIndex: 1.00, maintCostIndex: 1.0,
     launchedYear: 2013, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
   bb1824: {
     id: 'bb1824', name: '1824hd', maker: 'BharatBenz',
-    cls: 'AC_SLEEPER', priceNew: L(94), seats: 34,
+    cls: 'AC_SLEEPER', priceNew: L(45), seats: 34,
     layout: { kind: 'sleeper', cols: '2+1', rows: 6 },
     mileage: 3.5, electric: false, ac: true, sleeper: true,
-    comfort: 8, leadTimeDays: 45, fareIndex: 1.00, maintCostIndex: 1.15,
+    comfort: 8, leadTimeDays: 22, fareIndex: 1.00, maintCostIndex: 1.15,
     launchedYear: 2013, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
 
   /* ---------- AC hybrid (half berths, half rear cabin) ---------- */
   leyhybrid: {
     id: 'leyhybrid', name: '12M', maker: 'Ashok Leyland',
-    cls: 'AC_HYBRID', priceNew: L(75), seats: 40,
+    cls: 'AC_HYBRID', priceNew: L(38), seats: 40,
     layout: { kind: 'hybrid', cols: '2+1', rows: 5 },
     mileage: 3.9, electric: false, ac: true, sleeper: true,
-    comfort: 6, leadTimeDays: 38, fareIndex: 0.74, maintCostIndex: 0.98,
+    comfort: 6, leadTimeDays: 18, fareIndex: 0.74, maintCostIndex: 0.98,
     launchedYear: 2014, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
+  leyhybrid15: {
+    id: 'leyhybrid15', name: '15M', maker: 'Ashok Leyland',
+    cls: 'AC_HYBRID', priceNew: L(46), seats: 48,
+    layout: { kind: 'hybrid', cols: '2+1', rows: 6 },
+    mileage: 3.4, electric: false, ac: true, sleeper: true,
+    comfort: 7, leadTimeDays: 22, fareIndex: 0.80, maintCostIndex: 1.05,
+    launchedYear: 2024, cargoCapKg: 400, cargoVolumeCbm: 3.8,
   },
   // bb917hybrid: {
   //   id: 'bb917hybrid', name: '917 Hybrid', maker: 'BharatBenz',
-  //   cls: 'AC_HYBRID', priceNew: L(68), seats: 36,
+  //   cls: 'AC_HYBRID', priceNew: L(37), seats: 36,
   //   layout: { kind: 'hybrid', cols: '2+1', rows: 3 },
   //   mileage: 3.9, electric: false, ac: true, sleeper: true,
-  //   comfort: 7, leadTimeDays: 40, fareIndex: 0.74, maintCostIndex: 1.0,
+  //   comfort: 7, leadTimeDays: 20, fareIndex: 0.74, maintCostIndex: 1.0,
   //   launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   // },
   bb1624hybrid: {
     id: 'bb1624hybrid', name: '1624', maker: 'BharatBenz',
-    cls: 'AC_HYBRID', priceNew: L(84), seats: 40,
+    cls: 'AC_HYBRID', priceNew: L(40), seats: 40,
     layout: { kind: 'hybrid', cols: '2+1', rows: 5 },
     mileage: 3.6, electric: false, ac: true, sleeper: true,
-    comfort: 8, leadTimeDays: 45, fareIndex: 0.78, maintCostIndex: 1.05,
+    comfort: 8, leadTimeDays: 20, fareIndex: 0.78, maintCostIndex: 1.05,
     launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
   bb1824hybrid: {
     id: 'bb1824hybrid', name: '1824hd', maker: 'BharatBenz',
-    cls: 'AC_HYBRID', priceNew: L(98), seats: 46,
+    cls: 'AC_HYBRID', priceNew: L(45), seats: 46,
     layout: { kind: 'hybrid', cols: '2+1', rows: 6 },
     mileage: 3.4, electric: false, ac: true, sleeper: true,
-    comfort: 8, leadTimeDays: 45, fareIndex: 0.78, maintCostIndex: 1.05,
+    comfort: 8, leadTimeDays: 22, fareIndex: 0.78, maintCostIndex: 1.05,
     launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
   volvo9400: {
@@ -346,6 +367,50 @@ export function coachSpec(m: BusModel): string {
 export function hybridSleeperCount(m: BusModel): number {
   if (m.layout.kind !== 'hybrid') return m.sleeper ? m.seats : 0
   return Math.floor(m.seats / 2)
+}
+
+/** Same OEM chassis platform (layout variants share maker + name, e.g. AL 12M). */
+export function chassisPlatformKey(m: BusModel): string {
+  return `${m.maker}::${m.name}`
+}
+
+/** All new-order layout variants of the same chassis platform. */
+export function chassisLayoutVariants(m: BusModel, pool: BusModel[] = NEW_MODEL_LIST): BusModel[] {
+  return pool
+    .filter((x) => x.maker === m.maker && x.name === m.name && !isCargoModel(x))
+    .sort((a, b) => (CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls]) || a.seats - b.seats)
+}
+
+/** Dealer catalog rows: one row per AL/BB chassis platform; other makers stay per model. */
+export function dealerCatalogRows(catalog: BusModel[]): BusModel[] {
+  const seen = new Set<string>()
+  const rows: BusModel[] = []
+  for (const m of catalog) {
+    if (m.maker === 'Ashok Leyland' || m.maker === 'BharatBenz') {
+      if (isCargoModel(m)) {
+        rows.push(m)
+        continue
+      }
+      const key = chassisPlatformKey(m)
+      if (seen.has(key)) continue
+      seen.add(key)
+      // Prefer sleeper as the representative when present; else first by class order.
+      const variants = chassisLayoutVariants(m, catalog)
+      rows.push(variants.find((v) => v.cls === 'AC_SLEEPER') ?? variants[0] ?? m)
+      continue
+    }
+    rows.push(m)
+  }
+  // Cheapest chassis / model first within the dealer list.
+  return rows.sort((a, b) => a.priceNew - b.priceNew || a.name.localeCompare(b.name, undefined, { numeric: true }))
+}
+
+/** Short layout label for pickers: "Sleeper 2+1 · 30 berths". */
+export function layoutOptionLabel(m: BusModel): string {
+  if (isCargoModel(m)) return `Cargo · ${(m.cargoCapKg / 1000).toFixed(0)}T`
+  const kind = coachKind(m)
+  const unit = kind === 'Sleeper' || kind === 'Hybrid' ? 'berths' : 'seats'
+  return `${kind} ${m.layout.cols} · ${m.seats} ${unit}`
 }
 
 /** Display title without layout words, e.g. "Volvo 9600". */

@@ -68,6 +68,9 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
       ['attach_owner_share', 'Attached coach owner revenue share'],
       ['inspection', 'Pre-purchase vehicle inspections'],
       ['cargo_liability', 'Cargo damage & shortfall claims'],
+      ['amenity_retrofit', 'Amenity & fitting retrofits'],
+      ['cleaning', 'Deep cleans'],
+      ['rebranding', 'Brand transfer rebranding'],
     ],
   },
   {
