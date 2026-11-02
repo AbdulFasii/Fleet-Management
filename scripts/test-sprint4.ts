@@ -137,20 +137,20 @@ console.log('--- Testing Sprint 4 Realism: Depots, Yards, and Time Decay ---')
   console.log(`✓ Check 3 Passed: 10 days idle decay - Home AC lost ${lossHome.toFixed(2)} pts vs Away AC lost ${lossAway.toFixed(2)} pts (Home covered multiplier 0.6x verified). Engine/brakes untouched.`)
 }
 
-// 4. Test turnaround buffer +30 min without yard
+// 4. Turnaround no longer adds +30m for missing yard
 {
   const s = newGame(1004, 'malik', 'maa', 'express')
   s.company.homeCityId = 'maa'
-  const route = { km: 350, to: 'blr' }
+  const route = { km: 350, to: 'blr', hours: 6 }
   const turnWithNoYard = turnaroundMinutes(route, s)
 
   leaseYard(s, 'blr')
   const turnWithYard = turnaroundMinutes(route, s)
 
-  if (turnWithNoYard - turnWithYard !== 30) {
-    throw new Error(`Expected +30 min turnaround without yard, got ${turnWithNoYard} vs ${turnWithYard}`)
+  if (turnWithNoYard !== turnWithYard) {
+    throw new Error(`Expected identical turnaround with/without yard, got ${turnWithNoYard} vs ${turnWithYard}`)
   }
-  console.log(`✓ Turnaround Check Passed: ${turnWithNoYard} min (public bay) vs ${turnWithYard} min (with yard).`)
+  console.log(`✓ Turnaround Check Passed: ${turnWithYard} min with or without yard (no +30m public-bay penalty).`)
 }
 
 console.log('All Sprint 4 checks passed successfully!')

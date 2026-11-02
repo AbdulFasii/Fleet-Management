@@ -44,6 +44,7 @@ export function RoutesPage() {
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<RouteCategory>('all')
   const [hoursFilter, setHoursFilter] = useState<string>('all')
+  const [scheduleFilter, setScheduleFilter] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
   const [permitFilter, setPermitFilter] = useState<'all' | 'active_applied' | 'active' | 'applied' | 'available' | 'cargo'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
 
@@ -98,10 +99,20 @@ export function RoutesPage() {
     return p?.status === 'active' || p?.status === 'applied'
   }).length
 
+  const scheduledRouteIds = new Set(
+    Object.values(s.schedules).map((sch) => canonicalRouteId(sch.routeId)),
+  )
+  const countScheduled = ROUTE_LIST.filter((r) => scheduledRouteIds.has(canonicalRouteId(r.id))).length
+  const countUnscheduled = ROUTE_LIST.length - countScheduled
+
   // 1. Filter routes
   const filteredRoutes = ROUTE_LIST.filter((r) => {
     if (!routeMatchesCategory(r, categoryFilter)) return false
     if (!routeMatchesHours(r, hoursFilter)) return false
+
+    const hasSchedule = scheduledRouteIds.has(canonicalRouteId(r.id))
+    if (scheduleFilter === 'scheduled' && !hasSchedule) return false
+    if (scheduleFilter === 'unscheduled' && hasSchedule) return false
 
     const permit = getPermitForRoute(s, r.id)
     const locked = s.company.reputation < r.unlockRep
@@ -304,7 +315,21 @@ export function RoutesPage() {
               <option value="<6">Day hop (&lt; 6 hrs)</option>
               <option value="6-8">Mid-haul (6 – 8 hrs)</option>
               <option value="8-10">Night haul (8 – 10 hrs)</option>
-              <option value=">10">Marathon night haul (&gt; 10 hrs)</option>
+              <option value="10-16">Marathon night haul (10 – 16 hrs)</option>
+              <option value=">16">Ultra marathon (&gt; 16 hrs)</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="dim">Schedule:</span>
+            <select
+              value={scheduleFilter}
+              onChange={(e) => setScheduleFilter(e.target.value as 'all' | 'scheduled' | 'unscheduled')}
+              style={{ fontSize: 11, padding: '2px 6px' }}
+            >
+              <option value="all">All Routes</option>
+              <option value="scheduled">Scheduled ({countScheduled})</option>
+              <option value="unscheduled">Not scheduled ({countUnscheduled})</option>
             </select>
           </div>
 
@@ -329,12 +354,13 @@ export function RoutesPage() {
               Showing <b>{sortedRoutes.length}</b> of {ROUTE_LIST.length} corridors
               {sortCol ? ` · Sorted by ${sortCol} (${sortAsc ? 'asc' : 'desc'})` : ' · Active permits defaulted to top'}
             </span>
-            {(categoryFilter !== 'all' || hoursFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
+            {(categoryFilter !== 'all' || hoursFilter !== 'all' || scheduleFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
               <button
                 className="small"
                 onClick={() => {
                   setCategoryFilter('all')
                   setHoursFilter('all')
+                  setScheduleFilter('all')
                   setPermitFilter('all')
                   setSearchQuery('')
                   setSortCol('name')

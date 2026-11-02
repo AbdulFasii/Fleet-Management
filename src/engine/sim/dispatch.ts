@@ -12,7 +12,7 @@ import { fmtCompact, rs } from '../core/money'
 import { tonnesText } from '../core/units'
 import { rngFor, rChance, rInt, rJitter } from '../core/rng'
 import { SUBSYSTEMS, type Bus, type GameState, type Staff } from '../types'
-import { earn, spend, todayRouteDay, settleAttachOwnerCash, reverseAttachOwnerShare, brandKeyForBus } from './finance'
+import { earn, spend, todayRouteDay, settleAttachOwnerCash, reverseAttachOwnerShare, brandKeyForService } from './finance'
 import { cancelTrip } from './booking'
 import { pushLog } from './log'
 import { coveringSpare, tryCoverBus } from './cover'
@@ -1013,7 +1013,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       day.trips++
       day.paxKm += paxKm
       day.seatKm += seatKm
-      const brandKey = brandKeyForBus(s, trip.busId)
+      const brandKey = brandKeyForService(s, { busId: trip.busId, tripId: trip.id, scheduleId: trip.scheduleId })
       const brandLife = (rst.byBrand[brandKey] ??= { revenue: 0, cost: 0, trips: 0, paxKm: 0, seatKm: 0 })
       brandLife.trips++
       brandLife.paxKm += paxKm
@@ -1085,7 +1085,27 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
     }
 
     bus.lifeTrips++
-    bus.parkedCityId = trip.direction === 'AB' ? route.to : route.from
+    {
+      const destCity = trip.direction === 'AB' ? route.to : route.from
+      const originCity = trip.direction === 'AB' ? route.from : route.to
+      const depAbs = trip.day * 1440 + trip.depHour * 60 + (trip.depMin ?? 0)
+      const arrAbs = depAbs + Math.round(route.hours * 60) + Math.round(delay)
+      const arrDay = Math.floor(arrAbs / 1440)
+      // Only true long hauls (still on the road a full calendar day after departure).
+      // Overnight short/mid trips park at the destination immediately.
+      const longHaul = route.hours > 18 && arrDay >= trip.day + 2
+      if (longHaul && arrDay > s.day) {
+        bus.inTransitFromCityId = originCity
+        bus.inTransitToCityId = destCity
+        bus.inTransitUntilDay = arrDay
+        if (!bus.parkedCityId) bus.parkedCityId = originCity
+      } else {
+        bus.parkedCityId = destCity
+        bus.inTransitUntilDay = undefined
+        bus.inTransitToCityId = undefined
+        bus.inTransitFromCityId = undefined
+      }
+    }
     trip.status = 'completed'
     trip.outcome = {
       delayMin: Math.round(delay),

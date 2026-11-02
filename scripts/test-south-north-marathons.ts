@@ -1,9 +1,7 @@
 import assert from 'node:assert'
 import { ROUTES, RIVALS, routeViaCities, routeViaLabel } from '../src/engine/data/routes'
 import { CITIES, CITY_FREIGHT } from '../src/engine/data/cities'
-import { BAL } from '../src/engine/data/balance'
-import { BUS_MODELS } from '../src/engine/data/busModels'
-import { layoverMinutes, turnaroundMinutes, recommendedFleetSize, earliestReturn, suggestReturnSlot } from '../src/engine/sim/pairing'
+import { turnaroundMinutes, recommendedFleetSize, earliestReturn, suggestReturnSlot } from '../src/engine/sim/pairing'
 import { newGame } from '../src/engine/newGame'
 import { createSchedule, assignBus } from '../src/engine/sim/schedules'
 import { generateTrips } from '../src/engine/sim/booking'
@@ -51,21 +49,12 @@ assert.strictEqual(CITY_FREIGHT.nag.tier, 'industrial')
 assert.strictEqual(CITY_FREIGHT.bbs.tier, 'commercial')
 console.log('✓ Cities and freight profiles verified.')
 
-console.log('--- 2. Testing 13 South->North Corridors & Rivals ---')
+console.log('--- 2. Testing Remaining South->North Corridors & Rivals ---')
 const expectedRoutes = [
-  { id: 'blr-nag', km: 1100, hours: 20, unlock: 20 },
-  { id: 'hyd-amd', km: 1200, hours: 21, unlock: 20 },
-  { id: 'maa-bbs', km: 1250, hours: 22, unlock: 20 },
-  { id: 'hyd-del', km: 1560, hours: 26, unlock: 25 },
-  { id: 'blr-del', km: 2150, hours: 32, unlock: 30 },
-  { id: 'maa-del', km: 2200, hours: 34, unlock: 30 },
-  { id: 'koc-del', km: 2650, hours: 36, unlock: 30 },
-  { id: 'hyd-jai', km: 1450, hours: 24, unlock: 25 },
-  { id: 'blr-jai', km: 1900, hours: 30, unlock: 30 },
-  { id: 'blr-amd', km: 1500, hours: 24, unlock: 25 },
-  { id: 'maa-amd', km: 1800, hours: 28, unlock: 25 },
-  { id: 'hyd-lko', km: 1350, hours: 22, unlock: 25 },
-  { id: 'blr-lko', km: 1750, hours: 28, unlock: 30 },
+  { id: 'blr-nag', km: 1100, hours: 22, unlock: 20 },
+  { id: 'maa-bbs', km: 1250, hours: 23, unlock: 20 },
+  { id: 'maa-mum', km: 1340, hours: 24, unlock: 20 },
+  { id: 'blr-mum', km: 985, hours: 19, unlock: 20 },
 ]
 
 for (const exp of expectedRoutes) {
@@ -80,47 +69,48 @@ for (const exp of expectedRoutes) {
   console.log(`  ✓ ${exp.id}: ${r.km}km, ${r.hours}h, rep ${r.unlockRep}, rivals: ${RIVALS[exp.id].join(', ')}, ${routeViaLabel(exp.id)}`)
 }
 
-console.log('--- 3. Testing Layover & Recommended Fleet Sizing ---')
-const rShort = ROUTES['maa-pdy']! // 3.5h
-const r8h = ROUTES['maa-mdu']! // 8h
-const rNag = ROUTES['blr-nag']! // 20h
-const rBbs = ROUTES['maa-bbs']! // 22h
-const rHydDel = ROUTES['hyd-del']! // 26h
-const rBlrDel = ROUTES['blr-del']! // 32h
-const rKocDel = ROUTES['koc-del']! // 36h
+for (const gone of ['hyd-amd', 'hyd-jai', 'maa-pnq', 'hyd-lko', 'blr-amd', 'maa-amd', 'blr-jai', 'blr-lko', 'hyd-del', 'blr-del', 'maa-del', 'koc-del']) {
+  assert.strictEqual(ROUTES[gone], undefined, `${gone} must be removed`)
+}
+console.log('✓ Retired ultra-long corridors are gone.')
 
-assert.strictEqual(layoverMinutes(rShort), 0, 'Short hop must have 0 layover')
-assert.strictEqual(turnaroundMinutes(rShort), 45, 'Short hop turnaround is 45 min')
+console.log('--- 3. Testing Layover & Recommended Fleet Sizing ---')
+const rShort = ROUTES['maa-pdy']! // 4h
+const r8h = ROUTES['maa-mdu']! // 8h
+const rNag = ROUTES['blr-nag']! // 22h
+const rBbs = ROUTES['maa-bbs']! // 23h
+const rMaaMum = ROUTES['maa-mum']! // 24h
+
+assert.strictEqual(turnaroundMinutes(rShort), 234, 'Short hop default cooldown is 3.9h')
 assert.strictEqual(recommendedFleetSize(rShort, true), 2, 'Short hop paired fleet is 2')
 
-assert(layoverMinutes(r8h) >= 120 && layoverMinutes(r8h) <= 180, '8h layover should be ~2.5h')
+assert.strictEqual(turnaroundMinutes(r8h), 234, '8h cooldown is default 3.9h')
 assert.strictEqual(recommendedFleetSize(r8h, true), 2, '8h paired fleet is 2')
 
-// 20-22h peer layover check — cooldown capped at 8h
-const bbsLayover = layoverMinutes(rBbs)
+// Tiered cooldown: ≥18→5.9, ≥24→7.9, ≥28→9.9, ≥34→11.9
 const bbsTurn = turnaroundMinutes(rBbs)
-console.log(`  maa-bbs 22h layover: ${(bbsLayover / 60).toFixed(1)}h, total turnaround: ${(bbsTurn / 60).toFixed(1)}h`)
-assert(bbsLayover <= 480, 'layover must never exceed 8h cap')
-assert(bbsTurn <= 480, 'total vehicle cooldown capped at 8h')
-assert(turnaroundMinutes(rKocDel) <= 480, '36h haul cooldown capped at 8h')
-assert(layoverMinutes(rKocDel) <= 480, '36h haul layover capped at 8h')
-// With 8h max cooldown, 20–36h hauls need a 2-day one-way cycle → 4 coaches for daily both ways
-assert.strictEqual(recommendedFleetSize(rNag, true), 4, 'blr-nag 20h paired fleet should be 4')
-assert.strictEqual(recommendedFleetSize(rBbs, true), 4, 'maa-bbs 22h paired fleet should be 4')
-assert.strictEqual(recommendedFleetSize(rHydDel, true), 4, 'hyd-del 26h paired fleet should be 4')
-assert.strictEqual(recommendedFleetSize(rBlrDel, true), 4, 'blr-del 32h paired fleet should be 4')
-assert.strictEqual(recommendedFleetSize(rKocDel, true), 4, 'koc-del 36h paired fleet should be 4')
-console.log('✓ Layover cap (8h) and recommended fleet sizes verified.')
+console.log(`  maa-bbs ${rBbs.hours}h turnaround: ${(bbsTurn / 60).toFixed(1)}h`)
+assert.strictEqual(turnaroundMinutes(ROUTES['maa-kkm']!), 234, '13h cooldown is default 3.9h')
+assert.strictEqual(turnaroundMinutes(rNag), 354, '22h cooldown is 5.9h')
+assert.strictEqual(bbsTurn, 354, '23h cooldown is 5.9h')
+assert.strictEqual(turnaroundMinutes(rMaaMum), 474, '24h cooldown is 7.9h')
+assert.strictEqual(turnaroundMinutes({ hours: 28 }), 594, '28h synthetic cooldown is 9.9h')
+assert.strictEqual(turnaroundMinutes({ hours: 36 }), 714, '36h synthetic cooldown is 11.9h')
+assert.strictEqual(recommendedFleetSize(rNag, true), 4, 'blr-nag 22h paired fleet should be 4')
+assert.strictEqual(recommendedFleetSize(rBbs, true), 4, 'maa-bbs 23h paired fleet should be 4')
+assert.strictEqual(recommendedFleetSize(rMaaMum, true), 4, 'maa-mum 24h paired fleet should be 4')
+assert.strictEqual(recommendedFleetSize(rMaaMum, false), 3, 'maa-mum 24h unpaired needs 3 for daily round-trip')
+console.log('✓ Tiered cooldown (3.9/5.9/7.9/9.9/11.9) and fleet sizes verified.')
 
 console.log('--- 4. Testing Earliest Return & Day Offsets on Marathons ---')
 const dep20 = { depHour: 20, depMin: 0 as const }
 const nagEarliest = earliestReturn(dep20, rNag)
-console.log(`  blr-nag 20h departing 20:00 -> ready: absMin ${nagEarliest.absMin}, dayOffset ${nagEarliest.dayOffset}, clock ${nagEarliest.depHour}:${nagEarliest.depMin}`)
+console.log(`  blr-nag ${rNag.hours}h departing 20:00 -> ready: absMin ${nagEarliest.absMin}, dayOffset ${nagEarliest.dayOffset}, clock ${nagEarliest.depHour}:${nagEarliest.depMin}`)
 assert(nagEarliest.dayOffset >= 1, 'blr-nag ready crosses day')
 
-const delEarliest = earliestReturn(dep20, rBlrDel)
-console.log(`  blr-del 32h departing 20:00 -> ready: absMin ${delEarliest.absMin}, dayOffset ${delEarliest.dayOffset}, clock ${delEarliest.depHour}:${delEarliest.depMin}`)
-assert(delEarliest.dayOffset >= 2, 'blr-del 32h ready is on day 2+')
+const mumEarliest = earliestReturn(dep20, rMaaMum)
+console.log(`  maa-mum ${rMaaMum.hours}h departing 20:00 -> ready: absMin ${mumEarliest.absMin}, dayOffset ${mumEarliest.dayOffset}, clock ${mumEarliest.depHour}:${mumEarliest.depMin}`)
+assert(mumEarliest.dayOffset >= 1, 'maa-mum 24h ready crosses at least one day')
 console.log('✓ Earliest return & multi-day offsets verified.')
 
 console.log('--- 5. Testing Multi-Bus Rotation & Schedule Cap in Sim ---')
@@ -172,7 +162,7 @@ assert.strictEqual(sch.busIds.length, 4, '4 buses assigned to schedule')
 const b5 = makeTestBus(s, 'b5', 'KA 01 IJ 5005', 'blr')
 s.buses['b5'] = b5
 const reject5 = assignBus(s, schId, b5.id)
-assert(reject5 && reject5.includes('at most 4 buses'), `Expected cap rejection, got: ${reject5}`)
+assert(reject5 && /at most 4/.test(reject5), `Expected cap rejection, got: ${reject5}`)
 
 // Generate trips and verify daily departures both ways across 4 days
 generateTrips(s)
@@ -201,10 +191,10 @@ const repairs = sanitizeScheduleAssignments(s)
 assert.strictEqual(repairs, 0, 'sanitizeScheduleAssignments should not repair or drop valid 4-bus assignment')
 assert.strictEqual(sch.busIds.length, 4, 'All 4 buses must stay retained after sanitization pass')
 
-console.log('--- 6. Testing 3-Bus Unpaired Marathon (koc-del 36h) ---')
-s.permits['koc-del'] = {
-  id: 'p_koc_del',
-  routeId: 'koc-del',
+console.log('--- 6. Testing 3-Bus Unpaired Marathon (maa-mum 24h) ---')
+s.permits['maa-mum'] = {
+  id: 'p_maa_mum',
+  routeId: 'maa-mum',
   status: 'active',
   grantedDay: s.day,
   expiryDay: s.day + 365,
@@ -212,67 +202,49 @@ s.permits['koc-del'] = {
   tripsRun: 0,
 } as any
 
-const schKocRes = createSchedule(s, {
-  routeId: 'koc-del',
+const schMumRes = createSchedule(s, {
+  routeId: 'maa-mum',
   depHour: 20,
   depMin: 0,
   paired: false,
-  baseFare: 4500,
+  baseFare: 2400,
 })
-assert('id' in schKocRes, `koc-del schedule creation failed: ${JSON.stringify(schKocRes)}`)
-const kocSchId = schKocRes.id
+assert('id' in schMumRes, `maa-mum schedule creation failed: ${JSON.stringify(schMumRes)}`)
+const mumSchId = schMumRes.id
 
-const kb1 = makeTestBus(s, 'kb1', 'KL 07 AB 1111', 'koc')
-const kb2 = makeTestBus(s, 'kb2', 'KL 07 CD 2222', 'koc')
-const kb3 = makeTestBus(s, 'kb3', 'KL 07 EF 3333', 'koc')
+const kb1 = makeTestBus(s, 'kb1', 'TN 09 AB 1111', 'maa')
+const kb2 = makeTestBus(s, 'kb2', 'TN 09 CD 2222', 'maa')
+const kb3 = makeTestBus(s, 'kb3', 'TN 09 EF 3333', 'maa')
 s.buses['kb1'] = kb1
 s.buses['kb2'] = kb2
 s.buses['kb3'] = kb3
 
-assert.strictEqual(assignBus(s, kocSchId, kb1.id), null)
-assert.strictEqual(assignBus(s, kocSchId, kb2.id), null)
-assert.strictEqual(assignBus(s, kocSchId, kb3.id), null, 'Must be able to assign the 3rd bus!')
+assert.strictEqual(assignBus(s, mumSchId, kb1.id), null)
+assert.strictEqual(assignBus(s, mumSchId, kb2.id), null)
+assert.strictEqual(assignBus(s, mumSchId, kb3.id), null, 'Must be able to assign the 3rd bus!')
 
-const kocSch = s.schedules[kocSchId]
-assert.strictEqual(kocSch.busIds.length, 3, '3 buses successfully assigned to koc-del')
+const mumSch = s.schedules[mumSchId]
+assert.strictEqual(mumSch.busIds.length, 3, '3 buses successfully assigned to maa-mum')
 
-// Sanitize pass must retain all 3 buses
 assert.strictEqual(sanitizeScheduleAssignments(s), 0)
-assert.strictEqual(kocSch.busIds.length, 3, '3 buses retained after sanitizeScheduleAssignments')
+assert.strictEqual(mumSch.busIds.length, 3, '3 buses retained after sanitizeScheduleAssignments')
 
 generateTrips(s)
-const kocTrips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId && t.status === 'open')
-console.log(`  Generated ${kocTrips.length} open trips on 3-coach koc-del schedule.`)
-assert(kocTrips.length >= 3, 'Must generate open trips across the window')
-for (const t of kocTrips) {
+const mumTrips = Object.values(s.trips).filter((t) => t.scheduleId === mumSchId && t.status === 'open')
+console.log(`  Generated ${mumTrips.length} open trips on 3-coach maa-mum schedule.`)
+assert(mumTrips.length >= 3, 'Must generate open trips across the window')
+for (const t of mumTrips) {
   console.log(`  Day ${t.day} (${t.depHour}:${t.depMin}): ${t.direction} by ${t.busId}`)
 }
 console.log('✓ 3-coach unpaired marathon runs smoothly without drop or clash!')
 
-console.log('--- 7. Testing 4-Coach Unpaired Marathon (koc-del 36h) ---')
-const kb4 = makeTestBus(s, 'kb4', 'KL 07 GH 4444', 'del')
+console.log('--- 7. Testing Unpaired Cap at Recommended Fleet (maa-mum 24h → 3) ---')
+const kb4 = makeTestBus(s, 'kb4', 'MH 01 GH 4444', 'mum')
 s.buses['kb4'] = kb4
-assert.strictEqual(assignBus(s, kocSchId, kb4.id), null)
-assert.strictEqual(kocSch.busIds.length, 4, '4 buses assigned')
-generateTrips(s)
-const koc4Trips = Object.values(s.trips).filter((t) => t.scheduleId === kocSchId && t.status === 'open')
-console.log(`  Generated ${koc4Trips.length} open trips on 4-coach koc-del schedule.`)
-// With 4 coaches on 36h haul (44h turnaround cycle), both directions (AB and BA) run daily!
-console.log('--- After b1, b2, b3, b4 assigned ---')
-for (const t of Object.values(s.trips)) {
-  if (t.scheduleId === schId) {
-    console.log(`  TRIP: id=${t.id}, bus=${t.busId}, day=${t.day}, dir=${t.direction}, status=${t.status}`)
-  }
-}
-for (let d = s.day; d <= s.day + 3; d++) {
-  const dTrips = koc4Trips.filter((t) => t.day === d)
-  const ab = dTrips.filter((t) => t.direction === 'AB')
-  const ba = dTrips.filter((t) => t.direction === 'BA')
-  console.log(`  Day ${d}: AB by ${ab[0]?.busId ?? '-'}, BA by ${ba[0]?.busId ?? '-'}`)
-  assert.strictEqual(ab.length, 1, `Day ${d} must have exactly 1 AB departure`)
-  assert.strictEqual(ba.length, 1, `Day ${d} must have exactly 1 BA departure`)
-}
-console.log('✓ 4-coach marathon achieves daily departures in both directions simultaneously!')
+const reject4 = assignBus(s, mumSchId, kb4.id)
+assert(reject4 && /at most 3/.test(reject4), `Expected 3-coach cap rejection, got: ${reject4}`)
+assert.strictEqual(mumSch.busIds.length, 3, 'Unpaired maa-mum stays capped at recommended 3')
+console.log('✓ Unpaired marathon caps assign at recommended fleet size!')
 
 console.log('✓ Multi-bus rotation generates daily departures in both directions without collision!')
 console.log('ALL TESTS PASSED!')

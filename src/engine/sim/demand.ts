@@ -19,6 +19,7 @@
  */
 import { BAL, DIFFICULTIES, getDirectionalOccupancyRange, elapsedBookingFrac } from '../data/balance'
 import { BUS_MODELS, hybridSleeperCount } from '../data/busModels'
+import { busComfort } from '../data/bodyBuilders'
 import { ROUTES } from '../data/routes'
 import { DOW_DEMAND, daysInMonth, dow, festivalRunEffect, seasonInfo, toCivil, clockMinutes, FESTIVALS } from '../core/calendar'
 import { rngFor, rJitter } from '../core/rng'
@@ -68,7 +69,6 @@ export function corridorArchetype(routeId: string): CorridorArchetype {
     case 'blr-maa':
     case 'maa-blr':
     case 'maa-hyd':
-    case 'maa-pnq':
       return 'tech'
     case 'maa-tir':
     case 'blr-tir':
@@ -371,8 +371,9 @@ function coachStateAttr(model: BusModel, bus: Bus, depDay: number): number {
   return clamp(mult, cs.floor, cs.ceil)
 }
 
-function coachAttr(model: BusModel, bus: Bus, depDay: number): number {
-  return (1 + M.comfortScale * (model.comfort + (bus.comfortBonus ?? 0) - 7))
+function coachAttr(model: BusModel, bus: Bus, depDay: number, s?: GameState): number {
+  const comfort = busComfort(s, bus)
+  return (1 + M.comfortScale * (comfort - 7))
     * (1 + M.qualityScale * (bus.qualityScore - 3))
     * acFactor(bus, depDay)
     * coachStateAttr(model, bus, depDay)
@@ -842,7 +843,7 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   }
   const brand = ctx?.brand ?? brandAttr(s.company)
   const punctuality = ctx?.punctuality ?? punctualityAttr(s.company)
-  const coach = coachAttr(model, bus, trip.day)
+  const coach = coachAttr(model, bus, trip.day, s)
   const subsystems = busConditionAttr(bus, route)
   const primoActive = tripGroup ? tripGroup.primo : s.company.primo
   const onPrimo = primoActive && weights.redbus > 0
@@ -921,7 +922,7 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   // B. Individual coach stars outweigh comfort and condition. A 4★ sleeper
   // should sit higher in the band than an ordinary one on the same lane.
   const busQualityNorm = clamp((bus.qualityScore - 1.0) / 4.0, 0, 1)
-  const comfortNorm = clamp(((model.comfort + (bus.comfortBonus ?? 0)) - 3.0) / 7.0, 0, 1)
+  const comfortNorm = clamp((busComfort(s, bus) - 3.0) / 7.0, 0, 1)
   const avgCond = (
     bus.condition.engine +
     bus.condition.gearbox +

@@ -20,6 +20,15 @@ import { clearCoverRefs } from './cover'
 import { serviceCostMult } from './serviceCost'
 import { assignBusToGroup } from './groups'
 import { FITTING_CATALOG, busHasFitting, setBusFitting } from '../data/amenitiesCatalog'
+import {
+  designsForMaker,
+  getDesign,
+  getBuilderForDesign,
+  composeLeadTime,
+  modelSupportsBodyDesigns,
+  effectiveComfort,
+  coachTitle,
+} from '../data/bodyBuilders'
 function makeCondition(rng: Rng, ageYears: number, odoKm: number, careless = false): Condition {
   const base = 100 - ageYears * 4.5 - (odoKm / 100_000) * 5
   const spread = careless ? 22 : 10
@@ -277,6 +286,18 @@ export function refreshMarkets(s: GameState): void {
       'Recently repainted, fresh interior.',
       'Bank NOC ready, quick transfer.',
     ]
+    let usedDesignId: string | undefined
+    let usedBuilderId: string | undefined
+    let usedDesignName: string | undefined
+    if (modelSupportsBodyDesigns(model)) {
+      const designOpts = designsForMaker(s, model.maker)
+      if (designOpts.length > 0) {
+        const picked = rPick(rng, designOpts)
+        usedDesignId = picked.design.id
+        usedBuilderId = picked.builder.id
+        usedDesignName = picked.design.name
+      }
+    }
     s.usedMarket.push({
       id: nextId(s.ids, 'ul'),
       reg: makeRegistration(rng),
@@ -290,6 +311,9 @@ export function refreshMarkets(s: GameState): void {
       inspected: false,
       sellerNote: rPick(rng, notes),
       gpsDeviceFitted: rChance(rng, 0.70),
+      bodyDesignId: usedDesignId,
+      bodyBuilderId: usedBuilderId,
+      bodyDesignName: usedDesignName,
     })
   }
 
@@ -436,6 +460,9 @@ interface CreateBusOpts {
   depreciationMethod?: DepreciationMethod
   depreciationRatePct?: number
   groupId?: ID
+  bodyDesignId?: string
+  bodyBuilderId?: string
+  bodyDesignName?: string
 }
 
 function addBus(s: GameState, o: CreateBusOpts): Bus {
@@ -446,6 +473,7 @@ function addBus(s: GameState, o: CreateBusOpts): Bus {
   let reg = o.reg ?? makeRegistration(rng)
   // Two vehicles sharing a plate read as one bus running everywhere — keep plates unique.
   for (let attempt = 0; !o.reg && taken.has(reg) && attempt < 40; attempt++) reg = makeRegistration(rng)
+  const baseComfort = model ? (o.bodyDesignId ? effectiveComfort(model, getDesign(s, o.bodyDesignId)) : model.comfort) : 7
   const bus: Bus = {
     id: nextId(s.ids, 'b'),
     reg,
@@ -495,7 +523,10 @@ function addBus(s: GameState, o: CreateBusOpts): Bus {
     lifeRevenue: 0,
     lifeCost: 0,
     lifeTrips: 0,
-    qualityScore: Math.min(5, 2 + model.comfort * 0.28 + worstSubsystem(o.condition) / 100),
+    qualityScore: Math.min(5, 2 + baseComfort * 0.28 + worstSubsystem(o.condition) / 100),
+    bodyDesignId: o.bodyDesignId,
+    bodyBuilderId: o.bodyBuilderId,
+    bodyDesignName: o.bodyDesignName,
   }
   s.buses[bus.id] = bus
   s.peakFleet = Math.max(s.peakFleet, Object.keys(s.buses).length)
@@ -589,18 +620,44 @@ export function clampDepRate(rate: number): number {
   return Math.round(Math.max(BAL.depreciationRateMinPct, Math.min(BAL.depreciationRateMaxPct, rate)) * 2) / 2
 }
 
-export function effectiveNewPrice(s: GameState, modelId: string): Money {
+export function effectiveNewPrice(s: GameState, modelId: string, bodyDesignId?: string): Money {
   const model = BUS_MODELS[modelId]
-  let price = model.priceNew
+  if (!model) return 0
+  const design = modelSupportsBodyDesigns(model) ? getDesign(s, bodyDesignId) : undefined
+  let price = model.priceNew + (design ? design.bodyPrice : 0)
   if (model.electric && s.world.evSubsidyUntilDay >= s.day) price = Math.round(price * 0.8)
-  return price
+  return Math.max(0, price)
 }
 
-export function orderNewBus(s: GameState, modelId: string, plan: FinancePlan, groupId?: ID): string | null {
+export function orderNewBus(
+  s: GameState,
+  modelId: string,
+  plan: FinancePlan,
+  groupId?: ID,
+  bodyDesignId?: string,
+): string | null {
   const model = BUS_MODELS[modelId]
   if (!model) return 'Unknown model.'
   if (NO_NEW_ORDER_IDS.has(modelId)) return 'This model is no longer sold new — check the used market.'
-  const price = effectiveNewPrice(s, modelId)
+
+  let design: ReturnType<typeof getDesign> = undefined
+  let builder: ReturnType<typeof getBuilderForDesign> = undefined
+  if (modelSupportsBodyDesigns(model)) {
+    const available = designsForMaker(s, model.maker)
+    if (bodyDesignId) {
+      design = getDesign(s, bodyDesignId)
+      builder = getBuilderForDesign(s, bodyDesignId)
+      if (!design || !builder || !builder.makers.includes(model.maker as any)) {
+        return 'Invalid body design for this chassis.'
+      }
+    } else if (available.length > 0) {
+      design = available[0].design
+      builder = available[0].builder
+    }
+  }
+
+  const price = effectiveNewPrice(s, modelId, design?.id)
+  const leadTimeDays = composeLeadTime(model, design)
   const orderId = nextId(s.ids, 'ord')
   let loanId: ID | undefined
   if (plan.loanProductId) {
@@ -611,14 +668,27 @@ export function orderNewBus(s: GameState, modelId: string, plan: FinancePlan, gr
   if (s.company.cash < price && s.company.cash + (s.od.limit - s.od.drawn) < price) {
     return 'Not enough liquidity for the purchase (after any financing).'
   }
-  capitalOut(s, 'bus_purchase', price, { note: `${modelTitle(model)} order` })
+  const orderNote = `${modelTitle(model)}${design ? ` (${design.name})` : ''} order`
+  capitalOut(s, 'bus_purchase', price, { note: orderNote })
   s.busOrders.push({
-    id: orderId, modelId, orderedDay: s.day, deliveryDay: s.day + model.leadTimeDays, price, loanId,
+    id: orderId,
+    modelId,
+    orderedDay: s.day,
+    deliveryDay: s.day + leadTimeDays,
+    price,
+    loanId,
     depreciationMethod: s.company.depreciationDefault ?? 'SLM',
     depreciationRatePct: purchaseDepRate(s),
     groupId,
+    bodyBuilderId: builder?.id,
+    bodyDesignId: design?.id,
+    bodyDesignName: design?.name,
   })
-  pushLog(s, 'finance', `Ordered new ${modelTitle(model)} for ${fmtCompact(price)}. Body building takes ~${model.leadTimeDays} days.`)
+  pushLog(
+    s,
+    'finance',
+    `Ordered new ${modelTitle(model)}${design ? ` · ${design.name}` : ''} for ${fmtCompact(price)}. Body building takes ~${leadTimeDays} days.`,
+  )
   return null
 }
 
@@ -632,12 +702,16 @@ export function deliverOrdersPass(s: GameState): void {
       condition: newCondition(), price: o.price, loanId: o.loanId,
       depreciationMethod: o.depreciationMethod, depreciationRatePct: o.depreciationRatePct,
       groupId: o.groupId,
+      bodyBuilderId: o.bodyBuilderId,
+      bodyDesignId: o.bodyDesignId,
+      bodyDesignName: o.bodyDesignName,
     })
     if (o.loanId && s.loans[o.loanId]) s.loans[o.loanId].busId = bus.id
     const model = BUS_MODELS[o.modelId]
     const insurance = Math.max(BAL.insuranceMin, Math.round(o.price * BAL.insurancePctOfValue))
     spend(s, 'insurance', insurance, { busId: bus.id, note: 'first-year comprehensive' })
-    pushLog(s, 'good', `NEW BUS DELIVERED: ${modelTitle(model)} (${bus.reg} "${bus.nickname}"). Assign it to a schedule.`)
+    const coachDisplay = coachTitle(model, o.bodyDesignName)
+    pushLog(s, 'good', `NEW BUS DELIVERED: ${coachDisplay} (${bus.reg} "${bus.nickname}"). Assign it to a schedule.`)
   }
 }
 
@@ -672,6 +746,9 @@ export function buyUsed(s: GameState, listingId: ID, plan: FinancePlan, groupId?
     accidentHistory: l.accidentHistory, loanId,
     gpsDeviceFitted: l.gpsDeviceFitted,
     groupId,
+    bodyBuilderId: l.bodyBuilderId,
+    bodyDesignId: l.bodyDesignId,
+    bodyDesignName: l.bodyDesignName,
   })
   bus.transferReadyDay = s.day + BAL.docsGrounded.transferLagDays
   bus.status = 'grounded'
@@ -680,10 +757,11 @@ export function buyUsed(s: GameState, listingId: ID, plan: FinancePlan, groupId?
   spend(s, 'insurance', insurance, { busId: bus.id, note: 'comprehensive insurance' })
   s.usedMarket = s.usedMarket.filter((x) => x.id !== listingId)
   const model = BUS_MODELS[l.modelId]
+  const coachDisplay = coachTitle(model, l.bodyDesignName)
   pushLog(
     s,
     'good',
-    `Bought used ${modelTitle(model)} ${l.reg} for ${fmtCompact(l.askPrice)}${l.inspected ? '' : ' WITHOUT inspection'}. RC transfer ~${BAL.docsGrounded.transferLagDays}d — grounded until then.`,
+    `Bought used ${coachDisplay} ${l.reg} for ${fmtCompact(l.askPrice)}${l.inspected ? '' : ' WITHOUT inspection'}. RC transfer ~${BAL.docsGrounded.transferLagDays}d — grounded until then.`,
   )
   return null
 }

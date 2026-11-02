@@ -60,15 +60,30 @@ export function hasYardOrHome(s?: GameState, cityId?: string): boolean {
   return s.yards?.some((y) => y.cityId === cityId) ?? false
 }
 
-/** Rest/layover minutes scaled by route duration for long hauls beyond 6 hours (capped). */
+/**
+ * Vehicle cooldown minutes by haul length:
+ * default 3.9h; ≥18 → 5.9h; ≥24 → 7.9h; ≥28 → 9.9h; ≥34 → 11.9h.
+ */
+export function layoverCapMinutes(routeHours: number): number {
+  const h = routeHours ?? 0
+  if (h >= 34) return BAL.layoverAt34Min ?? 714
+  if (h >= 28) return BAL.layoverAt28Min ?? 594
+  if (h >= 24) return BAL.layoverAt24Min ?? 474
+  if (h >= 18) return BAL.layoverAt18Min ?? 354
+  return BAL.layoverDefaultMin ?? 234
+}
+
+/** Whole-hour label for UI (3.9→4, 5.9→6, 7.9→8, 9.9→10, 11.9→12). */
+export function fmtCooldownHours(routeOrMinutes: { hours?: number } | number, s?: GameState): number {
+  const min = typeof routeOrMinutes === 'number'
+    ? routeOrMinutes
+    : turnaroundMinutes(routeOrMinutes, s)
+  return Math.ceil(min / 60)
+}
+
+/** Rest/layover minutes (= full vehicle cooldown under the tiered table). */
 export function layoverMinutes(route: { hours?: number }): number {
-  const h = route?.hours ?? 0
-  const thresh = BAL.layoverMinHaulHours ?? 6
-  if (h <= thresh) return 0
-  const slope = BAL.layoverSlope ?? 0.48
-  const maxMin = BAL.layoverMaxMin ?? 480
-  const layoverH = Math.min(maxMin / 60, 1.5 + (h - thresh) * slope)
-  return Math.round(layoverH * 60)
+  return layoverCapMinutes(route?.hours ?? 0)
 }
 
 /** Calendar days one coach is busy for a single leg (drive + cooldown). */
@@ -81,16 +96,9 @@ export function oneWayCycleDays(
   return Math.max(1, Math.ceil((hours + turnH) / 24))
 }
 
-/** Terminal + rest minutes before the coach can leave again. Hard-capped at 8h. */
-export function turnaroundMinutes(route: { hours?: number; km?: number; to?: string }, s?: GameState): number {
-  const hasYard = hasYardOrHome(s, route.to)
-  const base = BAL.pairMinTurnMin
-  const yardExtra = hasYard ? 0 : 30
-  const layover = layoverMinutes(route)
-  const raw = base + yardExtra + layover
-  const cap = BAL.layoverMaxMin ?? 480
-  // Short hops stay at the small terminal turn; long hauls never exceed the 8h cooldown.
-  return Math.min(cap, raw)
+/** Terminal + rest minutes before the coach can leave again (tiered cooldown table). */
+export function turnaroundMinutes(route: { hours?: number; km?: number; to?: string }, _s?: GameState): number {
+  return layoverCapMinutes(route.hours ?? 0)
 }
 
 /** Running time in minutes (aligned with demand/hours, not the turnaround formula). */
@@ -105,13 +113,27 @@ export function recommendedFleetSize(
   s?: GameState,
 ): number {
   if (!route) return paired ? 2 : 1
-  const cycle = oneWayCycleDays(route, s)
+  const hours = route.hours ?? 6
+  const turnH = turnaroundMinutes(route, s) / 60
+  const legDays = Math.max(1, Math.ceil((hours + turnH) / 24))
+  const roundTripDays = Math.max(1, Math.ceil((2 * (hours + turnH)) / 24))
   const maxCap = BAL.scheduleMaxCoaches ?? 4
   if (!paired) {
-    return Math.max(1, Math.min(maxCap, cycle))
+    // One-way still needs the coach home again before the next outbound → round-trip cycle.
+    return Math.max(1, Math.min(maxCap, roundTripDays))
   }
   // Daily both ways: one A-start pool and one B-start pool, each sized to the one-way cycle.
-  return Math.max(2, Math.min(maxCap, 2 * cycle))
+  return Math.max(2, Math.min(maxCap, 2 * legDays))
+}
+
+/**
+ * How often a departure runs with the assigned fleet.
+ * Daily when fully staffed; every N days when under-assigned.
+ */
+export function departureIntervalDays(recommended: number, assigned: number): number {
+  if (assigned <= 0) return Infinity
+  if (assigned >= recommended) return 1
+  return Math.max(1, Math.ceil(recommended / assigned))
 }
 
 export interface ReturnPlan {
@@ -195,12 +217,7 @@ export function ceilHalfHourAbs(absMin: number): { absMin: number; depHour: numb
 }
 
 export function fmtTurnaround(route: RouteDef, s?: GameState): string {
-  const m = turnaroundMinutes(route, s)
-  const bayExtra = (s && !hasYardOrHome(s, route.to)) ? ' · Public bay +30 min' : ''
-  if (m < 60) return `${m} min turnaround${bayExtra}`
-  const h = Math.floor(m / 60)
-  const mm = m % 60
-  return (mm ? `${h}h ${mm}m turnaround` : `${h}h turnaround`) + bayExtra
+  return `${fmtCooldownHours(route, s)}h turnaround`
 }
 
 /** Refund all sold seats on an open trip but keep it open (empty reposition). */
@@ -254,7 +271,8 @@ export function applyOutboundDelayToPair(
   if (!ba) return false
 
   const outAbs = outTrip.day * 1440 + clockMinutes(outTrip)
-  const readyAbs = outAbs + runningMinutes(route) + delayMin + turnaroundMinutes(route, s)
+  // Delay is absorbed into the vehicle cooldown — it does not add extra wait on top.
+  const readyAbs = outAbs + runningMinutes(route) + turnaroundMinutes(route, s)
   const plannedAbs = ba.day * 1440 + clockMinutes(ba)
   const latestAbs = plannedAbs + BAL.pairDelayBufferMin
 

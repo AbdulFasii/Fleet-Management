@@ -40,6 +40,24 @@ export function brandKeyForBus(s: GameState, busId: ID | undefined, day = s.day)
   return groupOnDay(s, busId, day) ?? UNASSIGNED_BRAND_KEY
 }
 
+/**
+ * Brand for corridor economics: prefer the service (schedule) brand over the
+ * coach's current brand so covers / reassignments don't pollute other brands.
+ */
+export function brandKeyForService(
+  s: GameState,
+  refs: { busId?: ID; tripId?: ID; scheduleId?: ID } = {},
+  day = s.day,
+): string {
+  const trip = refs.tripId ? s.trips[refs.tripId] : undefined
+  const schId = refs.scheduleId ?? trip?.scheduleId ?? (refs.busId ? s.buses[refs.busId]?.scheduleId : undefined)
+  if (schId) {
+    const sch = s.schedules[schId]
+    if (sch) return sch.groupId ?? UNASSIGNED_BRAND_KEY
+  }
+  return brandKeyForBus(s, refs.busId ?? trip?.busId, day)
+}
+
 function addBrandMoney(
   byBrand: Record<string, RouteLayoutStats> | undefined,
   key: string,
@@ -281,6 +299,7 @@ function bumpRouteStats(
   cost: Money,
   busId?: ID,
   layoutKeyOverride?: string,
+  tripId?: ID,
 ): void {
   if (!routeId || !s.permits[routeId]) return
   const rs = (s.routeStats[routeId] ??= emptyRouteStats())
@@ -292,9 +311,8 @@ function bumpRouteStats(
   if (!day.byBrand) day.byBrand = {}
   day.revenue += revenue
   day.cost += cost
-  // Always attribute rupees to a brand bucket (unassigned if no coach), so
-  // period brand filters can use routeHistory instead of the 3-day trip cache.
-  const brandKey = brandKeyForBus(s, busId)
+  // Attribute to the service brand (schedule), not whatever coach is covering.
+  const brandKey = brandKeyForService(s, { busId, tripId })
   rs.byBrand = addBrandMoney(rs.byBrand, brandKey, revenue, cost)
   day.byBrand = addBrandMoney(day.byBrand, brandKey, revenue, cost)
   if (!busId || !s.buses[busId]) return
@@ -320,7 +338,7 @@ export function earn(s: GameState, head: TxnHead, amount: Money, refs: TxnRefs =
     s.company.cargoLifeRevenue = (s.company.cargoLifeRevenue ?? 0) + amount
   }
   if (refs.busId && s.buses[refs.busId]) s.buses[refs.busId].lifeRevenue += amount
-  bumpRouteStats(s, refs.routeId, amount, 0, refs.busId, layoutKeyOverride)
+  bumpRouteStats(s, refs.routeId, amount, 0, refs.busId, layoutKeyOverride, refs.tripId)
   if (settleDays > 0) {
     // One settlement row per channel per settle day, not one per booking batch:
     // cash timing is identical and a long game keeps ~50 rows instead of 2,000.
@@ -369,7 +387,7 @@ export function spend(s: GameState, head: TxnHead, amount: Money, refs: TxnRefs 
     s.curMonth.refundBreakdown[cat] = (s.curMonth.refundBreakdown[cat] ?? 0) + amount
   }
   if (refs.busId && s.buses[refs.busId]) s.buses[refs.busId].lifeCost += amount
-  bumpRouteStats(s, refs.routeId, 0, amount, refs.busId, layoutKeyOverride)
+  bumpRouteStats(s, refs.routeId, 0, amount, refs.busId, layoutKeyOverride, refs.tripId)
 }
 
 /** Compute breakdown of refunds (passenger cancel, CRM grievance, bus cancel) for any month. */
@@ -579,7 +597,7 @@ export function spendNetted(s: GameState, head: TxnHead, amount: Money, refs: Tx
   if (head !== 'income_tax') s.company.fyProfit -= amount
   s.lifetimeProfit -= amount
   if (refs.busId && s.buses[refs.busId]) s.buses[refs.busId].lifeCost += amount
-  bumpRouteStats(s, refs.routeId, 0, amount, refs.busId, layoutKeyOverride)
+  bumpRouteStats(s, refs.routeId, 0, amount, refs.busId, layoutKeyOverride, refs.tripId)
 }
 
 /** Undo a prior spendNetted (or catch-up) so ticket cancellations reverse the owner share. */
@@ -599,7 +617,7 @@ function creditNetted(s: GameState, head: TxnHead, amount: Money, refs: TxnRefs 
   if (refs.busId && s.buses[refs.busId]) {
     s.buses[refs.busId]!.lifeCost = Math.max(0, s.buses[refs.busId]!.lifeCost - amount)
   }
-  bumpRouteStats(s, refs.routeId, 0, -amount, refs.busId, layoutKeyOverride)
+  bumpRouteStats(s, refs.routeId, 0, -amount, refs.busId, layoutKeyOverride, refs.tripId)
 }
 
 function attachShareParts(ticketGross: Money, ownerShare: number): { fullShare: Money; tds: Money; payout: Money } {

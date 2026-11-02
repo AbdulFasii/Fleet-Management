@@ -12,6 +12,7 @@ import { RIVALS_DATA, seedRouteShare } from './data/rivals'
 import { fmtCompact, rs } from './core/money'
 import { nextId } from './core/ids'
 import { GROUP_PALETTE } from './sim/groups'
+import { cloneDefaultBodyBuilders } from './data/bodyBuilders'
 
 export const SAVE_VERSION = 25
 
@@ -111,6 +112,7 @@ export function newGame(name: string, difficulty: Difficulty, homeRouteId: strin
     },
 
     buses: {},
+    bodyBuilders: cloneDefaultBodyBuilders(),
     busOrders: [],
     usedMarket: [],
     leaseOffers: [],

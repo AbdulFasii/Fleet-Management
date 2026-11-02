@@ -17,7 +17,7 @@ import { pushLog } from './log'
 import { releaseCoverFor } from './cover'
 import { opsAutoStaffPass, docsManagerOnDuty } from './staffing'
 import { deskCoverage } from './span'
-import { isReturnValid, suggestReturnSlot } from './pairing'
+import { isReturnValid, suggestReturnSlot, recommendedFleetSize } from './pairing'
 import { DEFAULT_CHANNELS, normalizeChannels } from '../data/channels'
 import { syncRouteShare } from './rivals'
 import { resolveTripFare, roundFare, isReturnTrip, serviceTierFareMult } from './pricing'
@@ -747,6 +747,14 @@ export function scheduleIsCargo(s: GameState, sch: Schedule): boolean {
   return buses.length > 0 && buses.every((b) => isCargoModel(b.modelId))
 }
 
+/** Hard cap on coaches for this schedule (= recommended fleet for daily service). */
+export function maxCoachesForSchedule(s: GameState, sch: Schedule): number {
+  const route = ROUTES[sch.routeId] ?? ROUTES[canonicalRouteId(sch.routeId)]
+  const cargo = scheduleIsCargo(s, sch)
+  const paired = Boolean(sch.paired) && !cargo
+  return recommendedFleetSize(route, paired, s)
+}
+
 /**
  * One vehicle can only serve one service. Older saves could end up listing the
  * same truck on two schedules (or twice on one), which silently made a single
@@ -790,7 +798,7 @@ export function sanitizeScheduleAssignments(s: GameState): number {
     if (!bus) continue
     if (claimed.has(c.busId)) continue
     const slots = keep.get(c.sch.id) ?? new Set<number>()
-    const maxBuses = BAL.scheduleMaxCoaches ?? 4
+    const maxBuses = maxCoachesForSchedule(s, c.sch)
     if (slots.size >= maxBuses) continue
     claimed.set(c.busId, c.sch.id)
     slots.add(c.slot)
@@ -848,8 +856,10 @@ export function assignBus(s: GameState, schId: ID, busId: ID): string | null {
   const sch = s.schedules[schId]
   const bus = s.buses[busId]
   if (!sch || !bus) return 'Missing schedule or bus.'
-  const maxBuses = BAL.scheduleMaxCoaches ?? 4
-  if (sch.busIds.length >= maxBuses) return `A schedule takes at most ${maxBuses} buses.`
+  const maxBuses = maxCoachesForSchedule(s, sch)
+  if (sch.busIds.length >= maxBuses) {
+    return `This schedule needs at most ${maxBuses} coach${maxBuses === 1 ? '' : 'es'} for daily service.`
+  }
   if (sch.busIds.includes(busId)) return 'Already assigned.'
   if (bus.scheduleId && bus.scheduleId !== schId) return 'Bus is on another schedule - unassign it first.'
   // A stale bus.scheduleId must never let one vehicle run two services at once.

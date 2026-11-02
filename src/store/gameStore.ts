@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { BusDuty, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost } from '../engine/types'
+import type { BusDuty, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, BodyBuilder } from '../engine/types'
 import { type Money, fmtCompact } from '../engine/core/money'
 import { advanceDay, needsAttention } from '../engine/tick'
 import { newGame, SAVE_VERSION, initialBrandCode } from '../engine/newGame'
@@ -32,6 +32,7 @@ import { applyDecision } from '../engine/sim/events'
 import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
 import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
 import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
+import { cloneDefaultBodyBuilders, getDesign } from '../engine/data/bodyBuilders'
 import {
   clearSaveStores,
   decodeSaveString,
@@ -96,7 +97,7 @@ interface GameStore {
   uiPrefs: UiPrefs
   setFleetGroupFilter: (id: 'all' | 'none' | ID) => void
 
-  createGroup: (input: { name: string; code: string; color?: string; cargoBrand?: boolean }) => { id: ID } | { error: string }
+  createGroup: (input: { name: string; code: string; color?: string; cargoBrand?: boolean; brandingPic?: string }) => { id: ID } | { error: string }
   updateGroup: (id: ID, patch: Partial<Omit<BusGroup, 'id'>>) => string | null
   retireGroup: (id: ID, moveTo: ID | undefined) => string | null
   restoreGroup: (id: ID) => string | null
@@ -132,7 +133,7 @@ interface GameStore {
   // convenience wrappers used across pages
   inspectListing: (id: ID) => void
   buyUsed: (id: ID, plan: fleet.FinancePlan, groupId?: ID) => void
-  orderNewBus: (modelId: string, plan: fleet.FinancePlan, groupId?: ID) => void
+  orderNewBus: (modelId: string, plan: fleet.FinancePlan, groupId?: ID, bodyDesignId?: string) => void
   startLease: (id: ID, groupId?: ID) => void
   endLease: (busId: ID) => boolean
   signAttach: (id: ID, groupId?: ID) => void
@@ -167,8 +168,11 @@ interface GameStore {
   repairSubsystem: (busId: ID, sub: SubsystemId) => void
   replaceTyres: (busId: ID, axleOrRetread?: TyreAxle | boolean, brand?: TyreBrand, opts?: { outside?: boolean }) => void
   setWorkshopTyreBrand: (brand: 'oem' | 'tier2') => void
-  rebodyBus: (busId: ID) => void
+  rebodyBus: (busId: ID, bodyDesignId?: string) => void
   refurbishSeats: (busId: ID) => void
+  addBodyDesign: (builderId: string, design: BodyDesign) => { ok: boolean; error?: string }
+  updateBodyDesign: (builderId: string, designId: string, patch: Partial<BodyDesign>) => { ok: boolean; error?: string }
+  removeBodyDesign: (builderId: string, designId: string) => { ok: boolean; error?: string }
   upgradeWorkshop: () => void
   openWorkshopLocation: (cityId: string, groupIds: ID[]) => void
   addWorkshopBayAtLocation: (locationId: ID) => void
@@ -507,6 +511,12 @@ function migrate(raw: unknown): GameState | null {
   } else {
     for (const g of Object.values(s.groups)) {
       if (!g.status) g.status = 'active'
+      // Brief logo field → brandingPic (bus livery photo, not a badge icon)
+      const legacy = g as BusGroup & { logo?: string }
+      if (!g.brandingPic && legacy.logo) {
+        g.brandingPic = legacy.logo
+      }
+      delete legacy.logo
     }
     for (const sch of Object.values(s.schedules ?? {})) {
       delete (sch as any).amenities
@@ -534,6 +544,13 @@ function migrate(raw: unknown): GameState | null {
     if (b.frontBrand === undefined) b.frontBrand = 'oem'
     if (b.rearBrand === undefined) b.rearBrand = b.tyresRetreaded ? 'retread' : 'oem'
     if ((b as { tyrePressure?: unknown }).tyrePressure !== undefined) delete (b as { tyrePressure?: unknown }).tyrePressure
+    // Drop overnight short-haul "in transit" flags from the first pass of this feature.
+    if (b.inTransitUntilDay !== undefined && b.inTransitUntilDay <= s.day + 1) {
+      if (b.inTransitToCityId) b.parkedCityId = b.inTransitToCityId
+      b.inTransitUntilDay = undefined
+      b.inTransitToCityId = undefined
+      b.inTransitFromCityId = undefined
+    }
     if (b.parkedCityId === undefined) b.parkedCityId = s.company?.homeCityId ?? 'maa'
     if (b.ownership === 'owned' && !b.depreciationMethod) b.depreciationMethod = 'SLM'
     if (b.cargoVolumeCbm === undefined) {
@@ -560,6 +577,14 @@ function migrate(raw: unknown): GameState | null {
   delete (s as { charterRefreshDay?: unknown }).charterRefreshDay
   for (const l of Object.values(s.loans ?? {})) {
     if (!l.kind) l.kind = 'vehicle'
+  }
+  if (!s.bodyBuilders || Object.keys(s.bodyBuilders).length === 0) {
+    s.bodyBuilders = cloneDefaultBodyBuilders()
+  }
+  for (const b of Object.values(s.buses ?? {})) {
+    if (b.bodyDesignId && !b.bodyDesignName) {
+      b.bodyDesignName = getDesign(s, b.bodyDesignId)?.name
+    }
   }
   if (!s.workshop) s.workshop = { level: 0, bays: 0, mechanicIds: [], locations: [] }
   if (!s.workshop.mechanicIds) s.workshop.mechanicIds = []
@@ -1399,7 +1424,7 @@ export const useGame = create<GameStore>()(
 
     inspectListing: (id) => get().intent((s) => fleet.inspectListing(s, id)),
     buyUsed: (id, plan, groupId) => get().intent((s) => fleet.buyUsed(s, id, plan, groupId)),
-    orderNewBus: (modelId, plan, groupId) => get().intent((s) => fleet.orderNewBus(s, modelId, plan, groupId)),
+    orderNewBus: (modelId, plan, groupId, bodyDesignId) => get().intent((s) => fleet.orderNewBus(s, modelId, plan, groupId, bodyDesignId)),
     startLease: (id, groupId) => get().intent((s) => fleet.startLease(s, id, groupId)),
     endLease: (busId) => get().intent((s) => fleet.endLease(s, busId)),
     signAttach: (id, groupId) => get().intent((s) => fleet.signAttach(s, id, groupId)),
@@ -1511,8 +1536,70 @@ export const useGame = create<GameStore>()(
     repairSubsystem: (busId, sub) => get().intent((s) => maintenance.repairSubsystem(s, busId, sub)),
     replaceTyres: (busId, axleOrRetread, brand, opts) => get().intent((s) => maintenance.replaceTyres(s, busId, axleOrRetread, brand, opts)),
     setWorkshopTyreBrand: (brand) => get().intent((s) => { maintenance.setWorkshopTyreBrand(s, brand); return null }),
-    rebodyBus: (busId) => get().intent((s) => maintenance.rebodyBus(s, busId)),
+    rebodyBus: (busId, bodyDesignId) => get().intent((s) => maintenance.rebodyBus(s, busId, bodyDesignId)),
     refurbishSeats: (busId) => get().intent((s) => maintenance.refurbishSeats(s, busId)),
+    addBodyDesign: (builderId, design) => {
+      let err: string | undefined
+      get().intent((s) => {
+        if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+        const builder = s.bodyBuilders[builderId]
+        if (!builder) {
+          err = 'Unknown body builder.'
+          return err
+        }
+        if (builder.designs.some((d) => d.id === design.id)) {
+          err = 'Design ID already exists.'
+          return err
+        }
+        builder.designs.push(design)
+        pushLog(s, 'info', `Added body design "${design.name}" under ${builder.name}.`)
+        return null
+      })
+      if (err) return { ok: false, error: err }
+      return { ok: true }
+    },
+    updateBodyDesign: (builderId, designId, patch) => {
+      let err: string | undefined
+      get().intent((s) => {
+        if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+        const builder = s.bodyBuilders[builderId]
+        if (!builder) {
+          err = 'Unknown body builder.'
+          return err
+        }
+        const idx = builder.designs.findIndex((d) => d.id === designId)
+        if (idx < 0) {
+          err = 'Design not found.'
+          return err
+        }
+        builder.designs[idx] = { ...builder.designs[idx], ...patch }
+        pushLog(s, 'info', `Updated body design "${builder.designs[idx].name}".`)
+        return null
+      })
+      if (err) return { ok: false, error: err }
+      return { ok: true }
+    },
+    removeBodyDesign: (builderId, designId) => {
+      let err: string | undefined
+      get().intent((s) => {
+        if (!s.bodyBuilders) s.bodyBuilders = cloneDefaultBodyBuilders()
+        const builder = s.bodyBuilders[builderId]
+        if (!builder) {
+          err = 'Unknown body builder.'
+          return err
+        }
+        if (s.busOrders && s.busOrders.some((o) => o.bodyDesignId === designId)) {
+          err = 'Cannot delete design: a pending new bus order is currently using it.'
+          return err
+        }
+        const d = builder.designs.find((x) => x.id === designId)
+        builder.designs = builder.designs.filter((x) => x.id !== designId)
+        pushLog(s, 'info', `Removed body design "${d?.name ?? designId}".`)
+        return null
+      })
+      if (err) return { ok: false, error: err }
+      return { ok: true }
+    },
     upgradeWorkshop: () => get().intent((s) => maintenance.upgradeWorkshop(s)),
     openWorkshopLocation: (cityId, groupIds) => get().intent((s) => maintenance.openWorkshopLocation(s, cityId, groupIds)),
     addWorkshopBayAtLocation: (locationId) => get().intent((s) => maintenance.addBayAtLocation(s, locationId)),

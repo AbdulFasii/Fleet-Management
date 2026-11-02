@@ -6,16 +6,34 @@ import { quoteLoan, availableLoanProducts } from '../../engine/sim/banking'
 import { effectiveNewPrice, worstSubsystem, usedPrice, type FinancePlan } from '../../engine/sim/fleet'
 import { activeGroups } from '../../engine/sim/groups'
 import { fmtCompact, type Money } from '../../engine/core/money'
+import {
+  designsForMaker,
+  getDesign,
+  modelSupportsBodyDesigns,
+  composeLeadTime,
+  coachTitle,
+} from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel } from '../bits'
 
-export function FinanceModal({ price, title, isNew, onConfirm, onClose }: {
+export function FinanceModal({ price: initialPrice, title, isNew, modelId, onConfirm, onClose }: {
   price: Money
   title: string
   isNew?: boolean
-  onConfirm: (plan: FinancePlan) => void
+  modelId?: string
+  onConfirm: (plan: FinancePlan, bodyDesignId?: string) => void
   onClose: () => void
 }) {
   const s = useGame((g) => g.state)!
+  const model = modelId ? BUS_MODELS[modelId] : undefined
+  const supportsCustomBody = Boolean(isNew && model && modelSupportsBodyDesigns(model))
+  const designOptions = supportsCustomBody && model ? designsForMaker(s, model.maker) : []
+  const [selectedDesignId, setSelectedDesignId] = useState<string>(designOptions[0]?.design.id ?? '')
+  const selectedDesign = designOptions.find((o) => o.design.id === selectedDesignId)?.design
+  const selectedBuilder = designOptions.find((o) => o.design.id === selectedDesignId)?.builder
+
+  const price = supportsCustomBody && model ? effectiveNewPrice(s, model.id, selectedDesignId) : initialPrice
+  const leadDays = isNew && model ? composeLeadTime(model, selectedDesign) : undefined
+
   const products = availableLoanProducts(s)
   const [productId, setProductId] = useState<string>('cash')
   const [months, setMonths] = useState(48)
@@ -45,7 +63,10 @@ export function FinanceModal({ price, title, isNew, onConfirm, onClose }: {
             className="primary"
             disabled={(!isNew && orderedCount > 0) || needed > liquidity}
             onClick={() => {
-              onConfirm(productId === 'cash' ? {} : { loanProductId: productId, months })
+              onConfirm(
+                productId === 'cash' ? {} : { loanProductId: productId, months },
+                supportsCustomBody ? selectedDesignId : undefined,
+              )
               setOrderedCount((c) => c + 1)
             }}
           >
@@ -60,7 +81,59 @@ export function FinanceModal({ price, title, isNew, onConfirm, onClose }: {
         </>
       }
     >
-      <KV rows={[['Price', <M v={price} full />], ['Your liquidity (cash + OD)', <M v={liquidity} full />]]} />
+      {supportsCustomBody && designOptions.length > 0 && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--panel-alt, #151a21)', borderRadius: 6, border: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Chassis Body Selection</div>
+          <div className="form-row" style={{ margin: 0 }}>
+            <label style={{ minWidth: 100 }}>Body Design</label>
+            <select
+              value={selectedDesignId}
+              onChange={(e) => setSelectedDesignId(e.target.value)}
+              style={{ flex: 1 }}
+            >
+              {designOptions.map(({ builder, design }) => (
+                <option key={design.id} value={design.id}>
+                  {builder.name} — {design.name} ({design.bodyPrice >= 0 ? `+${fmtCompact(design.bodyPrice)}` : `-${fmtCompact(-design.bodyPrice)}`})
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedDesign && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 10, alignItems: 'flex-start' }}>
+              {selectedDesign.image ? (
+                <img
+                  src={selectedDesign.image}
+                  alt={selectedDesign.name}
+                  style={{ width: 110, height: 70, objectFit: 'cover', borderRadius: 4, border: '1px solid var(--border)', flexShrink: 0 }}
+                />
+              ) : (
+                <div style={{ width: 110, height: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0e1217', borderRadius: 4, border: '1px solid var(--border)', color: 'var(--dim)', fontSize: '0.75rem', flexShrink: 0 }}>
+                  No photo
+                </div>
+              )}
+              <div style={{ flex: 1, fontSize: '0.8rem', lineHeight: 1.4 }}>
+                <div style={{ fontWeight: 600 }}>{selectedBuilder?.name} · {selectedDesign.name}</div>
+                <div className="dim mt4">
+                  <span>Price: <b>{selectedDesign.bodyPrice >= 0 ? `+${fmtCompact(selectedDesign.bodyPrice)}` : `-${fmtCompact(-selectedDesign.bodyPrice)}`}</b></span>
+                  {' · '}
+                  <span>Lead time: <b>{selectedDesign.leadDaysAdd >= 0 ? `+${selectedDesign.leadDaysAdd}d` : `${selectedDesign.leadDaysAdd}d`}</b> ({leadDays}d total)</span>
+                </div>
+                <div className="dim">
+                  <span>Comfort: <b className={selectedDesign.comfortDelta >= 0 ? 'good' : 'bad'}>{selectedDesign.comfortDelta >= 0 ? `+${selectedDesign.comfortDelta}` : selectedDesign.comfortDelta}</b></span>
+                  {' · '}
+                  <span>Maint: <b className={selectedDesign.maintDelta <= 0 ? 'good' : 'bad'}>{selectedDesign.maintDelta >= 0 ? `+${Math.round(selectedDesign.maintDelta * 100)}%` : `${Math.round(selectedDesign.maintDelta * 100)}%`}</b></span>
+                </div>
+                {selectedDesign.notes && <div className="faint mt4">{selectedDesign.notes}</div>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <KV rows={[
+        ['Price', <M v={price} full />],
+        ...(leadDays ? [['Delivery lead time', `${leadDays} days`]] as [string, any][] : []),
+        ['Your liquidity (cash + OD)', <M v={liquidity} full />],
+      ]} />
       <div className="form-row mt12">
         <label>Financing</label>
         <select value={productId} onChange={(e) => setProductId(e.target.value)}>
@@ -212,13 +285,25 @@ export function MarketPage() {
               const model = BUS_MODELS[l.modelId]
               if (!model || (!subsidiary && isCargoModel(model))) return null
               const fair = usedPrice(l.modelId, l.ageYears)
+              const dThumb = l.bodyDesignId ? getDesign(s, l.bodyDesignId)?.image : undefined
               return (
                 <tr key={l.id}>
                   <td>
-                    <span className="accent">{modelTitle(model)}</span> <span className="dim">{l.reg}</span>
-                    <div className="small faint">
-                      {coachSpec(model)} · {model.electric ? 'electric' : `${model.mileage} km/l`} · {l.sellerNote}
-                      {l.gpsDeviceFitted ? <span className="good"> · GPS fitted</span> : <span className="dim"> · No GPS</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {dThumb && (
+                        <img
+                          src={dThumb}
+                          alt={l.bodyDesignName ?? ''}
+                          style={{ width: 44, height: 28, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border)', flexShrink: 0 }}
+                        />
+                      )}
+                      <div>
+                        <span className="accent">{coachTitle(model, l.bodyDesignName)}</span> <span className="dim">{l.reg}</span>
+                        <div className="small faint">
+                          {coachSpec(model)} · {model.electric ? 'electric' : `${model.mileage} km/l`} · {l.sellerNote}
+                          {l.gpsDeviceFitted ? <span className="good"> · GPS fitted</span> : <span className="dim"> · No GPS</span>}
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td>
@@ -369,10 +454,11 @@ export function MarketPage() {
           price={buying.price}
           title={buying.title}
           isNew={buying.kind === 'new'}
+          modelId={buying.kind === 'new' ? buying.id : undefined}
           onClose={() => setBuying(null)}
-          onConfirm={(plan) => {
+          onConfirm={(plan, bodyDesignId) => {
             const gid = selectedBrand || undefined
-            if (buying.kind === 'new') g.orderNewBus(buying.id, plan, gid)
+            if (buying.kind === 'new') g.orderNewBus(buying.id, plan, gid, bodyDesignId)
             else g.buyUsed(buying.id, plan, gid)
           }}
         />

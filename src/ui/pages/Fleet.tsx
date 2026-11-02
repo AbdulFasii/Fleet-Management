@@ -2,10 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { BUS_MODELS, coachKind, coachKindClass, modelTitleById, isCargoModel } from '../../engine/data/busModels'
+import { coachTitle, getDesign } from '../../engine/data/bodyBuilders'
 import { ROUTES, routeName } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
 import { fmtClock, festivalEffect } from '../../engine/core/calendar'
 import { worstSubsystem, busAgeYears, busStatusDetail } from '../../engine/sim/fleet'
+import { isBusInTransit } from '../../engine/sim/depot'
 import { ownerPaysService, serviceDueKm, axleTyresDue } from '../../engine/sim/maintenance'
 import { activeGroups } from '../../engine/sim/groups'
 import { BAL } from '../../engine/data/balance'
@@ -116,11 +118,40 @@ export function FleetPage() {
         return <GroupBadge group={grp} />
       },
     },
-    { key: 'model', label: 'Model', sort: (b) => b.modelId, render: (b) => modelTitleById(b.modelId) },
+    {
+      key: 'model',
+      label: 'Model',
+      sort: (b) => b.modelId,
+      render: (b) => {
+        const img = b.bodyDesignId ? getDesign(s, b.bodyDesignId)?.image : undefined
+        return (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {img && <img src={img} alt="" style={{ width: 28, height: 18, objectFit: 'cover', borderRadius: 2 }} />}
+            <span>{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</span>
+          </span>
+        )
+      },
+    },
     {
       key: 'halt', label: 'Current Halt',
-      sort: (b) => cityName(b.parkedCityId ?? s.company.homeCityId),
+      sort: (b) => {
+        if (isBusInTransit(s, b) && b.inTransitToCityId) return `0-${cityName(b.inTransitToCityId)}`
+        return cityName(b.parkedCityId ?? s.company.homeCityId)
+      },
       render: (b) => {
+        if (isBusInTransit(s, b) && b.inTransitToCityId) {
+          const from = b.inTransitFromCityId ? cityName(b.inTransitFromCityId) : '…'
+          const to = cityName(b.inTransitToCityId)
+          return (
+            <span
+              className="accent"
+              style={{ fontWeight: 500 }}
+              title={`En route ${from} → ${to}`}
+            >
+              🚌 {to} <span className="small dim">(In transit)</span>
+            </span>
+          )
+        }
         const city = b.parkedCityId ?? s.company.homeCityId
         const isHome = city === s.company.homeCityId
         const hasYard = s.yards.some((y) => y.cityId === city)
@@ -534,7 +565,7 @@ export function FleetPage() {
                 const grp = o.groupId && s.groups ? s.groups[o.groupId] : undefined
                 return (
                   <tr key={o.id}>
-                    <td>{modelTitleById(o.modelId)}</td>
+                    <td>{coachTitle(BUS_MODELS[o.modelId], o.bodyDesignName)}</td>
                     <td>
                       {grp ? (
                         <span className="flex" style={{ alignItems: 'center', gap: 6 }}>

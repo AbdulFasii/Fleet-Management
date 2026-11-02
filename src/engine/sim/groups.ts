@@ -45,7 +45,7 @@ export function activeGroups(s: GameState): BusGroup[] {
 
 export function createGroup(
   s: GameState,
-  input: { name: string; code: string; color?: string; cargoBrand?: boolean },
+  input: { name: string; code: string; color?: string; cargoBrand?: boolean; brandingPic?: string },
 ): { id: ID } | { error: string } {
   const name = input.name?.trim()
   if (!name) return { error: 'Brand name cannot be empty.' }
@@ -63,12 +63,15 @@ export function createGroup(
   const id = nextId(s.ids, 'grp')
   const color = input.color ?? GROUP_PALETTE[Object.keys(s.groups).length % GROUP_PALETTE.length]
   const cargoBrand = Boolean(input.cargoBrand)
+  const brandingPic =
+    input.brandingPic && input.brandingPic.startsWith('data:image/') ? input.brandingPic : undefined
 
   const newGroup: BusGroup = {
     id,
     name,
     code,
     color,
+    ...(brandingPic ? { brandingPic } : {}),
     foundedDay: s.day,
     status: 'active',
     cargoBrand: cargoBrand || undefined,
@@ -115,7 +118,12 @@ export function updateGroup(
     patch.name = name
   }
 
+  if (patch.brandingPic !== undefined && patch.brandingPic !== '') {
+    if (!patch.brandingPic.startsWith('data:image/')) return 'Invalid branding picture.'
+  }
+
   Object.assign(g, patch)
+  if (!g.brandingPic) delete g.brandingPic
   return null
 }
 

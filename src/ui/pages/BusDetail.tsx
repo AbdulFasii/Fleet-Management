@@ -6,6 +6,7 @@ import { FITTING_CATALOG, busHasFitting } from '../../engine/data/amenitiesCatal
 import { ROUTES, routeName } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
 import { fmtDate, fmtClock, festivalEffect } from '../../engine/core/calendar'
+import { isBusInTransit } from '../../engine/sim/depot'
 import { SUBSYSTEMS, type StaffRole, type SubsystemId } from '../../engine/types'
 import { sellSettlement, busAgeYears, busStatusDetail, leaseBreakCost } from '../../engine/sim/fleet'
 import {
@@ -32,6 +33,13 @@ import {
   serviceResumeDay,
 } from '../../engine/sim/maintenance'
 import { modelNeedsHp } from '../../engine/data/busModels'
+import {
+  coachTitle,
+  busComfort,
+  modelSupportsBodyDesigns,
+  designsForMaker,
+  getDesign,
+} from '../../engine/data/bodyBuilders'
 import { hasUnfilledHpDuty, isStaffResting } from '../../engine/sim/staffing'
 import { canCrewBus, crewLimit, crewOnBus, freeCrew } from '../crew'
 import { BAL } from '../../engine/data/balance'
@@ -174,6 +182,9 @@ export function BusDetailPage() {
   }
   const model = BUS_MODELS[bus.modelId]
   const [targetGroupId, setTargetGroupId] = useState<string>(bus.groupId ?? '')
+  const supportsBody = modelSupportsBodyDesigns(model)
+  const designOpts = supportsBody && model ? designsForMaker(s, model.maker) : []
+  const [rebodyDesignId, setRebodyDesignId] = useState<string>(bus.bodyDesignId ?? designOpts[0]?.design.id ?? '')
   const crewed = canCrewBus(bus)
   const tyreLife = tyreLifeFor(bus)
   const tyreReady = tyresDue(bus)
@@ -189,7 +200,7 @@ export function BusDetailPage() {
       <div className="page-title">
         <span className="accent">{bus.reg}</span>
         {bus.refurbishedDay !== undefined && <span className="pill info small" style={{ marginLeft: 6 }}>refurbished</span>}{' '}
-        "{bus.nickname}" — {modelTitle(model)}
+        "{bus.nickname}" — {coachTitle(model, bus.bodyDesignName)}
         <span className="sub">{CLASS_LABEL[model.cls]} · {coachKind(model)} {model.layout.cols} · {model.seats} {model.layout.kind === 'hybrid' ? 'berths+seats' : model.sleeper ? 'berths' : 'seats'} · {bus.ownership}</span>
         <span className="spacer" />
         <Link to="/fleet">◂ fleet</Link>
@@ -211,9 +222,15 @@ export function BusDetailPage() {
                 : <span className="good">active</span>
             })()],
               ['Current Halt', (
+              isBusInTransit(s, bus) && bus.inTransitToCityId ? (
+                <span className="accent" title={`En route from ${bus.inTransitFromCityId ? cityName(bus.inTransitFromCityId) : '…'} to ${cityName(bus.inTransitToCityId)}`}>
+                  🚌 In transit → {cityName(bus.inTransitToCityId)}
+                </span>
+              ) : (
               <span className={(bus.parkedCityId ?? s.company.homeCityId) === s.company.homeCityId ? 'good' : s.yards.some((y) => y.cityId === (bus.parkedCityId ?? s.company.homeCityId)) ? 'info' : 'warn'}>
                 📍 {cityName(bus.parkedCityId ?? s.company.homeCityId)} {(bus.parkedCityId ?? s.company.homeCityId) === s.company.homeCityId ? '(Home Depot)' : s.yards.some((y) => y.cityId === (bus.parkedCityId ?? s.company.homeCityId)) ? '(Leased Yard)' : '(Outstation / Bay)'}
               </span>
+              )
             )],
               ['Schedule', bus.coveringBusId && s.buses[bus.coveringBusId]
               ? (() => {
@@ -274,8 +291,11 @@ export function BusDetailPage() {
               ['Odometer', <span className={odoFar ? 'bad' : odoOver ? 'warn' : undefined}>{Math.round(bus.odometer).toLocaleString('en-IN')} km{odoOver ? ` · past ${odoMark.toLocaleString('en-IN')} km mark` : ''}</span>],
               ['Accident history', bus.accidentHistory ? <span className="warn">yes</span> : 'clean'],
               ['Quality (reviews)', <span className={ratingTone(bus.qualityScore)} style={{ fontWeight: 600 }}>{bus.qualityScore.toFixed(1)} <span style={{ color: '#f59e0b' }}>★</span> <span className="dim">/ 5</span></span>],
+              ...(bus.bodyDesignName ? [
+                ['Body package', bus.bodyDesignName] as [string, React.ReactNode],
+              ] : []),
               ...(!isCargoModel(model) ? [
-              ['Comfort', `${(model.comfort + (bus.comfortBonus ?? 0)).toFixed(1)}/10${(bus.comfortBonus ?? 0) > 0 ? ` · seats +${(bus.comfortBonus ?? 0).toFixed(1)}` : ''}`],
+              ['Comfort', `${busComfort(s, bus).toFixed(1)}/10${(bus.comfortBonus ?? 0) > 0 ? ` · seats +${(bus.comfortBonus ?? 0).toFixed(1)}` : ''}`],
             ] as [string, React.ReactNode][] : []),
               ['Re-body', bus.refurbishedDay !== undefined
               ? <span className="info">re-bodied {fmtDate(bus.refurbishedDay)} · +{bus.lifeExtensionYears ?? 0} yr useful life</span>
@@ -648,48 +668,74 @@ export function BusDetailPage() {
                 {(() => {
                   const rebodyAvg = Math.round((bus.condition.body + bus.condition.ac + bus.condition.electrical) / 3)
                   const chassis = Math.round(chassisCondition(bus))
+                  const chosenDesign = designOpts.find((o) => o.design.id === rebodyDesignId)?.design
+                  const qRebody = quoteRebody(s, bus, supportsBody ? rebodyDesignId : undefined)
                   return (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontWeight: 500 }}>Re-body</span>
-                          <span className={rebodyAvg >= 75 ? 'good small' : rebodyAvg >= 50 ? 'warn small' : 'bad small'} style={{ fontWeight: 600 }}>
-                            <Bar value={rebodyAvg / 100} tone="auto" width={6} /> {rebodyAvg}%
-                          </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 500 }}>Re-body</span>
+                            <span className={rebodyAvg >= 75 ? 'good small' : rebodyAvg >= 50 ? 'warn small' : 'bad small'} style={{ fontWeight: 600 }}>
+                              <Bar value={rebodyAvg / 100} tone="auto" width={6} /> {rebodyAvg}%
+                            </span>
+                          </div>
+                          <div className="dim small" style={{ marginTop: 2 }}>
+                            {bus.refurbishedDay !== undefined
+                              ? `Already re-bodied on day ${bus.refurbishedDay} (+${bus.lifeExtensionYears ?? 0}y useful life)`
+                              : 'Resets body / AC / electrical to 90 and adds 5y useful life (scores above)'}
+                          </div>
                         </div>
-                        <div className="dim small" style={{ marginTop: 2 }}>
-                          {bus.refurbishedDay !== undefined
-                            ? `Already re-bodied on day ${bus.refurbishedDay} (+${bus.lifeExtensionYears ?? 0}y useful life)`
-                            : 'Resets body / AC / electrical to 90 and adds 5y useful life (scores above)'}
-                        </div>
-                      </div>
-                      <div>
-                        {bus.refurbishedDay !== undefined ? (
-                          <span className="good small">completed</span>
-                        ) : bus.ownership !== 'owned' ? (
-                          <span className="dim small">owned only</span>
-                        ) : (() => {
-                          const chassisOk = chassis >= BAL.refurb.chassisMinCondition
-                          if (!chassisOk) {
+                        <div>
+                          {bus.refurbishedDay !== undefined ? (
+                            <span className="good small">completed</span>
+                          ) : bus.ownership !== 'owned' ? (
+                            <span className="dim small">owned only</span>
+                          ) : (() => {
+                            const chassisOk = chassis >= BAL.refurb.chassisMinCondition
+                            if (!chassisOk) {
+                              return (
+                                <span className="bad small" title="Engine, gearbox and suspension must each be 50+">
+                                  chassis {chassis}/100 (needs 50+)
+                                </span>
+                              )
+                            }
                             return (
-                              <span className="bad small" title="Engine, gearbox and suspension must each be 50+">
-                                chassis {chassis}/100 (needs 50+)
-                              </span>
+                              <button
+                                className="small"
+                                onClick={() => g.rebodyBus(bus.id, supportsBody ? rebodyDesignId : undefined)}
+                                disabled={bus.status !== 'active'}
+                                title={`${qRebody.days}d at specialist bodybuilder — body, AC, electrical reset to 90`}
+                              >
+                                Re-body ({fmtCompact(qRebody.cost)} · {qRebody.days}d)
+                              </button>
                             )
-                          }
-                          const qRebody = quoteRebody(s, bus)
-                          return (
-                            <button
-                              className="small"
-                              onClick={() => g.rebodyBus(bus.id)}
-                              disabled={bus.status !== 'active'}
-                              title={`${qRebody.days}d at specialist bodybuilder — body, AC, electrical reset to 90`}
-                            >
-                              Re-body ({fmtCompact(qRebody.cost)} · {qRebody.days}d)
-                            </button>
-                          )
-                        })()}
+                          })()}
+                        </div>
                       </div>
+                      {bus.refurbishedDay === undefined && bus.ownership === 'owned' && supportsBody && designOpts.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, background: 'var(--panel-alt, #151a21)', padding: 8, borderRadius: 4, border: '1px solid var(--border)' }}>
+                          <span className="small dim" style={{ minWidth: 80 }}>Pick design:</span>
+                          <select
+                            value={rebodyDesignId}
+                            onChange={(e) => setRebodyDesignId(e.target.value)}
+                            style={{ flex: 1 }}
+                          >
+                            {designOpts.map(({ builder, design }) => (
+                              <option key={design.id} value={design.id}>
+                                {builder.name} — {design.name} ({design.bodyPrice >= 0 ? `+${fmtCompact(design.bodyPrice)}` : `-${fmtCompact(-design.bodyPrice)}`})
+                              </option>
+                            ))}
+                          </select>
+                          {chosenDesign?.image && (
+                            <img
+                              src={chosenDesign.image}
+                              alt={chosenDesign.name}
+                              style={{ width: 44, height: 28, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border)' }}
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })()}

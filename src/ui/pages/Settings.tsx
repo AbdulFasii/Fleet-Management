@@ -11,9 +11,11 @@ import { getLastSaveInfo } from '../../store/saveCodec'
 import { CHANNELS, CHANNEL_META } from '../../engine/data/channels'
 import { fmtCompact, toRupees, rs } from '../../engine/core/money'
 import { fmtDate } from '../../engine/core/calendar'
-import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup } from '../../engine/types'
+import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup, BodyDesign } from '../../engine/types'
+import { DEFAULT_BODY_BUILDERS } from '../../engine/data/bodyBuilders'
 import { GROUP_PALETTE, brandStars, activeGroups, sortedGroups } from '../../engine/sim/groups'
 import { KV, Panel, Modal, GroupBadge } from '../bits'
+import { BrandPicPicker } from '../BrandPicPicker'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
 
 const EXPORT_SERIES_KEY = 'busraj_export_series'
@@ -80,16 +82,127 @@ function BadgeColorPellets({
 export function SettingsPage() {
   const s = useGame((g) => g.state)!
   const g = useGame()
-  const [activeTab, setActiveTab] = useState<'flow' | 'fleet' | 'commercial' | 'subsidiaries' | 'welfare' | 'system'>('flow')
+  const [activeTab, setActiveTab] = useState<'flow' | 'fleet' | 'commercial' | 'subsidiaries' | 'body_designs' | 'welfare' | 'system'>('flow')
   const [confirming, setConfirming] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newBrandName, setNewBrandName] = useState('')
   const [newBrandCode, setNewBrandCode] = useState('')
   const [newBrandColor, setNewBrandColor] = useState(GROUP_PALETTE[0])
   const [newBrandCargo, setNewBrandCargo] = useState(false)
+  const [newBrandPic, setNewBrandPic] = useState<string | undefined>(undefined)
   const [retireTarget, setRetireTarget] = useState<BusGroup | null>(null)
   const [retireDestination, setRetireDestination] = useState<string>('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  const bodyBuilders = s.bodyBuilders ?? DEFAULT_BODY_BUILDERS
+  const [editingDesign, setEditingDesign] = useState<{
+    builderId: string
+    design: BodyDesign
+    isNew: boolean
+  } | null>(null)
+  const [designForm, setDesignForm] = useState<{
+    id: string
+    name: string
+    bodyPriceLakhs: number
+    leadDaysAdd: number
+    comfortDelta: number
+    maintDeltaPct: number
+    notes: string
+    image?: string
+  }>({
+    id: '',
+    name: '',
+    bodyPriceLakhs: 0,
+    leadDaysAdd: 0,
+    comfortDelta: 0,
+    maintDeltaPct: 0,
+    notes: '',
+    image: undefined,
+  })
+
+  const openEditDesign = (builderId: string, d: BodyDesign) => {
+    setEditingDesign({ builderId, design: d, isNew: false })
+    setDesignForm({
+      id: d.id,
+      name: d.name,
+      bodyPriceLakhs: Math.round((toRupees(d.bodyPrice) / 100_000) * 100) / 100,
+      leadDaysAdd: d.leadDaysAdd,
+      comfortDelta: d.comfortDelta,
+      maintDeltaPct: Math.round(d.maintDelta * 100),
+      notes: d.notes ?? '',
+      image: d.image,
+    })
+  }
+
+  const openAddDesign = (builderId: string) => {
+    const newId = `bd_${Date.now()}`
+    const blank: BodyDesign = {
+      id: newId,
+      name: '',
+      bodyPrice: 0,
+      leadDaysAdd: 0,
+      comfortDelta: 0,
+      maintDelta: 0,
+      notes: '',
+    }
+    setEditingDesign({ builderId, design: blank, isNew: true })
+    setDesignForm({
+      id: newId,
+      name: '',
+      bodyPriceLakhs: 0,
+      leadDaysAdd: 0,
+      comfortDelta: 0,
+      maintDeltaPct: 0,
+      notes: '',
+      image: undefined,
+    })
+  }
+
+  const saveDesignModal = () => {
+    if (!editingDesign) return
+    const name = designForm.name.trim()
+    if (!name) {
+      g.toast('Please enter a design name.', 'bad')
+      return
+    }
+    const bodyPrice = Math.round(designForm.bodyPriceLakhs * 100_000)
+    const newDesign: BodyDesign = {
+      id: designForm.id || `bd_${Date.now()}`,
+      name,
+      bodyPrice,
+      leadDaysAdd: Number(designForm.leadDaysAdd) || 0,
+      comfortDelta: Math.round(Number(designForm.comfortDelta) * 10) / 10,
+      maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
+      notes: designForm.notes.trim() || undefined,
+      image: designForm.image,
+    }
+
+    if (editingDesign.isNew) {
+      const res = g.addBodyDesign(editingDesign.builderId, newDesign)
+      if (!res.ok) {
+        g.toast(res.error ?? 'Could not add design.', 'bad')
+        return
+      }
+      g.toast(`Added "${newDesign.name}"`, 'good')
+    } else {
+      const res = g.updateBodyDesign(editingDesign.builderId, editingDesign.design.id, newDesign)
+      if (!res.ok) {
+        g.toast(res.error ?? 'Could not update design.', 'bad')
+        return
+      }
+      g.toast(`Updated "${newDesign.name}"`, 'good')
+    }
+    setEditingDesign(null)
+  }
+
+  const deleteDesign = (builderId: string, designId: string) => {
+    const res = g.removeBodyDesign(builderId, designId)
+    if (!res.ok) {
+      g.toast(res.error ?? 'Could not remove design.', 'bad')
+      return
+    }
+    g.toast('Body design removed.', 'good')
+  }
   /** Amenities + fittings cards inside a brand — hidden by default. */
   const [amenityCardOpen, setAmenityCardOpen] = useState<Record<string, boolean>>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -301,6 +414,7 @@ export function SettingsPage() {
             ['fleet', '🚌 Fleet Policies'],
             ['commercial', '🏷️ Commercial & Channels'],
             ['subsidiaries', '🏢 Subsidiaries & Brands'],
+            ['body_designs', '🎨 Body Designs'],
             ['welfare', '👥 Welfare & Taxes'],
             ['system', '💾 Save Data & System'],
           ] as const).map(([id, label]) => (
@@ -880,7 +994,7 @@ export function SettingsPage() {
                 Separate fleet branding, passenger amenities, cabin fittings, ratings, and Primo standing. One shared balance sheet, payroll, and workshop.
               </div>
             </div>
-            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false) }}>
+            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined) }}>
               + Create Subsidiary Brand
             </button>
           </div>
@@ -930,14 +1044,27 @@ export function SettingsPage() {
                     }
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {/* Brand identity & stats */}
-                        <div className="grid-2" style={{ gap: 12 }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Brand identity: pic | brand detail | fleet detail */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 180px) 1fr 1fr', gap: 16, alignItems: 'start' }}>
+                          <div>
+                            <BrandPicPicker
+                              value={group.brandingPic}
+                              onChange={(pic) => {
+                                const err = g.updateGroup(group.id, { brandingPic: pic })
+                                if (err) g.toast(err, 'bad')
+                                else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
+                              }}
+                              onError={(msg) => g.toast(msg, 'bad')}
+                            />
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <div className="dim small">Brand detail</div>
                             <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
                               <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>
                               <input
                                 type="text"
-                                style={{ width: 200 }}
+                                style={{ width: '100%', maxWidth: 220 }}
                                 defaultValue={group.name}
                                 onBlur={(e) => {
                                   const val = e.target.value.trim()
@@ -977,9 +1104,8 @@ export function SettingsPage() {
                                 }}
                               />
                             </div>
-
-                            <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
-                              <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Badge Color</label>
+                            <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+                              <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap', paddingTop: 4 }}>Badge Color</label>
                               <BadgeColorPellets
                                 value={group.color}
                                 onChange={(color) => g.updateGroup(group.id, { color })}
@@ -988,40 +1114,42 @@ export function SettingsPage() {
                             </div>
                           </div>
 
-                          {/* Readout stats */}
-                          <div style={{ background: 'var(--bg3)', padding: '10px 14px', borderRadius: 6, border: '1px solid var(--border)' }}>
-                            <KV
-                              rows={[
-                                ['Fleet size', `${busesInBrand.length} coaches · ${schsInBrand.length} active schedules`],
-                                [
-                                  'Marketplace Rating',
-                                  group.ratingCount >= BAL.groupRatingMinReviews ? (
-                                    <span>
-                                      <b className="good">★ {group.rating.toFixed(2)}</b>{' '}
-                                      <span className="dim">({group.ratingCount} reviews · cancel {(group.cancelRate * 100).toFixed(1)}%)</span>
-                                    </span>
-                                  ) : (
-                                    <span>
-                                      <span className="dim">Inherits company ★ {s.company.rating.toFixed(2)}</span>{' '}
-                                      <span className="small">({group.ratingCount}/{BAL.groupRatingMinReviews} reviews)</span>
-                                    </span>
-                                  ),
-                                ],
-                                ...(isCargoBrand ? [] : [[
-                                  'Primo Status',
-                                  group.primo ? (
-                                    <span className="good" style={{ fontWeight: 600 }}>
-                                      ★ PRIMO CERTIFIED {group.primoSinceDay ? `(Day ${group.primoSinceDay}+)` : ''}
-                                    </span>
-                                  ) : group.primoOffered ? (
-                                    <span className="warn" style={{ fontWeight: 600 }}>INVITATION OFFERED (Check Inbox)</span>
-                                  ) : (
-                                    <span className="dim">Standard Listing</span>
-                                  ),
-                                ]]),
-                                ['Avg Fleet Stars', stars != null ? `${stars.toFixed(1)} / 5.0 Quality Rating` : '— (No active coaches)'],
-                              ]}
-                            />
+                          <div>
+                            <div className="dim small" style={{ marginBottom: 6 }}>Fleet detail</div>
+                            <div style={{ background: 'var(--bg3)', padding: '10px 14px', borderRadius: 6, border: '1px solid var(--border)' }}>
+                              <KV
+                                rows={[
+                                  ['Fleet size', `${busesInBrand.length} coaches · ${schsInBrand.length} active schedules`],
+                                  [
+                                    'Marketplace Rating',
+                                    group.ratingCount >= BAL.groupRatingMinReviews ? (
+                                      <span>
+                                        <b className="good">★ {group.rating.toFixed(2)}</b>{' '}
+                                        <span className="dim">({group.ratingCount} reviews · cancel {(group.cancelRate * 100).toFixed(1)}%)</span>
+                                      </span>
+                                    ) : (
+                                      <span>
+                                        <span className="dim">Inherits company ★ {s.company.rating.toFixed(2)}</span>{' '}
+                                        <span className="small">({group.ratingCount}/{BAL.groupRatingMinReviews} reviews)</span>
+                                      </span>
+                                    ),
+                                  ],
+                                  ...(isCargoBrand ? [] : [[
+                                    'Primo Status',
+                                    group.primo ? (
+                                      <span className="good" style={{ fontWeight: 600 }}>
+                                        ★ PRIMO CERTIFIED {group.primoSinceDay ? `(Day ${group.primoSinceDay}+)` : ''}
+                                      </span>
+                                    ) : group.primoOffered ? (
+                                      <span className="warn" style={{ fontWeight: 600 }}>INVITATION OFFERED (Check Inbox)</span>
+                                    ) : (
+                                      <span className="dim">Standard Listing</span>
+                                    ),
+                                  ]]),
+                                  ['Avg Fleet Stars', stars != null ? `${stars.toFixed(1)} / 5.0 Quality Rating` : '— (No active coaches)'],
+                                ]}
+                              />
+                            </div>
                           </div>
                         </div>
 
@@ -1598,6 +1726,141 @@ export function SettingsPage() {
         </div>
       )}
 
+      {/* ========================================================================= */}
+      {/* TAB: BODY DESIGNS                                                         */}
+      {/* ========================================================================= */}
+      {activeTab === 'body_designs' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Panel
+            title="Chassis Coachwork & Body Builders"
+            flat
+            info="Custom body designs apply strictly to Ashok Leyland and BharatBenz passenger chassis. BharatBenz includes its OEM Factory builder, while Ashok Leyland uses specialist third-party builders. Player can adjust design packages, pricing, lead times, and upload coach images."
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {Object.values(bodyBuilders).map((builder) => {
+                const count = builder.designs.length
+                return (
+                  <div
+                    key={builder.id}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      background: 'var(--panel-alt, #151a21)',
+                      padding: 16,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: '1.05rem', fontWeight: 600 }}>{builder.name}</span>
+                        <div className="small dim mt4">
+                          <span>Compatible makers: <b>{builder.makers.join(', ')}</b></span>
+                          {' · '}
+                          <span>Packages: <b>{count} design{count === 1 ? '' : 's'}</b></span>
+                        </div>
+                      </div>
+                      <button
+                        className="small primary"
+                        onClick={() => openAddDesign(builder.id)}
+                      >
+                        + Add Design
+                      </button>
+                    </div>
+
+                    {builder.designs.length === 0 ? (
+                      <div className="small dim" style={{ padding: 12, background: 'var(--bg3)', borderRadius: 6, textAlign: 'center' }}>
+                        No body designs registered for {builder.name}. Click "+ Add Design" to create one.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+                        {builder.designs.map((d) => (
+                          <div
+                            key={d.id}
+                            style={{
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              background: 'var(--bg)',
+                              padding: 12,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              gap: 10,
+                            }}
+                          >
+                            <div style={{ display: 'flex', gap: 12 }}>
+                              {d.image ? (
+                                <img
+                                  src={d.image}
+                                  alt={d.name}
+                                  style={{
+                                    width: 100,
+                                    height: 65,
+                                    objectFit: 'cover',
+                                    borderRadius: 4,
+                                    border: '1px solid var(--border)',
+                                    flexShrink: 0,
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    width: 100,
+                                    height: 65,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: 'var(--bg3)',
+                                    borderRadius: 4,
+                                    border: '1px solid var(--border)',
+                                    color: 'var(--dim)',
+                                    fontSize: '0.75rem',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  No photo
+                                </div>
+                              )}
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{d.name}</div>
+                                <div className="small dim mt4">
+                                  <span>Body package: <b>{d.bodyPrice >= 0 ? `+${fmtCompact(d.bodyPrice)}` : `-${fmtCompact(-d.bodyPrice)}`}</b></span>
+                                </div>
+                                <div className="small dim">
+                                  <span>Lead time: <b>{d.leadDaysAdd >= 0 ? `+${d.leadDaysAdd}d` : `${d.leadDaysAdd}d`}</b></span>
+                                </div>
+                                <div className="small dim">
+                                  <span>Comfort: <b className={d.comfortDelta >= 0 ? 'good' : 'bad'}>{d.comfortDelta >= 0 ? `+${d.comfortDelta}` : d.comfortDelta}</b></span>
+                                  {' · '}
+                                  <span>Upkeep: <b className={d.maintDelta <= 0 ? 'good' : 'bad'}>{d.maintDelta >= 0 ? `+${Math.round(d.maintDelta * 100)}%` : `${Math.round(d.maintDelta * 100)}%`}</b></span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {d.notes && (
+                              <div className="small faint" style={{ fontStyle: 'italic', lineHeight: 1.3 }}>
+                                {d.notes}
+                              </div>
+                            )}
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                              <button className="small" onClick={() => openEditDesign(builder.id, d)}>
+                                Edit
+                              </button>
+                              <button className="small bad" onClick={() => deleteDesign(builder.id, d.id)}>
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </Panel>
+        </div>
+      )}
+
       {showCreateModal && (
         <Modal
           title="Create Subsidiary Brand"
@@ -1614,6 +1877,7 @@ export function SettingsPage() {
                     code: newBrandCode.trim().toUpperCase(),
                     color: newBrandColor,
                     cargoBrand: newBrandCargo || undefined,
+                    brandingPic: newBrandPic,
                   })
                   if ('error' in res) {
                     g.toast(res.error, 'bad')
@@ -1623,6 +1887,7 @@ export function SettingsPage() {
                     setNewBrandName('')
                     setNewBrandCode('')
                     setNewBrandCargo(false)
+                    setNewBrandPic(undefined)
                   }
                 }}
               >
@@ -1655,6 +1920,10 @@ export function SettingsPage() {
             <div className="form-row">
               <label>Badge Color</label>
               <BadgeColorPellets value={newBrandColor} onChange={setNewBrandColor} size={28} />
+            </div>
+            <div className="form-row">
+              <label>Branding pic (optional)</label>
+              <BrandPicPicker value={newBrandPic} onChange={setNewBrandPic} onError={(msg) => g.toast(msg, 'bad')} />
             </div>
             <div className="form-row">
               <label>Brand Type</label>
@@ -1761,6 +2030,110 @@ export function SettingsPage() {
             This will purge the brand and rewrite past coach history entries to Unassigned.
             This action cannot be undone.
           </p>
+        </Modal>
+      )}
+
+      {editingDesign && (
+        <Modal
+          title={editingDesign.isNew ? 'Add Coach Body Design' : `Edit ${editingDesign.design.name}`}
+          onClose={() => setEditingDesign(null)}
+          actions={
+            <>
+              <button onClick={() => setEditingDesign(null)}>Cancel</button>
+              <button className="primary" onClick={saveDesignModal}>
+                {editingDesign.isNew ? 'Add Design' : 'Save Changes'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="form-row">
+              <label>Design Name</label>
+              <input
+                value={designForm.name}
+                onChange={(e) => setDesignForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. JCBL Royal Sleeper"
+                style={{ width: 280 }}
+              />
+            </div>
+
+            <div className="form-row">
+              <label>Body Package Cost (₹ Lakhs)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={designForm.bodyPriceLakhs}
+                onChange={(e) => setDesignForm((f) => ({ ...f, bodyPriceLakhs: Number(e.target.value) }))}
+                style={{ width: 140 }}
+              />
+              <span className="small dim" style={{ marginLeft: 8 }}>
+                {designForm.bodyPriceLakhs >= 0 ? `+₹${designForm.bodyPriceLakhs} Lakhs added` : `-₹${Math.abs(designForm.bodyPriceLakhs)} Lakhs discount`}
+              </span>
+            </div>
+
+            <div className="form-row">
+              <label>Lead Time Added (Days)</label>
+              <input
+                type="number"
+                value={designForm.leadDaysAdd}
+                onChange={(e) => setDesignForm((f) => ({ ...f, leadDaysAdd: Number(e.target.value) }))}
+                style={{ width: 140 }}
+              />
+              <span className="small dim" style={{ marginLeft: 8 }}>
+                {designForm.leadDaysAdd >= 0 ? `+${designForm.leadDaysAdd} days` : `${designForm.leadDaysAdd} days faster`}
+              </span>
+            </div>
+
+            <div className="form-row">
+              <label>Comfort Rating Delta</label>
+              <input
+                type="number"
+                step="0.1"
+                value={designForm.comfortDelta}
+                onChange={(e) => setDesignForm((f) => ({ ...f, comfortDelta: Number(e.target.value) }))}
+                style={{ width: 140 }}
+              />
+              <span className="small dim" style={{ marginLeft: 8 }}>
+                Points added to chassis base comfort (e.g. +0.5, -0.2)
+              </span>
+            </div>
+
+            <div className="form-row">
+              <label>Maintenance Upkeep Delta (%)</label>
+              <input
+                type="number"
+                step="1"
+                value={designForm.maintDeltaPct}
+                onChange={(e) => setDesignForm((f) => ({ ...f, maintDeltaPct: Number(e.target.value) }))}
+                style={{ width: 140 }}
+              />
+              <span className="small dim" style={{ marginLeft: 8 }}>
+                % change to repair/service upkeep costs (e.g. -5% for luxury, +8% for budget)
+              </span>
+            </div>
+
+            <div className="form-row">
+              <label>Coach Notes</label>
+              <textarea
+                value={designForm.notes}
+                onChange={(e) => setDesignForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Description of coachwork, saloon styling, panelling..."
+                rows={2}
+                style={{ width: 340 }}
+              />
+            </div>
+
+            <div className="form-row" style={{ alignItems: 'flex-start' }}>
+              <label>Design Image</label>
+              <div style={{ flex: 1, maxWidth: 360 }}>
+                <BrandPicPicker
+                  value={designForm.image}
+                  onChange={(img) => setDesignForm((f) => ({ ...f, image: img }))}
+                  onError={(err) => g.toast(err, 'bad')}
+                />
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
     </>

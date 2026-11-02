@@ -5,7 +5,7 @@ import {
 import { useGame } from '../../store/gameStore'
 import { routeName, canonicalRouteId, ROUTES } from '../../engine/data/routes'
 import { BAL } from '../../engine/data/balance'
-import { routeStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForBus } from '../../engine/sim/finance'
+import { routeStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '../../engine/sim/finance'
 import { getSeasonalStatsForPeriod } from '../../engine/sim/festival'
 import { toRupees } from '../../engine/core/money'
 import type { RouteLayoutStats, RouteStats, BusGroup } from '../../engine/types'
@@ -321,9 +321,7 @@ export function AnalyticsPage() {
       if (fromDay !== null && (tr.day <= fromDay || tr.day > s.day)) continue
       if (fromDay === null && tr.day < tripKeepFrom) continue
       const canonRid = canonicalRouteId(tr.routeId)
-      const brandKey = tr.busId
-        ? brandKeyForBus(s, tr.busId, tr.day)
-        : (s.schedules[tr.scheduleId]?.groupId ?? UNASSIGNED_BRAND_KEY)
+      const brandKey = brandKeyForService(s, { busId: tr.busId, tripId: tr.id, scheduleId: tr.scheduleId }, tr.day)
       // Skip if history already credited this day for this brand (avoid double-count).
       const dayRow = s.routeHistory?.[tr.routeId]?.find((d) => d.day === tr.day)
         ?? s.routeHistory?.[canonRid]?.find((d) => d.day === tr.day)
@@ -346,7 +344,7 @@ export function AnalyticsPage() {
         const dayRow = s.routeHistory?.[t.routeId]?.find((d) => d.day === t.day)
           ?? s.routeHistory?.[canonicalRouteId(t.routeId)]?.find((d) => d.day === t.day)
         if (dayRow?.byBrand && Object.keys(dayRow.byBrand).length > 0) continue
-        const brandKey = brandKeyForBus(s, t.busId, t.day)
+        const brandKey = brandKeyForService(s, { busId: t.busId, tripId: t.tripId }, t.day)
         addBrand(canonicalRouteId(t.routeId), brandKey, { cost: t.amount })
       }
     }
@@ -369,37 +367,38 @@ export function AnalyticsPage() {
   const displayedRouteRows = useMemo(() => {
     if (!routeBrandFilterKey) return sortedRouteRows
     const rows: RouteRow[] = []
-    // Brand filter must iterate brand-period routes, not corridor rows for the
-    // period — a brand may have history on a corridor even when that brand's
-    // share is the only slice we want.
-    const seen = new Set<string>()
-    const consider = (rid: string) => {
-      const canon = canonicalRouteId(rid)
-      if (seen.has(canon)) return
-      const brands = routeBrandStats[canon] ?? routeBrandStats[rid] ?? []
+    // Only corridors this brand actually operates (has a schedule), not every
+    // corridor a brand coach once covered or visited.
+    const brandCorridors = [
+      ...new Set(
+        Object.values(s.schedules)
+          .filter((sch) =>
+            routeBrandFilterKey === UNASSIGNED_BRAND_KEY
+              ? !sch.groupId
+              : sch.groupId === routeBrandFilterKey,
+          )
+          .map((sch) => canonicalRouteId(sch.routeId)),
+      ),
+    ]
+    for (const canon of brandCorridors) {
+      const brands = routeBrandStats[canon] ?? []
       const b = brands.find((x) => x.id === routeBrandFilterKey)
-      if (!b) return
-      seen.add(canon)
-      const seatKm = Math.max(0, b.seatKm)
-      const paxKm = Math.max(0, b.paxKm)
-      const profit = b.profit
-      const occupancy = b.occupancy
-      const revPerSeatKm = seatKm > 0 ? b.revenue / seatKm : 0
-      const costPerSeatKm = seatKm > 0 ? b.cost / seatKm : 0
+      const seatKm = Math.max(0, b?.seatKm ?? 0)
+      const paxKm = Math.max(0, b?.paxKm ?? 0)
+      const revenue = b?.revenue ?? 0
+      const cost = b?.cost ?? 0
+      const trips = b?.trips ?? 0
+      const profit = revenue - cost
+      const occupancy = seatKm > 0 ? paxKm / seatKm : 0
+      const revPerSeatKm = seatKm > 0 ? revenue / seatKm : 0
+      const costPerSeatKm = seatKm > 0 ? cost / seatKm : 0
       const profitPerSeatKm = seatKm > 0 ? profit / seatKm : 0
-      const revPerPaxKm = paxKm > 0 ? b.revenue / paxKm : 0
+      const revPerPaxKm = paxKm > 0 ? revenue / paxKm : 0
       const breakeven = revPerPaxKm > 0 ? costPerSeatKm / revPerPaxKm : 0
       const base = sortedRouteRows.find((r) => canonicalRouteId(r.rid) === canon)
       rows.push({
-        rid: base?.rid ?? rid,
-        st: {
-          revenue: b.revenue,
-          cost: b.cost,
-          trips: b.trips,
-          paxKm,
-          seatKm,
-          byLayout: {},
-        },
+        rid: base?.rid ?? canon,
+        st: { revenue, cost, trips, paxKm, seatKm, byLayout: {} },
         occupancy,
         occ30: null,
         breakeven,
@@ -410,8 +409,6 @@ export function AnalyticsPage() {
         layouts: [],
       })
     }
-    for (const r of sortedRouteRows) consider(r.rid)
-    for (const rid of Object.keys(routeBrandStats)) consider(rid)
     rows.sort((a, b) => {
       const av = routeSortValue(a, routeSortKey)
       const bv = routeSortValue(b, routeSortKey)
@@ -423,7 +420,7 @@ export function AnalyticsPage() {
       return routeSortDesc ? -cmp : cmp
     })
     return rows
-  }, [sortedRouteRows, routeBrandStats, routeBrandFilterKey, routeSortKey, routeSortDesc])
+  }, [sortedRouteRows, routeBrandStats, routeBrandFilterKey, routeSortKey, routeSortDesc, s.schedules])
 
   const tableRouteTotals = useMemo(() => {
     let trips = 0

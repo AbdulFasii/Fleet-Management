@@ -164,10 +164,10 @@ function seedMarathonSides(
 }
 
 /**
- * Each coach, after drive + 8h cooldown, takes the next schedule clock from the
- * city it is in. Never waits for the rest of the fleet. Paired fills AB and BA
- * slots independently; unpaired fills the single clock from whichever end has
- * a ready coach.
+ * Each coach, after drive + tiered cooldown (3.9 / 5.9 / 7.9 / 9.9 / 11.9h by
+ * haul length; delay included), takes the next schedule clock from the city it
+ * is in. Never waits for the rest of the fleet. Paired fills AB and BA slots
+ * independently; unpaired fills the single clock from whichever end has a ready coach.
  */
 export function planMarathonLegs(
   sch: Schedule,
@@ -382,7 +382,7 @@ function planLegsForDay(
       const retMin = clockMinutes(ret)
       const overlapsSameDay = !(retMin + runMin <= outMin || retMin >= outMin + runMin)
       // Long-haul paired: readiness planner in generatePairedMarathonTrips fills
-      // each schedule clock with the coach that finished drive+8h cooldown first.
+      // each schedule clock with the coach that finished drive+cooldown first.
       if (usesMarathonReadiness(sch, route)) return []
 
       if (ret.dayOffset === 1 && overlapsSameDay) {

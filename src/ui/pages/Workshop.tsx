@@ -9,6 +9,7 @@ import {
   workshopJobSpeedup,
 } from '../../engine/data/balance'
 import { BUS_MODELS, modelTitleById } from '../../engine/data/busModels'
+import { coachTitle } from '../../engine/data/bodyBuilders'
 import { worstSubsystem } from '../../engine/sim/fleet'
 import {
   axleTyresDue,
@@ -1150,7 +1151,7 @@ export function WorkshopPage() {
                     return (
                       <tr key={b.id}>
                         <td><Link to={`/fleet/${b.id}`}><b>{b.reg}</b></Link></td>
-                        <td className="dim small">{modelTitleById(b.modelId)}</td>
+                        <td className="dim small">{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</td>
                         <td><b>{b.workshopJob}</b></td>
                         <td className="small">
                           <span className={condPct >= 75 ? 'good' : condPct >= 50 ? 'warn' : 'bad'}>

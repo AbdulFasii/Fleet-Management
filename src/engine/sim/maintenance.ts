@@ -19,6 +19,12 @@ import { worstSubsystem, busAgeYears, effectiveAgeYears } from './fleet'
 import { serviceCostMult } from './serviceCost'
 import { deskCapacity, deskCoverage } from './span'
 import { FITTING_CATALOG, busHasFitting, setBusFitting, fittingById } from '../data/amenitiesCatalog'
+import {
+  getDesign,
+  getBuilderForDesign,
+  modelSupportsBodyDesigns,
+  busMaintCostIndex,
+} from '../data/bodyBuilders'
 
 export type RetrofitFeature = string
 
@@ -323,7 +329,7 @@ export function quoteService(
 ): { cost: Money; days: number; tier: ServiceTierId; label: string; outside: boolean } {
   const model = BUS_MODELS[bus.modelId]
   const age = effectiveAgeYears(s, bus)
-  const rawBase = Math.round(BAL.serviceCostBase * model.maintCostIndex * serviceCostMult(age, bus.odometer, model.ac))
+  const rawBase = Math.round(BAL.serviceCostBase * busMaintCostIndex(s, bus) * serviceCostMult(age, bus.odometer, model.ac))
   const tierDef = BAL.serviceTiers[tier]
   const rawCost = Math.round(rawBase * tierDef.costMult)
   const isOutside = outside !== undefined ? outside : !inOwnWorkshop(s, bus)
@@ -480,7 +486,7 @@ export function quoteRepair(s: GameState, busId: ID, sub: SubsystemId): { cost: 
   const model = BUS_MODELS[bus.modelId]
   const age = effectiveAgeYears(s, bus)
   const mult = BAL.repairCostMult[sub]
-  const base = Math.round((gap / 10) * BAL.repairCostPer10Points * model.maintCostIndex * mult * serviceCostMult(age, bus.odometer, model.ac))
+  const base = Math.round((gap / 10) * BAL.repairCostPer10Points * busMaintCostIndex(s, bus) * mult * serviceCostMult(age, bus.odometer, model.ac))
   let cost = jobCost(s, base, bus)
   let days = jobDays(s, Math.max(1, Math.round(gap / 20) * BAL.repairDaysPer20Points), bus)
 
@@ -644,24 +650,42 @@ function upkeepPosition(maintCostIndex: number): number {
   return Math.max(0, Math.min(1, (maintCostIndex - 0.9) / 0.6))
 }
 
-export function quoteRebody(s: GameState, bus: Bus): { cost: Money; days: number } {
+export function quoteRebody(s: GameState, bus: Bus, bodyDesignId?: string): { cost: Money; days: number } {
   const model = BUS_MODELS[bus.modelId]
+  const design = modelSupportsBodyDesigns(model) ? getDesign(s, bodyDesignId ?? bus.bodyDesignId) : undefined
   const t = upkeepPosition(model?.maintCostIndex ?? 1)
   // Body building is specialist outside work — the own shop only shortens the job.
-  const cost = Math.round(BAL.refurb.rebodyCostMin + (BAL.refurb.rebodyCostMax - BAL.refurb.rebodyCostMin) * t)
-  return { cost, days: jobDays(s, BAL.refurb.rebodyDays, bus) }
+  const baseCost = Math.round(BAL.refurb.rebodyCostMin + (BAL.refurb.rebodyCostMax - BAL.refurb.rebodyCostMin) * t)
+  const cost = Math.max(0, baseCost + (design ? design.bodyPrice : 0))
+  const baseDays = jobDays(s, BAL.refurb.rebodyDays, bus)
+  const days = Math.max(1, baseDays + (design ? design.leadDaysAdd : 0))
+  return { cost, days }
 }
 
 /** New fibreglass body on the original chassis: body, AC and electrical back to 90, +5 years of life. */
-export function rebodyBus(s: GameState, busId: ID): string | null {
+export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string): string | null {
   const bus = s.buses[busId]
   if (!bus) return 'No such bus.'
   const blocker = rebodyBlocker(bus)
   if (blocker) return blocker
-  const q = quoteRebody(s, bus)
+  const model = BUS_MODELS[bus.modelId]
+  let design: ReturnType<typeof getDesign> = undefined
+  let builder: ReturnType<typeof getBuilderForDesign> = undefined
+  if (modelSupportsBodyDesigns(model)) {
+    const chosenId = bodyDesignId ?? bus.bodyDesignId
+    if (chosenId) {
+      design = getDesign(s, chosenId)
+      builder = getBuilderForDesign(s, chosenId)
+      if (!design || !builder || !builder.makers.includes(model.maker as any)) {
+        return 'Invalid body design for this chassis.'
+      }
+    }
+  }
+  const q = quoteRebody(s, bus, design?.id)
   if (!canAfford(s, q.cost)) return `Re-body costs ${fmtCompact(q.cost)}.`
 
-  spend(s, 'maintenance', q.cost, { busId, note: 're-body — new body, AC & electrical on existing chassis' })
+  const designNote = design ? ` (${design.name})` : ''
+  spend(s, 'maintenance', q.cost, { busId, note: `re-body${designNote} — new body, AC & electrical on existing chassis` })
   const restored = BAL.refurb.rebodyRestore
   // Never downgrade a coach that is already better than the new-body baseline.
   bus.condition.body = Math.max(bus.condition.body, restored)
@@ -669,14 +693,19 @@ export function rebodyBus(s: GameState, busId: ID): string | null {
   bus.condition.electrical = Math.max(bus.condition.electrical, restored)
   bus.refurbishedDay = s.day
   bus.lifeExtensionYears = (bus.lifeExtensionYears ?? 0) + BAL.refurb.rebodyLifeExtensionYears
+  if (design && builder) {
+    bus.bodyDesignId = design.id
+    bus.bodyBuilderId = builder.id
+    bus.bodyDesignName = design.name
+  }
   bus.status = 'workshop'
   bus.workshopUntilDay = s.day + q.days
-  bus.workshopJob = 're-body (new body, AC & electrical)'
+  bus.workshopJob = `re-body${designNote ? ` (${design?.name})` : ' (new body, AC & electrical)'}`
   tryCoverBus(s, busId)
   pushLog(
     s,
     'good',
-    `${bus.reg}: Re-bodied — new fibreglass body, AC and electricals reset to ${restored}. Useful life extended by ${BAL.refurb.rebodyLifeExtensionYears} years (${fmtCompact(q.cost)}, ${q.days}d).`,
+    `${bus.reg}: Re-bodied${designNote ? ` with ${design?.name}` : ''} — new fibreglass body, AC and electricals reset to ${restored}. Useful life extended by ${BAL.refurb.rebodyLifeExtensionYears} years (${fmtCompact(q.cost)}, ${q.days}d).`,
   )
   return null
 }

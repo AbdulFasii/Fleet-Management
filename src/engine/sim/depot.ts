@@ -52,12 +52,33 @@ export function outstationNightlyFee(cityId: string): number {
   return rs(Math.min(500, Math.max(200, 200 + Math.round(metro * 300))))
 }
 
+/** True while a multi-day haul has not yet reached its arrival calendar day. */
+export function isBusInTransit(s: GameState, bus: Bus): boolean {
+  return bus.inTransitUntilDay !== undefined && bus.inTransitUntilDay > s.day
+}
+
+/** Clear finished hauls and park coaches at their destination city. */
+export function settleBusArrivals(s: GameState): number {
+  let n = 0
+  for (const bus of Object.values(s.buses)) {
+    if (bus.inTransitUntilDay === undefined) continue
+    if (bus.inTransitUntilDay > s.day) continue
+    if (bus.inTransitToCityId) bus.parkedCityId = bus.inTransitToCityId
+    bus.inTransitUntilDay = undefined
+    bus.inTransitToCityId = undefined
+    bus.inTransitFromCityId = undefined
+    n++
+  }
+  return n
+}
+
 /** Buses that physically sit overnight in a city — the fleet a yard has to hold. */
 export function busesParkedInCity(s: GameState, cityId: string): Bus[] {
   const home = s.company.homeCityId
   return Object.values(s.buses).filter(
     (b) =>
       (b.status === 'active' || b.status === 'workshop' || b.status === 'grounded')
+      && !isBusInTransit(s, b)
       && (b.parkedCityId ?? home) === cityId,
   )
 }
@@ -68,6 +89,7 @@ export function parkedBusCounts(s: GameState): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const b of Object.values(s.buses)) {
     if (b.status === 'delivery') continue
+    if (isBusInTransit(s, b)) continue
     const city = b.parkedCityId ?? home
     counts[city] = (counts[city] ?? 0) + 1
   }
@@ -81,7 +103,9 @@ export function dailyDepotPass(s: GameState): void {
   const leasedCitySet = new Set((s.yards ?? []).map((y) => y.cityId))
 
   const activeBuses = Object.values(s.buses).filter(
-    (b) => b.status === 'active' || b.status === 'workshop' || b.status === 'grounded',
+    (b) =>
+      (b.status === 'active' || b.status === 'workshop' || b.status === 'grounded')
+      && !isBusInTransit(s, b),
   )
 
   let homeParkedCount = 0

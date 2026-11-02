@@ -12,7 +12,7 @@ import { festivalFleetPass, dailyCharterPass } from './sim/festival'
 import { generateTrips, bookingPass } from './sim/booking'
 import { dispatchPass } from './sim/dispatch'
 import { dailyCheckpostPass } from './sim/checkpost'
-import { dailyDepotPass } from './sim/depot'
+import { dailyDepotPass, settleBusArrivals } from './sim/depot'
 import { dailyMaintenancePass, monthlyFleetCosts } from './sim/maintenance'
 import { dailyClaimsPass } from './sim/insurance'
 import { dailyStaffPass, hrFatiguePass, opsAutoStaffPass, monthlyStaffPass, refreshHiringPool, cmvrResetPass } from './sim/staffing'
@@ -42,6 +42,7 @@ export function advanceDay(s: GameState): void {
   dailyCargoPass(s)
 
   // 2. arrivals & admin
+  settleBusArrivals(s)
   deliverOrdersPass(s)
   permitPass(s)
   if (s.day >= s.marketRefreshDay) refreshMarkets(s)

@@ -12,6 +12,24 @@ export type ID = string
  */
 export type DepreciationMethod = 'SLM' | 'WDV' | 'NONE'
 
+export interface BodyDesign {
+  id: string
+  name: string // e.g. "JCBL Classic Sleeper"
+  bodyPrice: Money // additive body package cost
+  leadDaysAdd: number
+  comfortDelta: number
+  maintDelta: number
+  image?: string // optional data-URL (as-uploaded, same as branding pic)
+  notes?: string
+}
+
+export interface BodyBuilder {
+  id: string
+  name: string
+  makers: ('Ashok Leyland' | 'BharatBenz')[]
+  designs: BodyDesign[] // aim 1–3; Settings can add more
+}
+
 /* ================================ Buses ================================ */
 
 export type BusClassId =
@@ -160,6 +178,12 @@ export interface Bus {
   aitpPaidUntilDay: number
   /** City where the bus is currently parked overnight */
   parkedCityId?: string
+  /** Multi-day haul: still on the road until this calendar day (exclusive of parking). */
+  inTransitUntilDay?: number
+  /** Destination city while `inTransitUntilDay` is set. */
+  inTransitToCityId?: string
+  /** Origin city of the open haul (for UI). */
+  inTransitFromCityId?: string
   status: 'active' | 'workshop' | 'delivery' | 'grounded'
   /** Used/lot buy: papers not transferred until this day. */
   transferReadyDay?: number
@@ -193,6 +217,12 @@ export interface Bus {
   seatRefurbDay?: number
   /** Cargo volume capacity in cubic metres (CBM) */
   cargoVolumeCbm?: number
+  /** Custom body builder ID (Ashok Leyland / BharatBenz). */
+  bodyBuilderId?: string
+  /** Custom body design ID. */
+  bodyDesignId?: string
+  /** Snapshot of body design name for display resilience. */
+  bodyDesignName?: string
 }
 
 export interface BusOrder {
@@ -206,6 +236,9 @@ export interface BusOrder {
   depreciationMethod?: DepreciationMethod
   depreciationRatePct?: number
   groupId?: ID
+  bodyBuilderId?: string
+  bodyDesignId?: string
+  bodyDesignName?: string
 }
 
 /* ============================ Used market etc =========================== */
@@ -224,6 +257,9 @@ export interface UsedListing {
   inspected: boolean
   sellerNote: string
   gpsDeviceFitted?: boolean
+  bodyBuilderId?: string
+  bodyDesignId?: string
+  bodyDesignName?: string
 }
 
 export interface LeaseOffer {
@@ -1341,6 +1377,8 @@ export interface BusGroup {
   name: string                 // "Maruti Travels"
   code: string                 // short uppercase code, unique, 2-5 chars
   color: string                // hex used for the badge
+  /** Optional branding photo (e.g. livery / bus shot) as a downscaled image data URL. */
+  brandingPic?: string
   foundedDay: number
   /** Retired brands stay for reporting and can be restored; only purged on request. */
   status: 'active' | 'retired'
@@ -1378,6 +1416,7 @@ export interface GameState {
 
   company: Company
   groups?: Record<ID, BusGroup>
+  bodyBuilders?: Record<string, BodyBuilder>
   workshop: WorkshopState
   config: PlayerConfig
   /** Overnight parking slots at the home depot. */
