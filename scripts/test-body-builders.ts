@@ -182,7 +182,25 @@ assert(scaniaSleep, 'metrolink_sleep exists in catalog')
 assert(scaniaSleep.sleeper, 'metrolink_sleep is sleeper')
 assert(scaniaSleep.seats === 36, 'metrolink_sleep has 36 seats')
 
-// 5. Cargo independent rolls
+// 5. Layout generation weightage (sleeper > hybrid > semi, no seater class in secondary)
+const layoutCounts = { sleeper: 0, hybrid: 0, semi: 0, seater: 0 }
+for (let dayOffset = 0; dayOffset < 150; dayOffset += 7) {
+  s.day = 500 + dayOffset
+  refreshMarkets(s)
+  for (const l of s.usedMarket) {
+    const m = BUS_MODELS[l.modelId]
+    if (m && !m.isCargoOnly) {
+      const k = m.layout.kind as keyof typeof layoutCounts
+      if (layoutCounts[k] !== undefined) layoutCounts[k]++
+    }
+  }
+}
+assert(layoutCounts.sleeper > layoutCounts.hybrid, `Sleeper should be > hybrid (${layoutCounts.sleeper} vs ${layoutCounts.hybrid})`)
+assert(layoutCounts.hybrid > layoutCounts.semi, `Hybrid should be > semi (${layoutCounts.hybrid} vs ${layoutCounts.semi})`)
+assert(layoutCounts.seater === 0, `No seaters should roll in secondary market (${layoutCounts.seater})`)
+console.log(`✓ Layout weight distribution (sleeper ${layoutCounts.sleeper} > hybrid ${layoutCounts.hybrid} > semi ${layoutCounts.semi}, seater ${layoutCounts.seater}) passed`)
+
+// 6. Cargo independent rolls
 s.company.dedicatedCargoSubsidiary = true
 refreshMarkets(s)
 const usedCargo = s.usedMarket.filter((l) => BUS_MODELS[l.modelId]?.cls === 'CARGO')

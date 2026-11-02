@@ -863,6 +863,15 @@ export const BAL = {
   attachOffersMin: 1,
   attachOffersMax: 5,
   marketRefreshDays: 7,
+  /**
+   * Layout generation share for secondary markets (used, dry lease, attach).
+   * Preference is sleeper -> hybrid -> semi (no straight seater class).
+   */
+  marketLayoutWeights: {
+    sleeper: 0.50,
+    hybrid: 0.30,
+    semi: 0.20,
+  },
   inspectionCost: rs(8_000),
   resaleHaircut: 0.82, // normal sale vs book value
   fireSaleHaircut: 0.68,

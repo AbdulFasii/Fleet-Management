@@ -281,21 +281,20 @@ function rPickMarket(rng: Rng, bag: BusModel[]): BusModel {
 function pickMarketModels(rng: Rng, pool: BusModel[], n: number): BusModel[] {
   if (pool.length === 0 || n <= 0) return []
   const byKind = {
-    seater: pool.filter((m) => m.layout.kind === 'seater'),
-    semi: pool.filter((m) => m.layout.kind === 'semi'),
     sleeper: pool.filter((m) => m.layout.kind === 'sleeper'),
     hybrid: pool.filter((m) => m.layout.kind === 'hybrid'),
+    semi: pool.filter((m) => m.layout.kind === 'semi'),
   }
+  const weights = BAL.marketLayoutWeights ?? { sleeper: 0.5, hybrid: 0.3, semi: 0.2 }
   const out: BusModel[] = []
   for (let i = 0; i < n; i++) {
     const roll = rng()
-    // Seat / semi / sleeper / hybrid mix; sleepers remain the core product
+    // Layout generation order: sleeper (~50%) -> hybrid (~30%) -> semi (~20%) (no seater class)
     let bag =
-      roll < 0.22 ? byKind.seater
-        : roll < 0.45 ? byKind.semi
-          : roll < 0.58 ? byKind.hybrid
-            : byKind.sleeper
-    if (bag.length === 0) bag = pool
+      roll < weights.sleeper ? byKind.sleeper
+        : roll < weights.sleeper + weights.hybrid ? byKind.hybrid
+          : byKind.semi
+    if (!bag || bag.length === 0) bag = pool
     out.push(rPickMarket(rng, bag))
   }
   return out
