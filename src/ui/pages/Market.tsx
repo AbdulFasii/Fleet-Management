@@ -25,6 +25,7 @@ import {
   modelSupportsBodyDesigns,
   composeLeadTime,
   coachTitle,
+  fleetModelLabel,
   bodyPackagePrice,
 } from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel } from '../bits'
@@ -374,25 +375,21 @@ export function MarketPage() {
             {s.usedMarket.map((l) => {
               const model = BUS_MODELS[l.modelId]
               if (!model || (!subsidiary && isCargoModel(model))) return null
-              const fair = usedPrice(l.modelId, l.ageYears)
-              const dThumb = l.bodyDesignId ? getDesign(s, l.bodyDesignId)?.image : undefined
+              const fair = usedPrice(l.modelId, l.ageYears, l.bodyDesignId, s)
+              const title = fleetModelLabel(model, {
+                bodyBuilderId: l.bodyBuilderId,
+                bodyDesignId: l.bodyDesignId,
+                bodyDesignName: l.bodyDesignName,
+                bodyBuilders: s.bodyBuilders,
+              })
               return (
                 <tr key={l.id}>
                   <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {dThumb && (
-                        <img
-                          src={dThumb}
-                          alt={l.bodyDesignName ?? ''}
-                          style={{ width: 44, height: 28, objectFit: 'cover', borderRadius: 3, border: '1px solid var(--border)', flexShrink: 0 }}
-                        />
-                      )}
-                      <div>
-                        <span className="accent">{coachTitle(model, l.bodyDesignName)}</span> <span className="dim">{l.reg}</span>
-                        <div className="small faint">
-                          {coachSpec(model)} · {model.electric ? 'electric' : `${model.mileage} km/l`} · {l.sellerNote}
-                          {l.gpsDeviceFitted ? <span className="good"> · GPS fitted</span> : <span className="dim"> · No GPS</span>}
-                        </div>
+                    <div>
+                      <span className="accent">{title}</span> <span className="dim">{l.reg}</span>
+                      <div className="small faint">
+                        {coachSpec(model)} · {model.electric ? 'electric' : `${model.mileage} km/l`} · {l.sellerNote}
+                        {l.gpsDeviceFitted ? <span className="good"> · GPS fitted</span> : <span className="dim"> · No GPS</span>}
                       </div>
                     </div>
                   </td>
@@ -414,7 +411,7 @@ export function MarketPage() {
                   <td>{l.inspected ? (l.accidentHistory ? <span className="bad">accident!</span> : <span className="good">clean</span>) : <span className="dim">?</span>}</td>
                   <td className="num nowrap">
                     {!l.inspected && <button className="small" onClick={() => g.inspectListing(l.id)}>inspect</button>}{' '}
-                    <button className="small" onClick={() => setBuying({ kind: 'used', id: l.id, price: l.askPrice, title: `Buy used ${modelTitle(model)} ${l.reg}` })}>buy</button>
+                    <button className="small" onClick={() => setBuying({ kind: 'used', id: l.id, price: l.askPrice, title: `Buy used ${title} ${l.reg}` })}>buy</button>
                   </td>
                 </tr>
               )
@@ -436,10 +433,16 @@ export function MarketPage() {
               {s.leaseOffers.map((o) => {
                 const m = BUS_MODELS[o.modelId]
                 if (!m || (!subsidiary && isCargoModel(m))) return null
+                const title = fleetModelLabel(m, {
+                  bodyBuilderId: o.bodyBuilderId,
+                  bodyDesignId: o.bodyDesignId,
+                  bodyDesignName: o.bodyDesignName,
+                  bodyBuilders: s.bodyBuilders,
+                })
                 return (
                   <tr key={o.id}>
                     <td>
-                      {modelTitle(m)} <span className="dim">({o.ageYears} yrs)</span>
+                      <span className="accent">{title}</span> <span className="dim">({o.ageYears} yrs)</span>
                       <div className="small faint">{m.electric ? 'electric' : `${m.mileage} km/l`} · {o.gpsDeviceFitted ? <span className="good">GPS fitted</span> : <span className="dim">No GPS</span>}</div>
                     </td>
                     <td><span className={coachKindClass(m)}>{coachKind(m)}</span> <span className="dim small">{m.ac ? 'AC' : 'Non-AC'}</span></td>
@@ -496,10 +499,16 @@ export function MarketPage() {
                   {s.attachOffers.map((o) => {
                     const m = BUS_MODELS[o.modelId]
                     if (!m || (!subsidiary && isCargoModel(m))) return null
+                    const title = fleetModelLabel(m, {
+                      bodyBuilderId: o.bodyBuilderId,
+                      bodyDesignId: o.bodyDesignId,
+                      bodyDesignName: o.bodyDesignName,
+                      bodyBuilders: s.bodyBuilders,
+                    })
                     return (
                       <tr key={o.id}>
                         <td>
-                          {modelTitle(m)} <span className="dim">{o.reg} · {o.ageYears} yrs</span>
+                          <span className="accent">{title}</span> <span className="dim">{o.reg} · {o.ageYears} yrs</span>
                           <div className="small faint">{m.electric ? 'electric' : `${m.mileage} km/l`} · {o.gpsDeviceFitted ? <span className="good">GPS fitted</span> : <span className="dim">No GPS</span>}</div>
                         </td>
                         <td><span className={coachKindClass(m)}>{coachKind(m)}</span> <span className="dim small">{m.ac ? 'AC' : 'Non-AC'}</span></td>

@@ -120,4 +120,77 @@ if (alOrBbListings.length > 0) {
   console.log(`✓ Used market rolls body designs on AL/BB listings (${alOrBbListings.length} found)`)
 }
 
+// ---- Secondary market tests ----
+console.log('Testing Secondary Markets (eligibility, body stamps, pricing, cargo)...')
+const { usedPrice, leaseMonthlyRent } = await import('../src/engine/sim/fleet')
+const { VOLVO_9600_IDS } = await import('../src/engine/data/busModels')
+
+// 1. Pricing with body package
+const basePrice = usedPrice('bb1824', 3)
+const customPrice = usedPrice('bb1824', 3, 'mg_luxe', s)
+assert(customPrice > basePrice, `Used price with premium MG Luxe body is higher (${customPrice} > ${basePrice})`)
+
+const baseRent = leaseMonthlyRent('bb1824', 3, 120_000)
+const customRent = leaseMonthlyRent('bb1824', 3, 120_000, 'mg_luxe', s)
+assert(customRent > baseRent, `Lease rent with premium body is higher (${customRent} > ${baseRent})`)
+console.log('✓ Body-aware used pricing and lease rent passed')
+
+// 2. Secondary market flag
+const bbModel = BUS_MODELS['bb1824']!
+const allDesigns = designsForModel(s, bbModel)
+assert(allDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe included by default')
+s.bodyBuilders.mg_group.designs.find((d) => d.id === 'mg_luxe')!.secondaryMarket = false
+const secondaryOnlyDesigns = designsForModel(s, bbModel, { secondaryOnly: true })
+assert(!secondaryOnlyDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe excluded from secondary when secondaryMarket=false')
+const newOnlyDesigns = designsForModel(s, bbModel)
+assert(newOnlyDesigns.some((d) => d.design.id === 'mg_luxe'), 'MG Luxe still available for new orders')
+s.bodyBuilders.mg_group.designs.find((d) => d.id === 'mg_luxe')!.secondaryMarket = true
+console.log('✓ secondaryMarket flag filtering passed')
+
+// 3. Multi-refresh eligibility check
+let foundVolvoInLeaseOrAttach = false
+for (let dayOffset = 0; dayOffset < 100; dayOffset += 7) {
+  s.day = 100 + dayOffset
+  refreshMarkets(s)
+
+  // Olectra must never appear on used, lease, or attach
+  assert(!s.usedMarket.some((l) => BUS_MODELS[l.modelId]?.maker === 'Olectra'), 'No Olectra in usedMarket')
+  assert(!s.leaseOffers.some((l) => BUS_MODELS[l.modelId]?.maker === 'Olectra'), 'No Olectra in leaseOffers')
+  assert(!s.attachOffers.some((l) => BUS_MODELS[l.modelId]?.maker === 'Olectra'), 'No Olectra in attachOffers')
+
+  // Volvo 9600 family must never appear on used
+  assert(!s.usedMarket.some((l) => VOLVO_9600_IDS.has(l.modelId)), 'No Volvo 9600 in usedMarket')
+
+  if (s.leaseOffers.some((l) => VOLVO_9600_IDS.has(l.modelId)) || s.attachOffers.some((l) => VOLVO_9600_IDS.has(l.modelId))) {
+    foundVolvoInLeaseOrAttach = true
+  }
+
+  // AL/BB in lease and attach should roll body designs
+  const bbLease = s.leaseOffers.filter((o) => BUS_MODELS[o.modelId]?.maker === 'BharatBenz')
+  for (const o of bbLease) {
+    if (o.bodyDesignId) {
+      assert(o.bodyBuilderId && o.bodyDesignName, 'Lease offer stamped with full body info')
+    }
+  }
+}
+assert(foundVolvoInLeaseOrAttach, 'Volvo 9600 rolled at least once in lease or attach offers')
+console.log('✓ Eligibility (Olectra excluded, Volvo 9600 in lease/attach but not used) passed')
+
+// 4. Scania Metrolink Sleeper
+const scaniaSleep = BUS_MODELS['metrolink_sleep']
+assert(scaniaSleep, 'metrolink_sleep exists in catalog')
+assert(scaniaSleep.sleeper, 'metrolink_sleep is sleeper')
+assert(scaniaSleep.seats === 36, 'metrolink_sleep has 36 seats')
+
+// 5. Cargo independent rolls
+s.company.dedicatedCargoSubsidiary = true
+refreshMarkets(s)
+const usedCargo = s.usedMarket.filter((l) => BUS_MODELS[l.modelId]?.cls === 'CARGO')
+const leaseCargo = s.leaseOffers.filter((l) => BUS_MODELS[l.modelId]?.cls === 'CARGO')
+const attachCargo = s.attachOffers.filter((l) => BUS_MODELS[l.modelId]?.cls === 'CARGO')
+assert(usedCargo.length === 1, 'Exactly 1 used cargo truck')
+assert(leaseCargo.length === 1, 'Exactly 1 lease cargo truck')
+assert(attachCargo.length === 1, 'Exactly 1 attach cargo truck')
+console.log('✓ Cargo independent board offers passed')
+
 console.log('ALL BODY BUILDERS & DESIGNS TESTS PASSED!')

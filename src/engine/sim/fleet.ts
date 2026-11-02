@@ -4,7 +4,7 @@
  * (third-party) buses on revenue share, resale.
  */
 import { BAL } from '../data/balance'
-import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, isCargoModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
+import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, VOLVO_9600_IDS, isCargoModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
 import { BUS_NICKNAMES } from '../data/names'
 import { nextId, makeRegistration } from '../core/ids'
 import { daysInMonth, fromCivil, toCivil } from '../core/calendar'
@@ -50,9 +50,38 @@ export function worstSubsystem(c: Condition): number {
   return Math.min(c.engine, c.gearbox, c.brakes, c.suspension, c.ac, c.body, c.electrical)
 }
 
-export function usedPrice(modelId: string, ageYears: number, rng?: Rng): Money {
+export function usedPrice(
+  modelId: string,
+  ageYears: number,
+  bodyDesignIdOrRng?: string | Rng,
+  maybeState?: GameState,
+  maybeRng?: Rng,
+): Money {
   const model = BUS_MODELS[modelId]
-  let v = model.priceNew * Math.pow(1 - BAL.usedDepreciationYr, ageYears)
+  if (!model) return 0
+
+  let bodyDesignId: string | undefined
+  let s: GameState | undefined
+  let rng: Rng | undefined
+
+  if (typeof bodyDesignIdOrRng === 'function') {
+    rng = bodyDesignIdOrRng
+  } else if (typeof bodyDesignIdOrRng === 'string') {
+    bodyDesignId = bodyDesignIdOrRng
+    s = maybeState
+    rng = maybeRng
+  }
+
+  let baseNew = model.priceNew
+  if (bodyDesignId && modelSupportsBodyDesigns(model)) {
+    const design = getDesign(s, bodyDesignId)
+    const builder = design ? getBuilderForDesign(s, design.id) : undefined
+    if (design) {
+      baseNew = composeNewPrice(model, design, builder?.id)
+    }
+  }
+
+  let v = baseNew * Math.pow(1 - BAL.usedDepreciationYr, ageYears)
   if (rng) v = rJitter(rng, v, 0.1)
   return Math.round(v)
 }
@@ -96,10 +125,16 @@ function ownerRoadTax(model: BusModel, ageYears: number): Money {
  * back over six years, not ten. High odometer and AC loadings also show up, so
  * a hammered example does not rent like a fresh one.
  */
-export function leaseMonthlyRent(modelId: string, ageYears: number, odoKm: number): Money {
+export function leaseMonthlyRent(
+  modelId: string,
+  ageYears: number,
+  odoKm: number,
+  bodyDesignId?: string,
+  s?: GameState,
+): Money {
   const model = BUS_MODELS[modelId]
   if (!model) return 0
-  const value = usedPrice(modelId, ageYears)
+  const value = usedPrice(modelId, ageYears, bodyDesignId, s)
 
   // ---- capital recovery
   const monthsLeft = Math.max(BAL.leaseMinTermMonths, Math.round((BAL.leaseRemainingLifeYears - ageYears) * 12))
@@ -140,10 +175,18 @@ export function leaseMonthlyRent(modelId: string, ageYears: number, odoKm: numbe
 }
 
 /** Rent as the owner would quote it — a little negotiation slack, still round figures. */
-function quotedRent(rng: Rng, modelId: string, ageYears: number, odoKm: number, jitter: number): Money {
-  const base = leaseMonthlyRent(modelId, ageYears, odoKm)
+function quotedRent(
+  rng: Rng,
+  modelId: string,
+  ageYears: number,
+  odoKm: number,
+  jitter: number,
+  bodyDesignId?: string,
+  s?: GameState,
+): Money {
+  const base = leaseMonthlyRent(modelId, ageYears, odoKm, bodyDesignId, s)
   if (base <= 0) return 0
-  const ceiling = usedPrice(modelId, ageYears) * BAL.leaseMaxPctOfValue
+  const ceiling = usedPrice(modelId, ageYears, bodyDesignId, s) * BAL.leaseMaxPctOfValue
   const quoted = Math.min(rJitter(rng, base, jitter), ceiling)
   return Math.round(quoted / BAL.leaseRentRounding) * BAL.leaseRentRounding
 }
@@ -211,6 +254,7 @@ export function marketWeight(m: BusModel): number {
       return 0.55  // Older 9400 semi-sleeper
 
     case 'metrolink':
+    case 'metrolink_sleep':
       return 0.65  // Scania: relatively scarce / legacy
 
 
@@ -262,7 +306,12 @@ function pickMarketModels(rng: Rng, pool: BusModel[], n: number): BusModel[] {
 export function refreshMarkets(s: GameState): void {
   const rng = rngFor(s.seed, 'market', s.day)
   const cargoOn = Boolean(s.company.dedicatedCargoSubsidiary)
-  const usedPool = MODEL_LIST.filter((m) => !m.electric && !isCargoModel(m))
+  const secondaryPoolBase = MODEL_LIST.filter(
+    (m) => !m.electric && !isCargoModel(m) && m.maker !== 'Olectra',
+  )
+  const usedPool = secondaryPoolBase.filter((m) => !VOLVO_9600_IDS.has(m.id))
+  const leasePool = secondaryPoolBase
+  const attachPool = secondaryPoolBase
   const year = toCivil(s.day).y
 
   const usedN = rInt(rng, BAL.usedMarketMin, BAL.usedMarketMax)
@@ -278,7 +327,19 @@ export function refreshMarkets(s: GameState): void {
     const careless = rChance(rng, 0.35)
     const cond = makeCondition(rng, age, odo, careless)
     const accident = rChance(rng, 0.18)
-    const fair = usedPrice(model.id, age)
+    let usedDesignId: string | undefined
+    let usedBuilderId: string | undefined
+    let usedDesignName: string | undefined
+    if (modelSupportsBodyDesigns(model)) {
+      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      if (designOpts.length > 0) {
+        const picked = rPick(rng, designOpts)
+        usedDesignId = picked.design.id
+        usedBuilderId = picked.builder.id
+        usedDesignName = picked.design.name
+      }
+    }
+    const fair = usedPrice(model.id, age, usedDesignId, s)
     // sellers of rough buses still ask near fair price - that's the trap
     const ask = Math.round(rJitter(rng, fair, 0.12) * (accident ? 0.93 : 1))
     const notes = [
@@ -288,18 +349,6 @@ export function refreshMarkets(s: GameState): void {
       'Recently repainted, fresh interior.',
       'Bank NOC ready, quick transfer.',
     ]
-    let usedDesignId: string | undefined
-    let usedBuilderId: string | undefined
-    let usedDesignName: string | undefined
-    if (modelSupportsBodyDesigns(model)) {
-      const designOpts = designsForModel(s, model)
-      if (designOpts.length > 0) {
-        const picked = rPick(rng, designOpts)
-        usedDesignId = picked.design.id
-        usedBuilderId = picked.builder.id
-        usedDesignName = picked.design.name
-      }
-    }
     s.usedMarket.push({
       id: nextId(s.ids, 'ul'),
       reg: makeRegistration(rng),
@@ -320,32 +369,59 @@ export function refreshMarkets(s: GameState): void {
   }
 
   s.leaseOffers = []
-  for (const model of pickMarketModels(rng, usedPool, leaseN)) {
+  for (const model of pickMarketModels(rng, leasePool, leaseN)) {
     const { min, max } = marketAgeRange(model, year, 'lease')
     const age = rInt(rng, min, max)
     const band = marketOdoBand(model, 'lease')
     const odo = marketOdometer(age, band.lo, band.hi, rng)
+    let leaseDesignId: string | undefined
+    let leaseBuilderId: string | undefined
+    let leaseDesignName: string | undefined
+    if (modelSupportsBodyDesigns(model)) {
+      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      if (designOpts.length > 0) {
+        const picked = rPick(rng, designOpts)
+        leaseDesignId = picked.design.id
+        leaseBuilderId = picked.builder.id
+        leaseDesignName = picked.design.name
+      }
+    }
     s.leaseOffers.push({
       id: nextId(s.ids, 'lo'),
       modelId: model.id,
-      monthlyRent: quotedRent(rng, model.id, age, odo, 0.05),
+      monthlyRent: quotedRent(rng, model.id, age, odo, 0.05, leaseDesignId, s),
       depositMonths: rInt(rng, 2, 3),
       minMonths: rInt(rng, 6, 12),
       ageYears: age,
       odometer: odo,
       expiresDay: s.day + BAL.marketRefreshDays,
       gpsDeviceFitted: rChance(rng, 0.70),
+      bodyBuilderId: leaseBuilderId,
+      bodyDesignId: leaseDesignId,
+      bodyDesignName: leaseDesignName,
     })
   }
 
   // Offers an owner brought to you directly outlive the weekly market churn.
   s.attachOffers = s.attachOffers.filter((o) => o.fromEvent && o.expiresDay >= s.day)
-  for (const model of pickMarketModels(rng, usedPool, attachN)) {
+  for (const model of pickMarketModels(rng, attachPool, attachN)) {
     const tier = rPick(rng, ['good', 'average', 'rough'] as const)
     const { min, max } = marketAgeRange(model, year, 'attach')
     const age = rInt(rng, min, max)
     const band = marketOdoBand(model, 'attach')
     const odo = marketOdometer(age, band.lo, band.hi, rng)
+    let attachDesignId: string | undefined
+    let attachBuilderId: string | undefined
+    let attachDesignName: string | undefined
+    if (modelSupportsBodyDesigns(model)) {
+      const designOpts = designsForModel(s, model, { secondaryOnly: true })
+      if (designOpts.length > 0) {
+        const picked = rPick(rng, designOpts)
+        attachDesignId = picked.design.id
+        attachBuilderId = picked.builder.id
+        attachDesignName = picked.design.name
+      }
+    }
     s.attachOffers.push({
       id: nextId(s.ids, 'ao'),
       reg: makeRegistration(rng),
@@ -356,6 +432,9 @@ export function refreshMarkets(s: GameState): void {
       qualityTier: tier,
       expiresDay: s.day + BAL.marketRefreshDays,
       gpsDeviceFitted: rChance(rng, 0.70),
+      bodyBuilderId: attachBuilderId,
+      bodyDesignId: attachDesignId,
+      bodyDesignName: attachDesignName,
     })
   }
   s.marketRefreshDay = s.day + BAL.marketRefreshDays
@@ -396,45 +475,58 @@ function keepFirstCargo<T extends { modelId: string }>(list: T[]): T[] {
 function appendCargoOffers(s: GameState, rng: Rng): void {
   const cargoModels = MODEL_LIST.filter((m) => isCargoModel(m))
   if (cargoModels.length === 0) return
-  // One truck per board: buy, lease or attach — never two of the same board.
-  const model = rPick(rng, cargoModels)
-  const age = rInt(rng, 1, 6)
-  const band = marketOdoBand(model, 'used')
-  const odo = marketOdometer(age, band.lo, band.hi, rng)
-  const cond = makeCondition(rng, age, odo, false)
-  const fair = usedPrice(model.id, age)
+
+  // Used cargo
+  const usedModel = rPick(rng, cargoModels)
+  const usedAge = rInt(rng, 1, 6)
+  const usedBand = marketOdoBand(usedModel, 'used')
+  const usedOdo = marketOdometer(usedAge, usedBand.lo, usedBand.hi, rng)
+  const usedCond = makeCondition(rng, usedAge, usedOdo, false)
+  const usedFair = usedPrice(usedModel.id, usedAge)
   s.usedMarket.push({
     id: nextId(s.ids, 'ul'),
     reg: makeRegistration(rng),
-    modelId: model.id,
-    ageYears: age,
-    odometer: odo,
-    askPrice: Math.round(rJitter(rng, fair, 0.08)),
+    modelId: usedModel.id,
+    ageYears: usedAge,
+    odometer: usedOdo,
+    askPrice: Math.round(rJitter(rng, usedFair, 0.08)),
     expiresDay: s.day + BAL.marketRefreshDays,
-    condition: cond,
+    condition: usedCond,
     accidentHistory: false,
     inspected: false,
     sellerNote: 'Fleet-operated cargo vehicle, service records available.',
     gpsDeviceFitted: rChance(rng, 0.7),
   })
+
+  // Lease cargo
+  const leaseModel = rPick(rng, cargoModels)
+  const leaseAge = rInt(rng, 1, 6)
+  const leaseBand = marketOdoBand(leaseModel, 'lease')
+  const leaseOdo = marketOdometer(leaseAge, leaseBand.lo, leaseBand.hi, rng)
   s.leaseOffers.push({
     id: nextId(s.ids, 'lo'),
-    modelId: model.id,
-    monthlyRent: quotedRent(rng, model.id, age, odo, 0.05),
+    modelId: leaseModel.id,
+    monthlyRent: quotedRent(rng, leaseModel.id, leaseAge, leaseOdo, 0.05),
     depositMonths: 2,
     minMonths: 6,
-    ageYears: age,
-    odometer: odo,
+    ageYears: leaseAge,
+    odometer: leaseOdo,
     expiresDay: s.day + BAL.marketRefreshDays,
     gpsDeviceFitted: true,
   })
+
+  // Attach cargo
+  const attachModel = rPick(rng, cargoModels)
+  const attachAge = rInt(rng, 1, 6)
+  const attachBand = marketOdoBand(attachModel, 'attach')
+  const attachOdo = marketOdometer(attachAge, attachBand.lo, attachBand.hi, rng)
   s.attachOffers.push({
     id: nextId(s.ids, 'ao'),
     reg: makeRegistration(rng),
-    modelId: model.id,
+    modelId: attachModel.id,
     ownerShare: 0.7,
-    ageYears: age,
-    odometer: odo,
+    ageYears: attachAge,
+    odometer: attachOdo,
     qualityTier: 'average',
     expiresDay: s.day + BAL.marketRefreshDays,
     gpsDeviceFitted: true,
@@ -790,9 +882,13 @@ export function startLease(s: GameState, offerId: ID, groupId?: ID): string | nu
     price: 0, leaseRent: o.monthlyRent, leaseDeposit: deposit, leaseEndDay: s.day + o.minMonths * 30,
     gpsDeviceFitted: o.gpsDeviceFitted,
     groupId,
+    bodyBuilderId: o.bodyBuilderId,
+    bodyDesignId: o.bodyDesignId,
+    bodyDesignName: o.bodyDesignName,
   })
   s.leaseOffers = s.leaseOffers.filter((x) => x.id !== offerId)
-  pushLog(s, 'good', `Dry lease signed: ${modelTitle(BUS_MODELS[o.modelId]!)} at ${fmtCompact(o.monthlyRent)}/month (min ${o.minMonths} months). You crew and fuel it; the owner keeps papers and pays service.`)
+  const coachDisplay = coachTitle(BUS_MODELS[o.modelId], o.bodyDesignName)
+  pushLog(s, 'good', `Dry lease signed: ${coachDisplay} at ${fmtCompact(o.monthlyRent)}/month (min ${o.minMonths} months). You crew and fuel it; the owner keeps papers and pays service.`)
   return null
 }
 
@@ -858,9 +954,13 @@ export function signAttach(s: GameState, offerId: ID, groupId?: ID): string | nu
     price: 0, reg: o.reg, attachShare: o.ownerShare, attachCare: care,
     gpsDeviceFitted: o.gpsDeviceFitted,
     groupId,
+    bodyBuilderId: o.bodyBuilderId,
+    bodyDesignId: o.bodyDesignId,
+    bodyDesignName: o.bodyDesignName,
   })
   s.attachOffers = s.attachOffers.filter((x) => x.id !== offerId)
-  pushLog(s, 'good', `Attached ${o.reg} under your brand. Owner keeps ${Math.round(o.ownerShare * 100)}% of tickets and runs the bus (fuel, crew, upkeep); you sell the seats and carry the brand risk.`)
+  const coachDisplay = coachTitle(BUS_MODELS[o.modelId], o.bodyDesignName)
+  pushLog(s, 'good', `Attached ${coachDisplay} ${o.reg} under your brand. Owner keeps ${Math.round(o.ownerShare * 100)}% of tickets and runs the bus (fuel, crew, upkeep); you sell the seats and carry the brand risk.`)
   return null
 }
 

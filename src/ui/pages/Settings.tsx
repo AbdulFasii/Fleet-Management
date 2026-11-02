@@ -16,6 +16,7 @@ import {
   BODY_QUALITY_TIERS,
   DEFAULT_BODY_BUILDERS,
   chassisNameOptions,
+  chassisPlatformLabel,
   matchBodyQualityTier,
   bodyPackageLakhs,
   bodyPackagePriceRange,
@@ -123,6 +124,7 @@ export function SettingsPage() {
     maintDeltaPct: number
     image?: string
     chassisNames: string[]
+    secondaryMarket: boolean
   }>({
     id: '',
     name: '',
@@ -131,6 +133,7 @@ export function SettingsPage() {
     maintDeltaPct: 0,
     image: undefined,
     chassisNames: [],
+    secondaryMarket: true,
   })
 
   const openEditDesign = (builderId: string, d: BodyDesign) => {
@@ -143,6 +146,7 @@ export function SettingsPage() {
       maintDeltaPct: Math.round(d.maintDelta * 100),
       image: d.image,
       chassisNames: d.chassisNames ? [...d.chassisNames] : [],
+      secondaryMarket: d.secondaryMarket !== false,
     })
   }
 
@@ -156,6 +160,7 @@ export function SettingsPage() {
       leadDaysAdd: standard.leadDaysAdd,
       comfortDelta: standard.comfortDelta,
       maintDelta: standard.maintDeltaPct / 100,
+      secondaryMarket: true,
     }
     setEditingDesign({ builderId, design: blank, isNew: true })
     setDesignForm({
@@ -166,6 +171,7 @@ export function SettingsPage() {
       maintDeltaPct: standard.maintDeltaPct,
       image: undefined,
       chassisNames: [],
+      secondaryMarket: true,
     })
   }
 
@@ -195,6 +201,7 @@ export function SettingsPage() {
       maintDelta: Math.round((Number(designForm.maintDeltaPct) / 100) * 1000) / 1000,
       image: designForm.image,
       chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
+      secondaryMarket: designForm.secondaryMarket,
     }
 
     if (editingDesign.isNew) {
@@ -1927,7 +1934,7 @@ export function SettingsPage() {
                                   Chassis:{' '}
                                   <b>
                                     {d.chassisNames && d.chassisNames.length > 0
-                                      ? d.chassisNames.join(', ')
+                                      ? d.chassisNames.map(chassisPlatformLabel).join(' ')
                                       : 'All lengths'}
                                   </b>
                                 </div>
@@ -1943,7 +1950,6 @@ export function SettingsPage() {
                                             ? `+${fmtCompact(range.min)}`
                                             : `+${fmtCompact(range.min)}–${fmtCompact(range.max)}`}
                                         </b>
-                                        <span className="faint"> · auto by length & grade</span>
                                       </span>
                                     )
                                   })()}
@@ -2217,7 +2223,7 @@ export function SettingsPage() {
                             }))
                           }}
                         />
-                        <span>{name}</span>
+                        <span>{chassisPlatformLabel(name)}</span>
                       </label>
                     )
                   })}
@@ -2321,7 +2327,7 @@ export function SettingsPage() {
                             className="pill small"
                             style={{ background: 'var(--bg3)', border: '1px solid var(--border)' }}
                           >
-                            {name}: <b>+{fmtCompact(L(lakhs))}</b>
+                            {chassisPlatformLabel(name)}: <b>+{fmtCompact(L(lakhs))}</b>
                           </span>
                         )
                       })}
@@ -2340,6 +2346,18 @@ export function SettingsPage() {
                   onError={(err) => g.toast(err, 'bad')}
                 />
               </div>
+            </div>
+
+            <div className="form-row">
+              <label>Secondary market</label>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={designForm.secondaryMarket}
+                  onChange={(e) => setDesignForm((f) => ({ ...f, secondaryMarket: e.target.checked }))}
+                />
+                <span>Available on used, dry lease & attach</span>
+              </label>
             </div>
           </div>
         </Modal>

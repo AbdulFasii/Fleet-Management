@@ -152,6 +152,14 @@ export const BUS_MODELS: Record<string, BusModel> = {
     comfort: 9, leadTimeDays: 40, fareIndex: 1.06, maintCostIndex: 1.25,
     launchedYear: 2009, cargoCapKg: 400, cargoVolumeCbm: 3.6,
   },
+  metrolink_sleep: {
+    id: 'metrolink_sleep', name: 'Metrolink Sleeper', maker: 'Scania',
+    cls: 'AC_SLEEPER', priceNew: Cr(1.50), seats: 36,
+    layout: { kind: 'sleeper', cols: '2+1', rows: 6 },
+    mileage: 3.3, electric: false, ac: true, sleeper: true,
+    comfort: 9, leadTimeDays: 60, fareIndex: 1.05, maintCostIndex: 1.30,
+    launchedYear: 2015, cargoCapKg: 400, cargoVolumeCbm: 3.6,
+  },
 
   /* ---------- Premium AC sleeper ---------- */
   volvo9600: {
@@ -250,8 +258,12 @@ export const NO_NEW_ORDER_IDS = new Set([
   'volvo9400',
   'volvo9400semi',
   'metrolink',
+  'metrolink_sleep',
   'leysleep',
 ])
+
+/** Premium Volvo 9600 family: sold new or available for lease / attach, but not on ordinary used board. */
+export const VOLVO_9600_IDS = new Set(['volvo9600', 'volvo9600_Pro', 'volvo9600s'])
 
 export function isLegacyMarketModel(m: BusModel): boolean {
   return NO_NEW_ORDER_IDS.has(m.id)

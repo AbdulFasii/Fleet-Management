@@ -25,6 +25,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: 0.05,
         chassisNames: ['12M', '1017'],
         notes: 'Budget regional coach shell — sized for 12M / 1017 chassis.',
+        secondaryMarket: true,
       },
       {
         id: 'prakesh_deluxe',
@@ -35,6 +36,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: 0.02,
         chassisNames: ['12M', '13.5M', '1017', '1624'],
         notes: 'Reinforced panelling for mid-length intercity chassis.',
+        secondaryMarket: true,
       },
     ],
   },
@@ -51,6 +53,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.15,
         maintDelta: 0,
         notes: 'Reliable corridor coachwork with balanced weight and service access.',
+        secondaryMarket: true,
       },
       {
         id: 'rec_exec',
@@ -60,6 +63,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.4,
         maintDelta: -0.02,
         notes: 'Executive finish with quieter cabin and upgraded berth packs.',
+        secondaryMarket: true,
       },
     ],
   },
@@ -77,6 +81,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.03,
         chassisNames: ['1624', '1824hd'],
         notes: 'BharatBenz-exclusive MG coach body for 1624 / 1824hd.',
+        secondaryMarket: true,
       },
       {
         id: 'mg_luxe',
@@ -87,6 +92,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.05,
         chassisNames: ['1824hd'],
         notes: 'Exclusive BB luxury shell — 1824hd chassis only.',
+        secondaryMarket: true,
       },
     ],
   },
@@ -103,6 +109,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         comfortDelta: 0.25,
         maintDelta: -0.01,
         notes: 'Smooth-line touring body with good highway aero and tidy underbelly bays.',
+        secondaryMarket: true,
       },
       {
         id: 'arvex_elite',
@@ -113,6 +120,7 @@ export const DEFAULT_BODY_BUILDERS: Record<string, BodyBuilder> = {
         maintDelta: -0.04,
         chassisNames: ['13.5M', '15M', '1824hd'],
         notes: 'Elite long-haul package — long chassis only.',
+        secondaryMarket: true,
       },
     ],
   },
@@ -244,6 +252,16 @@ export function chassisNameOptions(makers: readonly string[]): string[] {
   return [...set].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 }
 
+/** Display code for a chassis platform name: 12M → AL12M, 1624 → BB1624. */
+export function chassisPlatformLabel(chassisName: string): string {
+  for (const m of NEW_MODEL_LIST) {
+    if (!modelSupportsBodyDesigns(m)) continue
+    if (m.name !== chassisName) continue
+    return shortChassisCode(m)
+  }
+  return chassisName
+}
+
 /** Find all body designs available for a specific chassis maker. */
 export function designsForMaker(
   s: GameState | undefined,
@@ -268,8 +286,13 @@ export function designsForMaker(
 export function designsForModel(
   s: GameState | undefined,
   model: BusModel,
+  opts?: { secondaryOnly?: boolean },
 ): { builder: BodyBuilder; design: BodyDesign }[] {
-  return designsForMaker(s, model.maker).filter(({ design }) => designFitsChassis(design, model.name))
+  return designsForMaker(s, model.maker).filter(({ design }) => {
+    if (!designFitsChassis(design, model.name)) return false
+    if (opts?.secondaryOnly && design.secondaryMarket === false) return false
+    return true
+  })
 }
 
 /** Look up a design by ID across all builders in current game state or defaults. */
@@ -386,6 +409,9 @@ export function fleetModelLabel(
   },
 ): string {
   if (!model) return '—'
+  if (isCargoModel(model)) {
+    return modelTitle(model)
+  }
   const maker = model.maker
   if (maker === 'Volvo' || maker === 'Olectra') {
     return modelTitle(model)

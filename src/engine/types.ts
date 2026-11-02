@@ -26,6 +26,8 @@ export interface BodyDesign {
    * Empty / omitted = fits every chassis length for the builder's makers.
    */
   chassisNames?: string[]
+  /** When false, design never rolls on used / dry-lease / attach. Default true. */
+  secondaryMarket?: boolean
 }
 
 export interface BodyBuilder {
@@ -283,6 +285,9 @@ export interface LeaseOffer {
   odometer: number
   expiresDay: number
   gpsDeviceFitted?: boolean
+  bodyBuilderId?: string
+  bodyDesignId?: string
+  bodyDesignName?: string
 }
 
 export interface AttachOffer {
@@ -297,6 +302,9 @@ export interface AttachOffer {
   gpsDeviceFitted?: boolean
   /** Raised by an event, not the weekly market — survives a refresh until it expires. */
   fromEvent?: boolean
+  bodyBuilderId?: string
+  bodyDesignId?: string
+  bodyDesignName?: string
 }
 
 /* ================================ Staff ================================ */
