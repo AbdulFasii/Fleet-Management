@@ -128,7 +128,6 @@ export function SettingsPage() {
     maintDeltaPct: number
     layoutKinds: CoachLayoutKind[]
     image?: string
-    chassisNames: string[]
     availableUsed: boolean
     availableLeaseAttach: boolean
   }>({
@@ -139,7 +138,6 @@ export function SettingsPage() {
     maintDeltaPct: 0,
     layoutKinds: ['sleeper'],
     image: undefined,
-    chassisNames: [],
     availableUsed: true,
     availableLeaseAttach: true,
   })
@@ -158,7 +156,6 @@ export function SettingsPage() {
       maintDeltaPct: Math.round(d.maintDelta * 100),
       layoutKinds: lKinds,
       image: d.image,
-      chassisNames: d.chassisNames ? [...d.chassisNames] : [],
       availableUsed: d.availableUsed !== undefined ? d.availableUsed : baseSecondary,
       availableLeaseAttach: d.availableLeaseAttach !== undefined ? d.availableLeaseAttach : baseSecondary,
     })
@@ -189,7 +186,6 @@ export function SettingsPage() {
       maintDeltaPct: standard.maintDeltaPct,
       layoutKinds: ['sleeper'],
       image: undefined,
-      chassisNames: [],
       availableUsed: true,
       availableLeaseAttach: true,
     })
@@ -207,9 +203,7 @@ export function SettingsPage() {
       designForm.maintDeltaPct,
       designForm.leadDaysAdd,
     )
-    const refChassis = designForm.chassisNames[0]
-      ?? chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland'])[0]
-      ?? '12M'
+    const refChassis = chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland'])[0] ?? '12M'
     // Stored for save compat; live order/rebody price uses builder × chassis × grade.
     const bodyPrice = L(bodyPackageLakhs(editingDesign.builderId, refChassis, gradeId))
     const chosenLayoutKinds = designForm.layoutKinds.length > 0 ? designForm.layoutKinds : (['sleeper'] as CoachLayoutKind[])
@@ -223,7 +217,7 @@ export function SettingsPage() {
       layoutKind: chosenLayoutKinds[0],
       layoutKinds: [...chosenLayoutKinds],
       image: designForm.image,
-      chassisNames: designForm.chassisNames.length > 0 ? [...designForm.chassisNames] : undefined,
+      chassisNames: undefined,
       availableUsed: designForm.availableUsed,
       availableLeaseAttach: designForm.availableLeaseAttach,
       secondaryMarket: designForm.availableUsed || designForm.availableLeaseAttach,
@@ -2333,34 +2327,6 @@ export function SettingsPage() {
             </div>
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
-              <label style={{ paddingTop: 4 }}>Chassis lengths</label>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']).map((name) => {
-                    const checked = designForm.chassisNames.includes(name)
-                    return (
-                      <label key={name} className="flex" style={{ alignItems: 'center', gap: 6, minWidth: 90 }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            setDesignForm((f) => ({
-                              ...f,
-                              chassisNames: e.target.checked
-                                ? [...f.chassisNames, name]
-                                : f.chassisNames.filter((n) => n !== name),
-                            }))
-                          }}
-                        />
-                        <span>{chassisPlatformLabel(name)}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 6 }}>Coach grade</label>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -2400,7 +2366,7 @@ export function SettingsPage() {
                   const builderId = editingDesign.builderId
                   const makers = bodyBuilders[builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']
                   const pool = chassisNameOptions(makers)
-                  const names = designForm.chassisNames.length > 0 ? designForm.chassisNames : pool
+                  const names = pool
                   const gradeId = matchBodyQualityTier(
                     designForm.comfortDelta,
                     designForm.maintDeltaPct,
