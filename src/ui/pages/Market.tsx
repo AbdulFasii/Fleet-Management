@@ -124,7 +124,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
     >
       {supportsCustomBody && (
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--panel-alt, #151a21)', borderRadius: 6, border: '1px solid var(--border)' }}>
-          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Chassis & Coach Body Configuration</div>
+          <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Coach Body Configuration</div>
           {designOptions.length > 0 && (
             <div className="form-row" style={{ marginBottom: 8 }}>
               <label style={{ minWidth: 100 }}>Body Design</label>
@@ -163,7 +163,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
           )}
           {model && seedModel && (
             <div className="dim small" style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: '6px 12px' }}>
-              <span>Chassis: <strong>{seedModel.maker} {seedModel.name}</strong> (base {fmtCompact(seedModel.priceNew)})</span>
+              <span>Model: <strong>{seedModel.maker} {seedModel.name}</strong> (base {fmtCompact(seedModel.priceNew)})</span>
               <span>Layout: <strong className={coachKindClass(model)}>{coachKind(model)}</strong> ({model.layout.cols} · {model.seats} {coachKind(model) === 'Sleeper' || coachKind(model) === 'Hybrid' ? 'berths' : 'seats'})</span>
               <span>Class: <strong>{CLASS_LABEL[model.cls]}</strong></span>
             </div>
@@ -322,7 +322,7 @@ export function MarketPage() {
               <th className="num">Mileage</th>
               <th className="num">Comfort</th>
               <th className="num">Delivery</th>
-              <th className="num">{chassisStyleCatalog ? 'Chassis' : 'Price'}</th>
+              <th className="num">Price</th>
               <th />
             </tr>
           </thead>
@@ -337,11 +337,9 @@ export function MarketPage() {
                 <tr key={chassisStyleCatalog && !isCargoModel(m) ? `${m.maker}::${m.name}` : m.id}>
                   <td>
                     <span className="accent">{modelTitle(m)}</span>
-                    <div className="small faint">
-                      {chassisStyleCatalog && !isCargoModel(m)
-                        ? 'Chassis · pick layout & body on order'
-                        : coachSpec(m)}
-                    </div>
+                    {!chassisStyleCatalog && (
+                      <div className="small faint">{coachSpec(m)}</div>
+                    )}
                   </td>
                   {!chassisStyleCatalog && (
                     <td>
@@ -357,7 +355,7 @@ export function MarketPage() {
                         : m.seats}
                   </td>
                   <td className="dim">
-                    {chassisStyleCatalog && !isCargoModel(m) ? 'Chassis + body' : CLASS_LABEL[m.cls]}
+                    {chassisStyleCatalog && !isCargoModel(m) ? 'Custom body' : CLASS_LABEL[m.cls]}
                   </td>
                   <td className="num" title={m.electric ? 'Electric, billed per km' : 'Loaded highway km/l with AC on, cautious driver. Aggressive driving is about 3.0 km/l where this reads 3.5.'}>{m.electric ? `${fmtCompact(BAL.electricCostPerKm)}/km` : `${m.mileage} km/l`}</td>
                   <td className="num">{m.isCargoOnly ? '—' : chassisStyleCatalog ? 'via body' : `${m.comfort}/10`}</td>
