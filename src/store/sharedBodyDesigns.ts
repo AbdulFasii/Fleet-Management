@@ -35,7 +35,11 @@ try {
         // Backfill any images
         for (const b of Object.values(memoryCacheDesigns)) {
           for (const d of b.designs) {
-            if (d.image) {
+            if (d.chassisNames && d.chassisNames.includes('1017')) {
+        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
+        sharedUpdated = true
+      }
+      if (d.image) {
               memoryCacheImages[d.id] = d.image
             } else if (memoryCacheImages[d.id]) {
               d.image = memoryCacheImages[d.id]
@@ -122,8 +126,15 @@ export function attachSharedImages(builders: Record<string, BodyBuilder>): Recor
           d.layoutKinds = defaultL ?? [d.name.toLowerCase().includes('semi') ? 'semi' : d.name.toLowerCase().includes('hybrid') ? 'hybrid' : 'sleeper']
         }
       }
+      if (d.chassisNames && d.chassisNames.includes('1017')) {
+        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
+      }
       if (!d.layoutKind) {
         d.layoutKind = d.layoutKinds[0]
+      }
+      if (d.chassisNames && d.chassisNames.includes('1017')) {
+        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
+        sharedUpdated = true
       }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
@@ -167,6 +178,10 @@ export function applySharedToState(
         sharedUpdated = true
       } else if (!d.layoutKind) {
         d.layoutKind = d.layoutKinds[0]
+        sharedUpdated = true
+      }
+      if (d.chassisNames && d.chassisNames.includes('1017')) {
+        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
         sharedUpdated = true
       }
       if (d.image) {
@@ -274,6 +289,10 @@ export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBui
   // Update images cache
   for (const b of Object.values(clone as Record<string, BodyBuilder>)) {
     for (const d of b.designs) {
+      if (d.chassisNames && d.chassisNames.includes('1017')) {
+        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
+        sharedUpdated = true
+      }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
       } else if (memoryCacheImages[d.id]) {

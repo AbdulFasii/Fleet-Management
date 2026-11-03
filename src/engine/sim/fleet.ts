@@ -4,7 +4,7 @@
  * (third-party) buses on revenue share, resale.
  */
 import { BAL } from '../data/balance'
-import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, VOLVO_9600_IDS, isCargoModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
+import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, VOLVO_9600_IDS, REMOVED_CHASSIS_MODEL_IDS, isCargoModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
 import { BUS_NICKNAMES } from '../data/names'
 import { nextId, makeRegistration } from '../core/ids'
 import { daysInMonth, fromCivil, toCivil } from '../core/calendar'
@@ -306,7 +306,7 @@ export function refreshMarkets(s: GameState): void {
   const rng = rngFor(s.seed, 'market', s.day)
   const cargoOn = Boolean(s.company.dedicatedCargoSubsidiary)
   const secondaryPoolBase = MODEL_LIST.filter(
-    (m) => !m.electric && !isCargoModel(m) && m.maker !== 'Olectra',
+    (m) => !m.electric && !isCargoModel(m) && m.maker !== 'Olectra' && !REMOVED_CHASSIS_MODEL_IDS.has(m.id),
   )
   const usedPool = secondaryPoolBase.filter((m) => !VOLVO_9600_IDS.has(m.id))
   const leasePool = secondaryPoolBase

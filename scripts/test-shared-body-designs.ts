@@ -15,8 +15,9 @@ import {
   DEFAULT_BODY_BUILDERS,
   cloneDefaultBodyBuilders,
   resolveModelForChassisAndDesign,
+  chassisNameOptions,
 } from '../src/engine/data/bodyBuilders'
-import { BUS_MODELS } from '../src/engine/data/busModels'
+import { BUS_MODELS, NEW_MODEL_LIST } from '../src/engine/data/busModels'
 import { rebodyBus } from '../src/engine/sim/maintenance'
 import { clearSaveStores } from '../src/store/saveCodec'
 
@@ -137,24 +138,28 @@ saveSharedBodyDesigns(resetDefaults)
 const afterReset = getSharedBodyBuildersSync()!
 assert.equal(afterReset.prakesh.designs[0].name, 'Prakesh Standard', 'Reset cleans name back to default')
 
-// 9. Test Seating Layout on Body Designs & Model Resolution
-const bbChassis = BUS_MODELS.bb917
-assert.ok(bbChassis, 'bb917 chassis exists')
+// 9. Verify BharatBenz 1017 is completely removed from new dealer catalog & vehicle list
+assert.ok(!NEW_MODEL_LIST.some((m) => m.id === 'bb917' || m.id === 'bb917sleep' || m.id === 'bb917hybrid'), 'BB 1017 removed from NEW_MODEL_LIST')
+assert.ok(!chassisNameOptions(['BharatBenz']).includes('1017'), '1017 removed from chassis options')
+
+// Test Seating Layout on Body Designs & Model Resolution using BB 1624
+const bbChassis = BUS_MODELS.bb1624
+assert.ok(bbChassis, 'bb1624 chassis exists')
 
 const sleeperDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'sleeper' as const, layoutKinds: ['sleeper' as const] }
 const semiDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'semi' as const, layoutKinds: ['semi' as const] }
 const hybridDesign = { ...afterReset.prakesh.designs[0], layoutKind: 'hybrid' as const, layoutKinds: ['hybrid' as const] }
 
 const resolvedSleep = resolveModelForChassisAndDesign(bbChassis, sleeperDesign)
-assert.equal(resolvedSleep.id, 'bb917sleep', 'BB 1017 + Sleeper design resolves to bb917sleep')
+assert.equal(resolvedSleep.id, 'bb1624', 'BB 1624 + Sleeper design resolves to bb1624')
 assert.equal(resolvedSleep.layout.kind, 'sleeper')
 
 const resolvedSemi = resolveModelForChassisAndDesign(bbChassis, semiDesign)
-assert.equal(resolvedSemi.id, 'bb917', 'BB 1017 + Semi design resolves to bb917')
+assert.equal(resolvedSemi.id, 'bb1624semi', 'BB 1624 + Semi design resolves to bb1624semi')
 assert.equal(resolvedSemi.layout.kind, 'semi')
 
 const resolvedHybrid = resolveModelForChassisAndDesign(bbChassis, hybridDesign)
-assert.equal(resolvedHybrid.id, 'bb917hybrid', 'BB 1017 + Hybrid design resolves to bb917hybrid')
+assert.equal(resolvedHybrid.id, 'bb1624hybrid', 'BB 1624 + Hybrid design resolves to bb1624hybrid')
 assert.equal(resolvedHybrid.layout.kind, 'hybrid')
 
 // AL 12M Chassis
@@ -166,7 +171,7 @@ assert.equal(resolveModelForChassisAndDesign(alChassis, hybridDesign).id, 'leyhy
 
 // 10. Test Multi-select Layouts on Body Design
 const multiDesign = { ...afterReset.prakesh.designs[0], layoutKinds: ['sleeper' as const, 'semi' as const] }
-assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'semi').id, 'bb917')
-assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'sleeper').id, 'bb917sleep')
+assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'semi').id, 'bb1624semi')
+assert.equal(resolveModelForChassisAndDesign(bbChassis, multiDesign, 'sleeper').id, 'bb1624')
 
 console.log('✓ All shared body design tests passed successfully!')

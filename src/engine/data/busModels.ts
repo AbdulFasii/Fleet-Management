@@ -301,6 +301,13 @@ export const MODEL_LIST = Object.values(BUS_MODELS)
   .filter((m) => !HIDDEN_MAKERS.has(m.maker))
   .sort((a, b) => (CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls]) || a.priceNew - b.priceNew)
 
+/** Chassis models permanently removed from all markets and vehicle lists per user request. */
+export const REMOVED_CHASSIS_MODEL_IDS = new Set([
+  'bb917',
+  'bb917sleep',
+  'bb917hybrid',
+])
+
 /** Discontinued / legacy — not sold new; still rare on used / lease / attach. */
 export const NO_NEW_ORDER_IDS = new Set([
   'volvo9400',
@@ -308,6 +315,7 @@ export const NO_NEW_ORDER_IDS = new Set([
   'metrolink',
   'metrolink_sleep',
   'leysleep',
+  ...REMOVED_CHASSIS_MODEL_IDS,
 ])
 
 /** Premium Volvo 9600 family: sold new or available for lease / attach, but not on ordinary used board. */
