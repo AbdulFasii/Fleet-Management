@@ -3,6 +3,7 @@ import { BAL } from '../data/balance'
 import { fmtCompact } from '../core/money'
 import { cityName } from '../data/cities'
 import { modelNeedsHp } from '../data/busModels'
+import { overAgeBuses } from './brandPolicy'
 import { ownerPaysService, serviceDueKm } from './maintenance'
 import { spanMeters, DESK_UNIT } from './span'
 import { DESK_LABEL, deskHead } from './staffing'
@@ -105,6 +106,16 @@ export function computeAdvisor(s: GameState): AdvisorTask[] {
   const leased = new Set((s.yards ?? []).map((y) => y.cityId))
   const away = new Set(buses.filter((b) => (b.status === 'active' || b.status === 'workshop' || b.status === 'grounded') && (b.parkedCityId ?? c.homeCityId) !== c.homeCityId && !leased.has(b.parkedCityId!)).map((b) => b.parkedCityId!))
   for (const city of away) add(`yard-${city}`, 'info', `Overnight fees at ${cityName(city)} — lease a yard to avoid them.`, '/workshop', 'Workshop')
+
+  // Brand standards and targets
+  for (const grp of Object.values(s.groups ?? {})) {
+    if (grp.status !== 'active') continue
+    const old = overAgeBuses(s, grp)
+    if (old.length) add(`brand-age-${grp.id}`, 'info', `${grp.name}: ${old.length} coach${old.length === 1 ? '' : 'es'} older than the ${grp.maxBusAgeYears}-year cap.`, '/fleet', 'Fleet')
+    if ((grp.targetMissMonths ?? 0) >= 2) {
+      add(`brand-target-${grp.id}`, 'warn', `${grp.name} has missed its profit target ${grp.targetMissMonths} months running.`, '/settings?tab=subsidiaries', 'Brand')
+    }
+  }
 
   // Customers and other businesses.
   const grievances = (c.grievances ?? []).filter((g) => g.status === 'open').length

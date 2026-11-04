@@ -20,6 +20,7 @@ import { driverOnDuty, pickSpareConductor, pickSpareDriver, hrOnDuty, opsOnDuty,
 import { recordScheduleOcc } from './schedules'
 import { loungeServiceBonus } from './lounge'
 import { healthBreakdownMult, welfareDelayMult, welfarePssPenalty } from './health'
+import { crewStandardPenalty } from './brandPolicy'
 import { recordTripGrievanceOrCompliment } from './crm'
 import { allocateCargoForTrip, cargoLaneKey, makeCorridorCargoPool, recordCargoLane, type CargoDepartureRef, type CorridorCargoPool } from './cargo'
 import { ownerPaysService, conductorCleanlinessTarget } from './maintenance'
@@ -946,6 +947,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       // 10. Lounge at the boarding city: a comfortable wait lifts the whole journey's score
       amenitiesBonus += loungeServiceBonus(s, trip.direction === 'BA' ? route.to : route.from)
       amenitiesBonus -= welfarePssPenalty(s)
+      amenitiesBonus -= crewStandardPenalty(s, bus.groupId, avgDriverSkill)
       if (amenitiesBonus !== 0) tripPss = Math.max(1, Math.min(10, tripPss + amenitiesBonus))
 
       if (breakdown) tripPss = reliefDispatched ? Math.max(1, tripPss - 1.2) : Math.max(1, tripPss - 3.5)

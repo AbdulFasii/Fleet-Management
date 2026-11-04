@@ -1631,6 +1631,21 @@ export interface BusGroup {
   defaultServiceTier?: ServiceTier
   /** Refund policy for new schedules under this brand (falls back to company schedule defaults). */
   defaultCancellation?: CancellationPolicy
+  /** Fares for this brand stay between these shares of the normal market fare. */
+  farePolicy?: { floorPct?: number; ceilingPct?: number }
+  /** The brand's promise on driver quality: trips with a weaker crew lose passenger satisfaction. */
+  minDriverSkill?: number
+  /** Coaches older than this are flagged for replacement. */
+  maxBusAgeYears?: number
+  /** Weekly: the usual cleaning. Every trip: clean after each trip for a daily cost per coach. */
+  cleaningStandard?: 'weekly' | 'every_trip'
+  /** Spent every month; lifts brand awareness. */
+  marketingBudgetMonthly?: Money
+  /** Monthly route profit the brand should earn. A miss raises an alert. */
+  profitTargetMonthly?: Money
+  /** Filled at month end when a target is set. */
+  lastMonthProfit?: Money
+  targetMissMonths?: number
   /** Own marketplace standing. ratingCount 0 means "inherit the company's". */
   rating: number
   ratingCount: number

@@ -8,6 +8,7 @@
  *
  * 300% is reserved for one case only: Diwali on a Saturday or Sunday, on the surging direction.
  */
+import { clampBrandFare } from './brandPolicy'
 import { BAL, getDirectionalOccupancyRange, elapsedBookingFrac } from '../data/balance'
 import { BUS_MODELS } from '../data/busModels'
 import { ROUTES } from '../data/routes'
@@ -360,7 +361,7 @@ export function resolveTripFare(
     fare = roundFare(fare * BAL.yieldDeals.surgePriceMultiplier)
   }
 
-  return fare
+  return clampBrandFare(s, sch.groupId, fare, normal)
 }
 
 /** Auto-pricing: calendar market fare ± occupancy yield. */

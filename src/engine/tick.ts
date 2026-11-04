@@ -32,6 +32,7 @@ import { fmtCompact } from './core/money'
 import { retainDay } from './sim/retain'
 import { dailyCrmPass } from './sim/crm'
 import { dailyHealthPass } from './sim/health'
+import { dailyBrandPass, monthlyBrandPass } from './sim/brandPolicy'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
 
@@ -73,6 +74,7 @@ export function advanceDay(s: GameState): void {
 
   // 6. fleet & people upkeep
   dailyMaintenancePass(s)
+  dailyBrandPass(s)
   dailyClaimsPass(s)
   dailyStaffPass(s)
   dailyCrmPass(s)
@@ -108,6 +110,7 @@ export function advanceDay(s: GameState): void {
     }
     monthlyTaxPass(s)
     monthlyBankingPass(s)
+    monthlyBrandPass(s)
     const m = closeMonth(s)
     pushLog(
       s,

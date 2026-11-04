@@ -29,7 +29,7 @@ import {
   type CoachLayoutKind,
 } from '../../engine/data/bodyBuilders'
 import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
-import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
+import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader, Fold } from '../bits'
 import { BrandHierarchyTree } from '../BrandHierarchyTree'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
 import { BrandGalleryModal } from '../BrandGalleryModal'
@@ -104,6 +104,25 @@ function BadgeColorPellets({
         )
       })}
     </div>
+  )
+}
+
+/** One labelled drop-down for a brand standard. `none` clears the setting. */
+function StandardRow({ label, tip, value, options, onChange }: {
+  label: string
+  tip: string
+  value: number | undefined
+  options: readonly (readonly [number, string])[]
+  onChange: (v: number | undefined) => void
+}) {
+  return (
+    <label className="form-row" title={tip}>
+      <span className="muted" style={{ minWidth: 150 }}>{label}</span>
+      <select value={value ?? 0} onChange={(e) => onChange(Number(e.target.value) || undefined)}>
+        <option value={0}>none</option>
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
   )
 }
 
@@ -1323,6 +1342,70 @@ export function SettingsPage() {
                             />
                           </div>
                         </div>
+
+                        <Fold title="Standards and targets" persistKey={`brand-std-${group.id}`}>
+                          {!isCargoBrand && (
+                            <>
+                              <StandardRow
+                                label="Fare floor"
+                                tip="Fares on this brand's services never go below this share of the normal market fare."
+                                value={group.farePolicy?.floorPct}
+                                options={[[80, '80%'], [90, '90%'], [100, '100%']]}
+                                onChange={(v) => g.updateGroup(group.id, { farePolicy: { ...group.farePolicy, floorPct: v } })}
+                              />
+                              <StandardRow
+                                label="Fare ceiling"
+                                tip="Fares never go above this share of the normal market fare, even on surge days."
+                                value={group.farePolicy?.ceilingPct}
+                                options={[[110, '110%'], [125, '125%'], [150, '150%'], [200, '200%']]}
+                                onChange={(v) => g.updateGroup(group.id, { farePolicy: { ...group.farePolicy, ceilingPct: v } })}
+                              />
+                              <StandardRow
+                                label="Driver skill promise"
+                                tip="Trips with a crew below this skill lose passenger satisfaction: 0.15 per point short, up to 1."
+                                value={group.minDriverSkill}
+                                options={[[4, '4+'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9+']]}
+                                onChange={(v) => g.updateGroup(group.id, { minDriverSkill: v })}
+                              />
+                              <label className="form-row" title="Every trip: coaches are cleaned after each trip (+10 cleanliness a day) for ₹120 per active coach a day.">
+                                <span className="muted" style={{ minWidth: 150 }}>Cleaning</span>
+                                <Tabs
+                                  inline
+                                  tabs={[['weekly', 'Usual'], ['every_trip', 'After every trip']] as const}
+                                  value={group.cleaningStandard ?? 'weekly'}
+                                  onChange={(v) => g.updateGroup(group.id, { cleaningStandard: v })}
+                                />
+                              </label>
+                              <StandardRow
+                                label="Coach age limit"
+                                tip="Coaches older than this show up as a task on the Dashboard."
+                                value={group.maxBusAgeYears}
+                                options={[[5, '5 years'], [8, '8 years'], [10, '10 years'], [12, '12 years'], [15, '15 years']]}
+                                onChange={(v) => g.updateGroup(group.id, { maxBusAgeYears: v })}
+                              />
+                            </>
+                          )}
+                          <StandardRow
+                            label="Marketing budget"
+                            tip="Spent every month. About +0.4 points of brand awareness per ₹1 lakh, up to +2 a month."
+                            value={group.marketingBudgetMonthly ? Math.round(group.marketingBudgetMonthly / 100) : undefined}
+                            options={[[25000, '₹25k'], [50000, '₹50k'], [100000, '₹1L'], [200000, '₹2L'], [500000, '₹5L']]}
+                            onChange={(v) => g.updateGroup(group.id, { marketingBudgetMonthly: v ? rs(v) : undefined })}
+                          />
+                          <StandardRow
+                            label="Monthly profit target"
+                            tip="Route profit over the last 30 days is checked each month end. Two misses in a row raise a task."
+                            value={group.profitTargetMonthly ? Math.round(group.profitTargetMonthly / 100) : undefined}
+                            options={[[100000, '₹1L'], [500000, '₹5L'], [1000000, '₹10L'], [2500000, '₹25L'], [5000000, '₹50L']]}
+                            onChange={(v) => g.updateGroup(group.id, { profitTargetMonthly: v ? rs(v) : undefined })}
+                          />
+                          {group.profitTargetMonthly ? (
+                            <div className="muted">
+                              Last month {group.lastMonthProfit !== undefined ? fmtCompact(group.lastMonthProfit) : '—'} against {fmtCompact(group.profitTargetMonthly)}
+                              {(group.targetMissMonths ?? 0) > 0 ? ` · missed ${group.targetMissMonths} in a row` : ''}
+                            </div>
+                          ) : null}
+                        </Fold>
 
                         {/* Amenities & fittings — passenger brands only */}
                         {!isCargoBrand && (
