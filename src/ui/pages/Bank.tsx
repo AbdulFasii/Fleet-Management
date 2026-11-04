@@ -20,7 +20,7 @@ import { netWorth } from '../../engine/sim/finance'
 import { DIFFICULTIES, BAL } from '../../engine/data/balance'
 import { fmtDate } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
-import { Bar, KV, M, Panel } from '../bits'
+import { Bar, KV, M, Panel, PageHeader } from '../bits'
 
 function getRelTier(score: number): { title: string; color: string } {
   if (score >= 75) return { title: 'Platinum (-1.5%)', color: 'var(--accent)' }
@@ -102,9 +102,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
   return (
     <>
       {!embedded && (
-        <div className="page-title">
-          Bank & credit <span className="sub">monthly EMI burden <M v={totalEmi} /></span>
-        </div>
+        <PageHeader title="Loans" facts={<>monthly EMI <M v={totalEmi} /></>} />
       )}
       {embedded && (
         <p className="dim small" style={{ margin: '0 0 8px' }}>
@@ -164,7 +162,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
             <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div>
                 <b className="accent" style={{ fontSize: '1.05rem' }}>{selectedHpProduct.lender} — Vehicle HP Refinance</b>
-                <span className="dim small" style={{ marginLeft: 8 }}>· Hypothecate an unencumbered owned coach</span>
+                <span className="dim small ml8">· Hypothecate an unencumbered owned coach</span>
               </div>
               <button className="small" onClick={() => setHpLenderId(null)}>✕ Close</button>
             </div>
@@ -238,14 +236,14 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
             <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <div>
                 <b className="accent" style={{ fontSize: '1.05rem' }}>{selectedLender.name}</b>
-                <span className="dim small" style={{ marginLeft: 8 }}>· {selectedLender.schemeName}</span>
+                <span className="dim small ml8">· {selectedLender.schemeName}</span>
               </div>
               <button className="small" onClick={() => setApplyingLenderId(null)}>✕ Close</button>
             </div>
 
             {selectedLender.reputationPenalty && (
               <div className="callout warn mb12" style={{ padding: 8, fontSize: '0.85rem' }}>
-                ⚠️ <b>Reputation Risk:</b> Informal moneylenders charge high interest (24% p.a.) and carry stigma. Company reputation drops by -{selectedLender.reputationPenalty}!
+                <b>Reputation Risk:</b> Informal moneylenders charge high interest (24% p.a.) and carry stigma. Company reputation drops by -{selectedLender.reputationPenalty}!
               </div>
             )}
 
@@ -306,7 +304,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
                 <span>
                   {getLenderRelationshipScore(s, selectedLender.id)}/100
                   {msmeQuote.discountBps > 0 && (
-                    <span className="good" style={{ marginLeft: 6 }}>
+                    <span className="good ml6">
                       (-{(msmeQuote.discountBps / 100).toFixed(2)}% discount applied)
                     </span>
                   )}
@@ -315,7 +313,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
               ['Effective Interest Rate', <b>{(msmeQuote.rateBps / 100).toFixed(2)}% p.a.</b>],
               ['Contractual EMI (every 30d)', <b className="accent"><M v={msmeQuote.emi} /></b>],
               ['Processing Fee', <M v={msmeQuote.processingFee} />],
-              ['Net Disbursal to Treasury', <span className="good" style={{ fontWeight: 600 }}><M v={msmeQuote.netInflow} colored /></span>],
+              ['Net Disbursal to Treasury', <span className="good bold"><M v={msmeQuote.netInflow} colored /></span>],
             ]} />
 
             <div className="flex" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
@@ -375,7 +373,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
                     <td>{p.minMonths}–{p.maxMonths}m</td>
                     <td>
                       {eligible ? (
-                        <span className="good small">✓ {unencumberedBuses.length} unencumbered coach(es) available</span>
+                        <span className="good small">{unencumberedBuses.length} unencumbered coach(es) available</span>
                       ) : (
                         <span className="warn small">✗ {reason}</span>
                       )}
@@ -442,7 +440,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
                     <td>{slab.months}m</td>
                     <td>
                       {eligible ? (
-                        <span className="good small">✓ Clean WC facility limit</span>
+                        <span className="good small">Clean WC facility limit</span>
                       ) : (
                         <span className="warn small">✗ {reason}</span>
                       )}
@@ -515,7 +513,7 @@ export function BankPage({ embedded }: { embedded?: boolean } = {}) {
                       {hasActive ? (
                         <span className="info small">Active facility running</span>
                       ) : check.eligible ? (
-                        <span className="good small">✓ Eligible to draw</span>
+                        <span className="good small">Eligible to draw</span>
                       ) : (
                         <span className="warn small">✗ {check.reason}</span>
                       )}

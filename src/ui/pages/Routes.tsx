@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import {
   ROUTE_LIST,
@@ -17,13 +18,16 @@ import {
 } from '../../engine/data/routes'
 import { RIVALS_DATA, seedRouteShare } from '../../engine/data/rivals'
 import { calculateRoutePlayerShare } from '../../engine/sim/rivals'
+import { getCorridorStance, isTripFrontRun } from '../../engine/sim/rivalIntelligence'
 import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
 import { fmtDateShort } from '../../engine/core/calendar'
 import { statesOnRoute } from '../../engine/sim/schedules'
 import { cargoContractsOnCorridor, cargoLicence, cargoPermitActive, cargoPermitFee } from '../../engine/sim/cargo'
-import type { GameState, Permit } from '../../engine/types'
-import { M, Panel } from '../bits'
+import { getLoungeDemandBoost } from '../../engine/sim/lounge'
+import { cityName } from '../../engine/data/cities'
+import type { GameState, Permit, CorridorStance, RouteDef } from '../../engine/types'
+import { Empty, M, Modal, Panel, PageHeader } from '../bits'
 
 function getPermitForRoute(s: GameState, routeId: string): Permit | undefined {
   return (
@@ -45,8 +49,9 @@ export function RoutesPage() {
   const [categoryFilter, setCategoryFilter] = useState<RouteCategory>('all')
   const [hoursFilter, setHoursFilter] = useState<string>('all')
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
-  const [permitFilter, setPermitFilter] = useState<'all' | 'active_applied' | 'active' | 'applied' | 'available' | 'cargo'>('all')
+  const [permitFilter, setPermitFilter] = useState<'all' | 'active_applied' | 'active' | 'applied' | 'available' | 'cargo' | 'threats'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  const [selectedIntelRoute, setSelectedIntelRoute] = useState<RouteDef | null>(null)
 
   // Sorting: defaults to alphabetical (A-Z) by corridor name
   const [sortCol, setSortCol] = useState<SortCol | null>('name')
@@ -98,6 +103,10 @@ export function RoutesPage() {
     const p = getPermitForRoute(s, r.id)
     return p?.status === 'active' || p?.status === 'applied'
   }).length
+  const countThreats = ROUTE_LIST.filter((r) => {
+    const canon = canonicalRouteId(r.id)
+    return Boolean(s.world.rivalActions?.[r.id] || s.world.rivalActions?.[canon])
+  }).length
 
   const scheduledRouteIds = new Set(
     Object.values(s.schedules).map((sch) => canonicalRouteId(sch.routeId)),
@@ -121,6 +130,10 @@ export function RoutesPage() {
     if (permitFilter === 'applied' && permit?.status !== 'applied') return false
     if (permitFilter === 'available' && (permit || locked)) return false
     if (permitFilter === 'cargo' && !cargoPermitActive(s, r.id)) return false
+    if (permitFilter === 'threats') {
+      const canon = canonicalRouteId(r.id)
+      if (!s.world.rivalActions?.[r.id] && !s.world.rivalActions?.[canon]) return false
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim()
@@ -205,14 +218,7 @@ export function RoutesPage() {
 
   return (
     <>
-      <div className="page-title">
-        Routes & permits
-        <span className="sub">
-          permit fee {fmtCompact(BAL.routePermitFee)} · approval 2-4 weeks · cargo licence from{' '}
-          {fmtCompact(BAL.cargoPermitBaseFee)}/yr + {fmtCompact(BAL.cargoPermitPerKmFee)}/km · reputation{' '}
-          {Math.round(s.company.reputation)}/100
-        </span>
-      </div>
+      <PageHeader title="Routes" facts={<>reputation {Math.round(s.company.reputation)}/100</>} factsTip={`Permit fee ${fmtCompact(BAL.routePermitFee)}, approval 2-4 weeks. Cargo licence from ${fmtCompact(BAL.cargoPermitBaseFee)}/yr + ${fmtCompact(BAL.cargoPermitPerKmFee)}/km.`} />
 
       <Panel
         flat
@@ -240,7 +246,7 @@ export function RoutesPage() {
               onClick={() => setCategoryFilter('south_state')}
               title="Intra-state corridors within South India (Tamil Nadu, Karnataka, Kerala, AP)"
             >
-              ✓ South State ({countSouthState})
+              South State ({countSouthState})
             </button>
             <button
               className={`small ${categoryFilter === 'north' ? 'primary' : ''}`}
@@ -257,14 +263,14 @@ export function RoutesPage() {
               onClick={() => setPermitFilter(permitFilter === 'active_applied' ? 'all' : 'active_applied')}
               title="Show corridors with either active or applied permits"
             >
-              📋 Active & Applied ({countActiveOrApplied})
+              Active & Applied ({countActiveOrApplied})
             </button>
             <button
               className={`small ${permitFilter === 'active' ? 'primary' : ''}`}
               onClick={() => setPermitFilter(permitFilter === 'active' ? 'all' : 'active')}
               title="Show corridors with active operational permits"
             >
-              🟢 Active ({countActivePermits})
+              Active ({countActivePermits})
             </button>
             <button
               className={`small ${permitFilter === 'applied' ? 'primary' : ''}`}
@@ -272,6 +278,17 @@ export function RoutesPage() {
               title="Show corridors with pending permit applications"
             >
               ⏳ Applied ({countAppliedPermits})
+            </button>
+            <button
+              className={`small ${permitFilter === 'threats' ? 'primary' : ''}`}
+              onClick={() => setPermitFilter(permitFilter === 'threats' ? 'all' : 'threats')}
+              title="Corridors facing active rival predatory timing or price wars"
+              style={{
+                color: countThreats > 0 && permitFilter !== 'threats' ? '#fbbf24' : undefined,
+                fontWeight: countThreats > 0 ? 600 : undefined,
+              }}
+            >
+              ⚔️ Rival Moves ({countThreats})
             </button>
           </div>
 
@@ -304,7 +321,7 @@ export function RoutesPage() {
             border: '1px solid var(--border)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="row gap6">
             <span className="dim">Travel hours:</span>
             <select
               value={hoursFilter}
@@ -320,7 +337,7 @@ export function RoutesPage() {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="row gap6">
             <span className="dim">Schedule:</span>
             <select
               value={scheduleFilter}
@@ -333,7 +350,7 @@ export function RoutesPage() {
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="row gap6">
             <span className="dim">Permit status:</span>
             <select
               value={permitFilter}
@@ -374,7 +391,7 @@ export function RoutesPage() {
           </div>
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="xscroll">
         <table className="data">
           <thead>
             <tr>
@@ -414,6 +431,7 @@ export function RoutesPage() {
               const closure = s.world.closures[r.id]
               const shock = s.world.demandShock[r.id]
               const war = s.world.priceWars[r.id]
+              const rivalAction = s.world.rivalActions?.[r.id] ?? s.world.rivalActions?.[canonicalRouteId(r.id)]
               const idx = s.world.fareIndex[r.id] ?? 1
               const schCount = Object.values(s.schedules).filter((sch) => canonicalRouteId(sch.routeId) === canonicalRouteId(r.id)).length
               const cat = getRouteCategory(r)
@@ -437,7 +455,7 @@ export function RoutesPage() {
                 >
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span className="accent" style={{ fontWeight: 600 }}>{routeName(r.id)}</span>
+                      <span className="accent bold">{routeName(r.id)}</span>
                       <span
                         className="pill small info"
                         style={{ fontSize: 10, padding: '0 4px' }}
@@ -449,7 +467,7 @@ export function RoutesPage() {
                       {cat === 'interstate' ? (
                         <span className="pill small info" style={{ fontSize: 10, padding: '0 4px' }} title="Inter-state corridor (requires AITP)">⇄ Inter-State</span>
                       ) : cat === 'south_state' ? (
-                        <span className="pill small good" style={{ fontSize: 10, padding: '0 4px' }} title="South State internal corridor (State carriage)">✓ South State</span>
+                        <span className="pill small good" style={{ fontSize: 10, padding: '0 4px' }} title="South State internal corridor (State carriage)">South State</span>
                       ) : (
                         <span className="pill small warn" style={{ fontSize: 10, padding: '0 4px' }} title="Northern & Western corridor">▲ North</span>
                       )}
@@ -460,6 +478,36 @@ export function RoutesPage() {
                         {routeViaLabel(r.id)}
                       </div>
                     )}
+                    {/* Boarding Lounge Presence */}
+                    {(() => {
+                      const fromLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.from)
+                      const toLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.to)
+                      if (!fromLounge && !toLounge) return null
+                      return (
+                        <div style={{ marginTop: 3, display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
+                          {fromLounge && (
+                            <Link
+                              to="/lounges"
+                              className="pill small good"
+                              style={{ fontSize: '0.68rem', padding: '1px 5px', textDecoration: 'none' }}
+                              title={`Boarding Lounge in ${cityName(r.from)} (Tier ${fromLounge.tier}) — passenger waiting & snacks boost booking conversion`}
+                            >
+                              {cityName(r.from)} Lounge (T{fromLounge.tier})
+                            </Link>
+                          )}
+                          {toLounge && (
+                            <Link
+                              to="/lounges"
+                              className="pill small good"
+                              style={{ fontSize: '0.68rem', padding: '1px 5px', textDecoration: 'none' }}
+                              title={`Boarding Lounge in ${cityName(r.to)} (Tier ${toLounge.tier}) — return booking boost`}
+                            >
+                              {cityName(r.to)} Lounge (T{toLounge.tier})
+                            </Link>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </td>
                   <td className="small">{statesOnRoute(r).join(', ')}</td>
                   <td className="small">{r.interstate ? 'AITP' : 'State carriage'}</td>
@@ -568,17 +616,73 @@ export function RoutesPage() {
                             </span>
                             {r.railCompetition > 0.55 && <span> +rail</span>}
                           </div>
+
+                          {rivalAction && (
+                            <div style={{ marginTop: 4 }}>
+                              <button
+                                className="small warn"
+                                style={{
+                                  fontSize: '0.70rem',
+                                  padding: '1px 6px',
+                                  fontWeight: 600,
+                                  background: 'rgba(245, 158, 11, 0.15)',
+                                  border: '1px solid rgba(245, 158, 11, 0.4)',
+                                  color: '#fbbf24',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => setSelectedIntelRoute(r)}
+                                title="Click to view predatory timing, rival counter-clocks & choose counter-strategy"
+                              >
+                                ⚔️ {rivalAction.rivalName}: {rivalAction.tactic === 'predatory_timing' ? 'Front-Run' : 'Price War'} ({rivalAction.untilDay - s.day}d)
+                              </button>
+                            </div>
+                          )}
+                          {hasActivePermit && (
+                            <div style={{ marginTop: 3 }}>
+                              <button
+                                className="small"
+                                style={{
+                                  fontSize: '0.68rem',
+                                  padding: '1px 5px',
+                                  background: 'var(--bg3)',
+                                  border: '1px solid var(--border)',
+                                  cursor: 'pointer',
+                                }}
+                                onClick={() => setSelectedIntelRoute(r)}
+                                title="Configure strategic corridor counter-posture"
+                              >
+                                Stance: {getCorridorStance(s, r.id)} 
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )
                     })()}
                   </td>
                   <td className="small">
+                    {rivalAction && rivalAction.untilDay >= s.day && (
+                      <div className="warn font-semibold" style={{ marginBottom: 2 }}>
+                        ⚔️ {rivalAction.headline} ({rivalAction.untilDay - s.day}d)
+                      </div>
+                    )}
                     {closure && closure.untilDay >= s.day && <div className="bad">CLOSED: {closure.reason} ({closure.untilDay - s.day}d)</div>}
-                    {war && war.untilDay >= s.day && <div className="warn">price war −{Math.round(war.depth * 100)}% ({war.untilDay - s.day}d)</div>}
+                    {war && !rivalAction && war.untilDay >= s.day && <div className="warn">price war −{Math.round(war.depth * 100)}% ({war.untilDay - s.day}d)</div>}
                     {shock && shock.untilDay >= s.day && shock.untilDay - s.day < 400 && (
                       <div className={shock.mult > 1 ? 'good' : 'bad'}>{shock.reason}: ×{shock.mult.toFixed(2)} ({shock.untilDay - s.day}d)</div>
                     )}
-                    {s.world.expressways.includes(r.id) && <div className="info">expressway ✓</div>}
+                    {s.world.expressways.includes(r.id) && <div className="info">expressway </div>}
+                    {(() => {
+                      const boost = getLoungeDemandBoost(s, r.id)
+                      if (boost > 1.0) {
+                        const pct = Math.round((boost - 1.0) * 100)
+                        return (
+                          <div className="good small" style={{ marginTop: 2 }}>
+                            Lounge lift: +{pct}% conversion
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
                   </td>
                   <td>
                     {permit?.status === 'active' && (
@@ -729,6 +833,104 @@ export function RoutesPage() {
         </table>
         </div>
       </Panel>
+
+      {selectedIntelRoute && (() => {
+        const r = selectedIntelRoute
+        const canon = canonicalRouteId(r.id)
+        const action = s.world.rivalActions?.[r.id] ?? s.world.rivalActions?.[canon]
+        const currentStance = getCorridorStance(s, r.id)
+        const activeSchs = Object.values(s.schedules).filter(
+          (sc) => sc.active && (sc.routeId === r.id || canonicalRouteId(sc.routeId) === canon),
+        )
+        const rawRivals = RIVALS[r.id] ?? ['SRS Travels', 'KPN Travels', 'VRL Travels']
+
+        const STANCES: { id: CorridorStance; title: string; effect: string; detail: string }[] = [
+          { id: 'neutral', title: 'Neutral', effect: 'no counter-measures', detail: 'Standard timetable and pricing. A rival front-running your departure takes the shoppers.' },
+          { id: 'undercut', title: 'Undercut', effect: 'match rival fares · +15% booking defense', detail: 'Neutralises the rival front-runner at the cost of lower yield.' },
+          { id: 'premium_hold', title: 'Premium hold', effect: 'keep fares · needs 4.0★ coach or Primo', detail: 'Loyal high-yield passengers stay. Without a 4.0+ coach or Primo the rival gains +20% appeal; a rival wave also ends 2 days sooner each week.' },
+          { id: 'cargo_bundle', title: 'Cargo bundle', effect: '+30% parcel revenue on this route', detail: 'Freight earnings subsidise passenger seats. The rival still front-runs (+10% appeal).' },
+        ]
+        const threat = action && action.untilDay >= s.day ? action : undefined
+
+        return (
+          <Modal title={`Rivals — ${routeName(r.id)}`} onClose={() => setSelectedIntelRoute(null)} wide>
+            <div className="stack14">
+              <div className="row gap wrap">
+                <span className={`pill ${threat ? 'warn' : 'good'}`}>{threat ? 'Rival wave' : 'Stable'}</span>
+                <span className="muted">{rawRivals.join(', ')}</span>
+              </div>
+
+              {threat && (
+                <div className="panel">
+                  <div className="panel-body" title={threat.details}>
+                    <div className="row between mb8">
+                      <b>{threat.headline}</b>
+                      <span className="muted">{threat.intensity} · {threat.untilDay - s.day}d left</span>
+                    </div>
+                    <div className="row gap wrap muted">
+                      <span>Rival <b>{threat.rivalName}</b></span>
+                      <span>Fare cut <b className="warn">-{threat.fareDiscountPct}%</b></span>
+                      {threat.addedDailySeats > 0 && <span>Extra seats <b className="warn">+{threat.addedDailySeats}/day</b></span>}
+                      {threat.targetDepartureClocks.length > 0 && <span>Counter-departures <b>{threat.targetDepartureClocks.join(', ')}</b></span>}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="muted mb8" title="If you hold 35%+ share or run 4+ daily departures, top rivals launch front-running and price-war waves">Your stance</div>
+                <div className="stack10">
+                  {STANCES.map((st) => (
+                    <label key={st.id} className="row gap" style={{ cursor: 'pointer' }} title={st.detail}>
+                      <input
+                        type="radio"
+                        name="stance"
+                        checked={currentStance === st.id}
+                        onChange={() => g.setCorridorStance(r.id, st.id)}
+                      />
+                      <b className="bold">{st.title}</b>
+                      <span className="muted">{st.effect}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="row between mb8">
+                  <span className="muted">Departures ({activeSchs.length})</span>
+                  <Link to="/schedules" className="small">Schedules ›</Link>
+                </div>
+                {activeSchs.length === 0 ? (
+                  <Empty text="No schedules on this corridor." />
+                ) : (
+                  <table className="data">
+                    <thead>
+                      <tr><th>Departs</th><th>Type</th><th>Rival</th></tr>
+                    </thead>
+                    <tbody>
+                      {activeSchs.map((sc) => {
+                        const clock = `${String(sc.depHour).padStart(2, '0')}:${String(sc.depMin ?? 0).padStart(2, '0')}`
+                        const fr = isTripFrontRun(s, r.id, sc.depHour, sc.depMin ?? 0)
+                        return (
+                          <tr key={sc.id}>
+                            <td><b>{clock}</b></td>
+                            <td className="muted">{sc.paired ? 'daily both ways' : 'one way'}</td>
+                            <td>
+                              {fr.frontRun
+                                ? <span className="warn" title="Rival departs 15 minutes before you">front-run by {fr.rivalName} at {fr.rivalClock}</span>
+                                : <span className="good" title="No rival departure within 20 minutes">clear</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </Modal>
+        )
+      })()}
     </>
   )
 }

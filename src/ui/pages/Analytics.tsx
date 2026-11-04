@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { fmtDateShort } from '../../engine/core/calendar'
 import {
   Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
@@ -9,7 +10,7 @@ import { routeStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '.
 import { getSeasonalStatsForPeriod } from '../../engine/sim/festival'
 import { toRupees } from '../../engine/core/money'
 import type { RouteLayoutStats, RouteStats, BusGroup } from '../../engine/types'
-import { KV, M, Panel, ratingTone, GroupBadge } from '../bits'
+import { KV, M, Panel, ratingTone, GroupBadge, StatRow, PageHeader } from '../bits'
 import { activeGroups, brandStars, compareGroupsPassengerFirst } from '../../engine/sim/groups'
 
 type PeriodId = 'lifetime' | '7' | '30' | '90' | '180' | '365'
@@ -544,7 +545,7 @@ export function AnalyticsPage() {
   const shareData = useMemo(() => {
     const list = s.world.shareHistory?.[shareRoute] ?? []
     return list.map((h) => ({
-      day: `D${h.day}`,
+      day: fmtDateShort(h.day),
       player: Math.round(h.player),
       rival: Math.max(0, 100 - Math.round(h.player)),
     }))
@@ -730,13 +731,7 @@ export function AnalyticsPage() {
 
   return (
     <>
-      <div className="page-title">
-        Analytics
-        <span className="sub">
-          seat-km economics, asset ranking, channels
-          {fleetOcc !== null && <> · fleet occupancy {Math.round(fleetOcc * 100)}%</>}
-        </span>
-      </div>
+      <PageHeader title="Analytics" facts={<>{fleetOcc !== null ? <>occupancy {Math.round(fleetOcc * 100)}%</> : null}</>} />
 
       <nav className="analytics-subnav">
         {SECTIONS.map((sec) => (
@@ -786,46 +781,16 @@ export function AnalyticsPage() {
           return null
         })()}
 
-        {/* KPI Strip */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>Revenue ({periodDef.label})</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4 }}><M v={routeTotals.revenue} /></div>
-          </div>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>Cost ({periodDef.label})</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4, color: 'var(--bad, #ef4444)' }}><M v={routeTotals.cost} /></div>
-          </div>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>Net Profit ({periodDef.label})</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4 }}>
-              <M v={routeTotals.profit} colored />
-              <span className="dim small" style={{ marginLeft: 6, fontSize: '12px', fontWeight: 400 }}>
-                ({routeTotals.revenue > 0 ? `${((routeTotals.profit / routeTotals.revenue) * 100).toFixed(1)}%` : '0%'})
-              </span>
-            </div>
-          </div>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>Trips ({periodDef.label})</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4 }}>{routeTotals.trips.toLocaleString('en-IN')}</div>
-          </div>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>Fleet Occupancy ({periodDef.label})</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4 }}>
-              <span className={fleetOcc !== null ? occTone(fleetOcc) : 'dim'}>
-                {fleetOcc !== null ? `${Math.round(fleetOcc * 100)}%` : '—'}
-              </span>
-            </div>
-          </div>
-          <div className="panel" style={{ padding: '8px 12px' }}>
-            <div className="dim small" style={{ fontSize: '11px', textTransform: 'uppercase' }}>30-Day LF</div>
-            <div style={{ fontSize: '18px', fontWeight: 700, marginTop: 4 }}>
-              <span className={totalOcc30 !== null ? occTone(totalOcc30) : 'dim'}>
-                {totalOcc30 !== null ? `${Math.round(totalOcc30 * 100)}%` : '—'}
-              </span>
-            </div>
-          </div>
-        </div>
+        <StatRow
+          items={[
+            { label: `Revenue ${periodDef.label}`, value: <M v={routeTotals.revenue} /> },
+            { label: 'Cost', value: <M v={routeTotals.cost} />, tone: 'bad' },
+            { label: 'Profit', value: <M v={routeTotals.profit} colored />, title: routeTotals.revenue > 0 ? `${((routeTotals.profit / routeTotals.revenue) * 100).toFixed(1)}% margin` : undefined },
+            { label: 'Trips', value: routeTotals.trips.toLocaleString('en-IN') },
+            { label: 'Occupancy', value: fleetOcc !== null ? `${Math.round(fleetOcc * 100)}%` : '—', tone: fleetOcc !== null ? (occTone(fleetOcc) as 'good' | 'warn' | 'bad') : undefined },
+            { label: '30-day LF', value: totalOcc30 !== null ? `${Math.round(totalOcc30 * 100)}%` : '—', tone: totalOcc30 !== null ? (occTone(totalOcc30) as 'good' | 'warn' | 'bad') : undefined },
+          ]}
+        />
       </section>
 
       {/* 2. Brands Section */}
@@ -1129,17 +1094,11 @@ export function AnalyticsPage() {
           info="Dedicated revenue, direct trip expenses, and net profit tracked specifically for seasonal festival passenger service runs and private group charters."
         >
           {seasonalSummary.trips === 0 ? (
-            <div style={{ padding: '16px 12px' }} className="dim">
-              <p style={{ margin: '0 0 6px 0' }}>
-                No seasonal scheduled service runs or group charters recorded for <b>{periodDef.label.toLowerCase()}</b>.
-              </p>
-              <p className="faint small" style={{ margin: 0 }}>
-                To schedule seasonal festival departures, set a service duty to <b>Seasonal (festivals)</b> (requires an active seasonal permit on the corridor).
-                Private group charters are offered to idle coaches during festival seasons and weekends (and are auto-accepted when a <b>Schedules & Festivals Manager</b> is appointed).
-                {seasonalSummary.lifetimeTotals.trips > 0 && (
-                  <> (Lifetime seasonal & charter operations: {seasonalSummary.lifetimeTotals.trips} runs · <M v={seasonalSummary.lifetimeTotals.profit} colored /> net profit)</>
-                )}
-              </p>
+            <div className="empty" title="Set a schedule's duty to Seasonal (needs a seasonal permit). Idle coaches also get group charter offers in festival seasons.">
+              No seasonal runs or charters for {periodDef.label.toLowerCase()}.
+              {seasonalSummary.lifetimeTotals.trips > 0 && (
+                <> Lifetime: {seasonalSummary.lifetimeTotals.trips} runs · <M v={seasonalSummary.lifetimeTotals.profit} colored /></>
+              )}
             </div>
           ) : (
             <>
@@ -1165,7 +1124,7 @@ export function AnalyticsPage() {
                   <div style={{ fontSize: '0.84rem', fontWeight: 600, marginBottom: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Private & Pilgrim Group Charters</span>
                     {s.company.scheduleManagerId ? (
-                      <span className="pill good small" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>⚡ Auto-accepted by Schedule Mgr</span>
+                      <span className="pill good small" style={{ fontSize: '0.68rem', padding: '2px 6px' }}>Auto-accepted by Schedule Mgr</span>
                     ) : (
                       <span className="badge dim" style={{ fontSize: '0.72rem' }}>{seasonalSummary.charterTrips} contracts</span>
                     )}
@@ -1201,7 +1160,7 @@ export function AnalyticsPage() {
               </div>
 
               {/* Corridor Breakdown & Recent Festival Trips (Flat & Open) */}
-              <div style={{ marginBottom: 14 }}>
+              <div className="mb14">
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, color: 'var(--fg-dim)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Corridor Performance Breakdown (Festival Scheduled Runs)</span>
                   <span className="dim small" style={{ fontWeight: 400 }}>Excludes private group charters</span>
@@ -1291,7 +1250,7 @@ export function AnalyticsPage() {
                     <tbody>
                       {seasonalSummary.recentRuns.map((run) => (
                         <tr key={run.tripId}>
-                          <td>Day {run.day}</td>
+                          <td>{fmtDateShort(run.day)}</td>
                           <td>
                             {run.kind === 'charter' ? (
                               <span className="pill warn small" style={{ fontSize: '0.68rem', padding: '1px 5px' }}>
@@ -1335,7 +1294,7 @@ export function AnalyticsPage() {
           <div className="grid-3" style={{ gap: 16 }}>
             <div className="panel" style={{ padding: '10px 14px', background: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span style={{ fontWeight: 600 }}>A-Service (Minor)</span>
+                <span className="bold">A-Service (Minor)</span>
                 <span className="pill dim small">25k km · 1×</span>
               </div>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: 4 }}>
@@ -1351,7 +1310,7 @@ export function AnalyticsPage() {
 
             <div className="panel" style={{ padding: '10px 14px', background: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span className="info" style={{ fontWeight: 600 }}>B-Service (Major)</span>
+                <span className="info bold">B-Service (Major)</span>
                 <span className="pill info small">100k km · 3.5×</span>
               </div>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--info)', marginBottom: 4 }}>
@@ -1367,7 +1326,7 @@ export function AnalyticsPage() {
 
             <div className="panel" style={{ padding: '10px 14px', background: 'var(--bg-card)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <span className="accent" style={{ fontWeight: 600 }}>Annual Overhaul</span>
+                <span className="accent bold">Annual Overhaul</span>
                 <span className="pill accent small">365d / 250k · 7×</span>
               </div>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>
@@ -1388,7 +1347,7 @@ export function AnalyticsPage() {
               <b className="accent" style={{ fontSize: '1.05rem', marginLeft: 6 }}>
                 ₹{serviceTierStats.costPerKmTotal.toFixed(2)} / km
               </b>
-              <span className="dim small" style={{ marginLeft: 8 }}>
+              <span className="dim small ml8">
                 (Total <M v={serviceTierStats.totalMaintSpend} /> across {Math.round(serviceTierStats.totalKm).toLocaleString('en-IN')} km)
               </span>
             </div>
@@ -1445,9 +1404,7 @@ export function AnalyticsPage() {
           }
         >
           {shareData.length === 0 ? (
-            <div className="dim" style={{ padding: '24px', textAlign: 'center' }}>
-              No market share history recorded for this corridor yet.
-            </div>
+            <span className="empty" title="No market share history recorded for this corridor yet.">No market share history yet.</span>
           ) : (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={shareData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>

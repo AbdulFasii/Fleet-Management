@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react'
+import { isCloudImagesConfigured } from '../lib/supabase'
+import { uploadGameImage, deleteImage, type ImageKind } from '../store/cloudImages'
+import { LightboxModal } from './LightboxModal'
 
-/** Read and compress/downscale uploaded image to keep data URL storage footprint lean across saves. */
+/** Read and compress/downscale uploaded image — kept as an offline fallback when cloud is unconfigured. */
 export function fileToBrandPicDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith('image/')) return reject(new Error('That file is not an image.'))
@@ -12,8 +15,7 @@ export function fileToBrandPicDataUrl(file: File): Promise<string> {
         return
       }
 
-      // Automatically downscale high-resolution images to fit within 800x600 for crisp display
-      // while reducing file size from megabytes down to ~25-40KB so it never exceeds storage limits.
+      // Automatically downscale high-resolution images to fit within 800x600 for offline data-URLs
       const img = new Image()
       img.onload = () => {
         try {
@@ -51,26 +53,41 @@ export function fileToBrandPicDataUrl(file: File): Promise<string> {
   })
 }
 
+export interface BrandPicActionsProps {
+  value?: string
+  onChange: (pic: string | undefined) => void
+  onError?: (msg: string) => void
+  ownerKey?: string
+  kind?: ImageKind
+  allowOfflineFallback?: boolean
+}
+
 /** Change / Remove controls — can sit in a card header next to other actions. */
 export function BrandPicActions({
   value,
   onChange,
   onError,
-}: {
-  value?: string
-  onChange: (pic: string | undefined) => void
-  onError?: (msg: string) => void
-}) {
+  ownerKey = 'general',
+  kind = 'branding',
+  allowOfflineFallback = false,
+}: BrandPicActionsProps) {
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+
+  const handleRemove = async () => {
+    if (value && (value.startsWith('http://') || value.startsWith('https://'))) {
+      deleteImage(value).catch((err) => console.warn('Could not delete storage image:', err))
+    }
+    onChange(undefined)
+  }
 
   return (
     <>
       <button type="button" className="small" disabled={busy} onClick={() => ref.current?.click()}>
-        {value ? 'Change image…' : 'Upload image…'}
+        {busy ? 'Uploading…' : value ? 'Change image…' : 'Upload image…'}
       </button>
       {value && (
-        <button type="button" className="small" onClick={() => onChange(undefined)}>
+        <button type="button" className="small" disabled={busy} onClick={handleRemove}>
           Remove
         </button>
       )}
@@ -83,15 +100,44 @@ export function BrandPicActions({
           const f = e.target.files?.[0]
           e.target.value = ''
           if (!f) return
+          if (!f.type.startsWith('image/')) {
+            onError?.('That file is not an image.')
+            return
+          }
+
           setBusy(true)
-          fileToBrandPicDataUrl(f)
-            .then(onChange)
-            .catch((err: Error) => onError?.(err.message))
-            .finally(() => setBusy(false))
+
+          if (isCloudImagesConfigured()) {
+            // High-fidelity cloud upload: preserving original file bytes to Supabase Storage
+            uploadGameImage({ file: f, kind, ownerKey, fileName: f.name })
+              .then((res) => onChange(res.url))
+              .catch((err: Error) => onError?.(err.message || 'Image upload failed.'))
+              .finally(() => setBusy(false))
+          } else if (allowOfflineFallback) {
+            // Offline fallback to compressed data URL
+            fileToBrandPicDataUrl(f)
+              .then(onChange)
+              .catch((err: Error) => onError?.(err.message))
+              .finally(() => setBusy(false))
+          } else {
+            setBusy(false)
+            onError?.('Cloud storage not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local.')
+          }
         }}
       />
     </>
   )
+}
+
+export interface BrandPicPickerProps {
+  value?: string
+  onChange: (pic: string | undefined) => void
+  onError?: (msg: string) => void
+  /** When false, only the preview is shown (use BrandPicActions elsewhere). */
+  showActions?: boolean
+  ownerKey?: string
+  kind?: ImageKind
+  allowOfflineFallback?: boolean
 }
 
 export function BrandPicPicker({
@@ -99,13 +145,12 @@ export function BrandPicPicker({
   onChange,
   onError,
   showActions = true,
-}: {
-  value?: string
-  onChange: (pic: string | undefined) => void
-  onError?: (msg: string) => void
-  /** When false, only the preview is shown (use BrandPicActions elsewhere). */
-  showActions?: boolean
-}) {
+  ownerKey = 'general',
+  kind = 'branding',
+  allowOfflineFallback = false,
+}: BrandPicPickerProps) {
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
       <div
@@ -119,22 +164,67 @@ export function BrandPicPicker({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          overflow: 'auto',
+          overflow: 'hidden',
+          position: 'relative',
+          cursor: value ? 'pointer' : 'default',
         }}
+        onClick={() => {
+          if (value) setLightboxOpen(true)
+        }}
+        title={value ? 'Click to view full resolution image' : undefined}
       >
         {value ? (
-          <img
-            src={value}
-            alt="Brand pic"
-            style={{ maxWidth: '100%', maxHeight: 280, width: 'auto', height: 'auto', display: 'block' }}
-          />
+          <>
+            <img
+              src={value}
+              alt="Brand or design pic"
+              style={{
+                maxWidth: '100%',
+                maxHeight: 280,
+                width: 'auto',
+                height: 'auto',
+                display: 'block',
+                objectFit: 'contain',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 6,
+                right: 6,
+                background: 'rgba(0,0,0,0.65)',
+                color: '#fff',
+                fontSize: '0.7rem',
+                padding: '2px 6px',
+                borderRadius: 4,
+                backdropFilter: 'blur(2px)',
+                pointerEvents: 'none',
+              }}
+            >
+              Zoom 🔍
+            </div>
+          </>
         ) : (
           <span className="dim small">No pic</span>
         )}
       </div>
-      {showActions && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <BrandPicActions value={value} onChange={onChange} onError={onError} />
-      </div>}
+
+      {showActions && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <BrandPicActions
+            value={value}
+            onChange={onChange}
+            onError={onError}
+            ownerKey={ownerKey}
+            kind={kind}
+            allowOfflineFallback={allowOfflineFallback}
+          />
+        </div>
+      )}
+
+      {lightboxOpen && value && (
+        <LightboxModal url={value} onClose={() => setLightboxOpen(false)} />
+      )}
     </div>
   )
 }

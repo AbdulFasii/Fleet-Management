@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { fmtCompact, fmtINR, fmtSigned, type Money } from '../engine/core/money'
 import type { SpanMeter as SpanMeterType } from '../engine/types'
 import { isLightBadgeColor } from '../engine/sim/groups'
@@ -48,17 +49,20 @@ export function ratingTone(rating: number): 'good' | 'accent' | 'warn' | 'bad' {
 
 /* ---------- panel ---------- */
 
-export function Panel({ title, right, children, flat, className, info }: {
+export function Panel({ title, right, action, children, flat, className, info, style }: {
   title?: ReactNode
   right?: ReactNode
+  action?: ReactNode
   children: ReactNode
   flat?: boolean
   className?: string
+  style?: React.CSSProperties
   /** Longer help text — shown on hover/focus of the header info icon. */
   info?: string
 }) {
+  const headerRight = right ?? action
   return (
-    <div className={`panel ${flat ? 'flat' : ''} ${className ?? ''}`}>
+    <div className={`panel ${flat ? 'flat' : ''} ${className ?? ''}`} style={style}>
       {title !== undefined && (
         <div className="panel-title">
           <span className="panel-title-left">
@@ -70,7 +74,7 @@ export function Panel({ title, right, children, flat, className, info }: {
               </span>
             )}
           </span>
-          {right && <span>{right}</span>}
+          {headerRight && <span>{headerRight}</span>}
         </div>
       )}
       <div className="panel-body">{children}</div>
@@ -338,4 +342,95 @@ export function SpanMeter({ meter, unit }: { meter: SpanMeterType; unit?: string
       )}
     </div>
   )
+}
+
+/* ---------- sub tabs ---------- */
+
+/** One tab control for every page. Items are `[id, label]` pairs; `inline` drops the bottom margin for use in headers. */
+export function Tabs<T extends string>({ tabs, value, onChange, inline }: {
+  tabs: readonly (readonly [T, ReactNode])[]
+  value: T
+  onChange: (id: T) => void
+  inline?: boolean
+}) {
+  return (
+    <span className={inline ? 'subtabs inline' : 'subtabs'}>
+      {tabs.map(([id, label]) => (
+        <button key={id} className={`small ${value === id ? 'primary' : ''}`} onClick={() => onChange(id)}>
+          {label}
+        </button>
+      ))}
+    </span>
+  )
+}
+
+/* ---------- page header ---------- */
+
+/** One header for every page: title, a few facts (no prose), tooltips for detail, actions on the right. */
+export function PageHeader({ title, tip, facts, factsTip, children }: {
+  title: ReactNode
+  tip?: string
+  /** Short numbers only, e.g. "12 buses · ₹4.2L/mo". */
+  facts?: ReactNode
+  factsTip?: string
+  /** Right-aligned actions, tabs and filters. */
+  children?: ReactNode
+}) {
+  return (
+    <div className="page-title">
+      <span title={tip}>{title}</span>
+      {facts && <span className="sub" title={factsTip}>{facts}</span>}
+      <span className="spacer" />
+      {children}
+    </div>
+  )
+}
+
+/* ---------- hint + empty ---------- */
+
+/** Explanation lives in a tooltip, never in the main view. */
+export function Hint({ text }: { text: string }) {
+  return <span className="hint" title={text} tabIndex={0}>ⓘ</span>
+}
+
+export function Empty({ text }: { text: string }) {
+  return <div className="empty">{text}</div>
+}
+
+/* ---------- stat row ---------- */
+
+/** One compact row of label/value facts. Replaces grids of tall stat cards. */
+export function StatRow({ items }: { items: { label: string; value: ReactNode; tone?: 'good' | 'warn' | 'bad' | 'accent'; title?: string }[] }) {
+  return (
+    <div className="statrow">
+      {items.map((it) => (
+        <div key={it.label} className="stat" title={it.title}>
+          <span className="lbl">{it.label}</span>
+          <span className={`val ${it.tone ?? ''}`}>{it.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ---------- entity links ---------- */
+
+/** One way to link to a bus everywhere: registration, opens its detail page. */
+export function BusLink({ id, reg }: { id: string; reg: string }) {
+  return <Link to={`/fleet/${id}`}><b>{reg}</b></Link>
+}
+
+/** Opens the Schedules page on one service. */
+export function ScheduleLink({ id, children }: { id: string; children: ReactNode }) {
+  return <Link to={`/schedules?sch=${id}`}>{children}</Link>
+}
+
+/** Opens the Routes page. Routes have no detail page, so this lands on the list. */
+export function RouteLink({ children }: { children: ReactNode }) {
+  return <Link to="/routes">{children}</Link>
+}
+
+/** Opens the Charters page. Tours live in tables there, with no page of their own. */
+export function CharterLink({ children }: { children: ReactNode }) {
+  return <Link to="/charters">{children}</Link>
 }

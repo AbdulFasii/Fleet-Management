@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
-import { BUS_MODELS, CLASS_LABEL, coachKind, isCargoModel, modelTitle } from '../../engine/data/busModels'
+import { BUS_MODELS, CLASS_LABEL, coachKind, isCargoModel, isCharterModel } from '../../engine/data/busModels'
 import { FITTING_CATALOG, busHasFitting } from '../../engine/data/amenitiesCatalog'
 import { ROUTES, routeName } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
-import { fmtDate, fmtClock, festivalEffect } from '../../engine/core/calendar'
+import { festivalEffect, fmtClock, fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import { isBusInTransit } from '../../engine/sim/depot'
 import { SUBSYSTEMS, type StaffRole, type SubsystemId } from '../../engine/types'
 import { sellSettlement, busAgeYears, busStatusDetail, leaseBreakCost } from '../../engine/sim/fleet'
@@ -15,7 +15,6 @@ import {
   overhaulDueInfo,
   ownerPaysService,
   serviceDueKm,
-  tyreLifeFor,
   tyresDue,
   axleTyresDue,
   quoteInsurance,
@@ -28,6 +27,8 @@ import {
   quoteRebody,
   quoteSeatRefurb,
   seatRefurbDone,
+  quotePowertrainOverhaul,
+  quoteLuxuryRetrofit,
   conductorCleanlinessTarget,
   serviceDeferredForBus,
   serviceResumeDay,
@@ -48,7 +49,7 @@ import { hasUnfilledHpDuty, isStaffResting } from '../../engine/sim/staffing'
 import { canCrewBus, crewLimit, crewOnBus, freeCrew } from '../crew'
 import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
-import { Bar, KV, M, Panel, ratingTone, GroupBadge } from '../bits'
+import { Bar, KV, M, Panel, ratingTone, GroupBadge, Hint } from '../bits'
 import { activeGroups } from '../../engine/sim/groups'
 import { canAfford } from '../../engine/sim/finance'
 import { pushLog } from '../../engine/sim/log'
@@ -196,7 +197,6 @@ export function BusDetailPage() {
       : designOpts[0]?.design.id) ?? '',
   )
   const crewed = canCrewBus(bus)
-  const tyreLife = tyreLifeFor(bus)
   const tyreReady = tyresDue(bus)
   const due = serviceDueKm(bus)
   const busy = bus.status !== 'active'
@@ -209,7 +209,7 @@ export function BusDetailPage() {
     <>
       <div className="page-title">
         <span className="accent">{bus.reg}</span>
-        {bus.refurbishedDay !== undefined && <span className="pill info small" style={{ marginLeft: 6 }}>refurbished</span>}{' '}
+        {bus.refurbishedDay !== undefined && <span className="pill info small ml6">refurbished</span>}{' '}
         "{bus.nickname}" — {coachTitle(model, bus.bodyDesignName)}
         <span className="sub">{CLASS_LABEL[model.cls]} · {coachKind(model)} {model.layout.cols} · {model.seats} {model.layout.kind === 'hybrid' ? 'berths+seats' : model.sleeper ? 'berths' : 'seats'} · {bus.ownership}</span>
         <span className="spacer" />
@@ -234,11 +234,11 @@ export function BusDetailPage() {
               ['Current Halt', (
               isBusInTransit(s, bus) && bus.inTransitToCityId ? (
                 <span className="accent" title={`En route from ${bus.inTransitFromCityId ? cityName(bus.inTransitFromCityId) : '…'} to ${cityName(bus.inTransitToCityId)}`}>
-                  🚌 In transit → {cityName(bus.inTransitToCityId)}
+                  In transit → {cityName(bus.inTransitToCityId)}
                 </span>
               ) : (
               <span className={(bus.parkedCityId ?? s.company.homeCityId) === s.company.homeCityId ? 'good' : s.yards.some((y) => y.cityId === (bus.parkedCityId ?? s.company.homeCityId)) ? 'info' : 'warn'}>
-                📍 {cityName(bus.parkedCityId ?? s.company.homeCityId)} {(bus.parkedCityId ?? s.company.homeCityId) === s.company.homeCityId ? '(Home Depot)' : s.yards.some((y) => y.cityId === (bus.parkedCityId ?? s.company.homeCityId)) ? '(Leased Yard)' : '(Outstation / Bay)'}
+                {cityName(bus.parkedCityId ?? s.company.homeCityId)} {(bus.parkedCityId ?? s.company.homeCityId) === s.company.homeCityId ? '(Home Depot)' : s.yards.some((y) => y.cityId === (bus.parkedCityId ?? s.company.homeCityId)) ? '(Leased Yard)' : '(Outstation / Bay)'}
               </span>
               )
             )],
@@ -253,7 +253,7 @@ export function BusDetailPage() {
                       {sch ? (
                         <span className="dim">
                           {' · '}
-                          {isFest && <span title="Festival schedule" style={{ marginRight: 3 }}>🎉</span>}
+                          {isFest && <span title="Festival schedule" style={{ marginRight: 3 }}></span>}
                           {routeName(sch.routeId)} {fmtClock(sch)}
                         </span>
                       ) : null}
@@ -283,12 +283,64 @@ export function BusDetailPage() {
                       : 'Festival schedule'
                     return (
                       <Link to={`/schedules?sch=${sch.id}`} title={isFest ? festTitle : 'Open schedule'}>
-                        {isFest && <span style={{ marginRight: 4 }} title={festTitle}>🎉</span>}
+                        {isFest && <span style={{ marginRight: 4 }} title={festTitle}></span>}
                         {displayName} {fmtClock(sch)}
                       </Link>
                     )
                   })()
-                : <span className="warn">idle</span>],
+                : bus.duty === 'charter' ? (() => {
+                  const activeChtr = (s.charterContracts ?? []).find(
+                    (c) => c.busId === bus.id && (c.status === 'active' || c.status === 'booked'),
+                  )
+                  if (activeChtr) {
+                    const isRunning = activeChtr.status === 'active'
+                    return (
+                      <div>
+                        <div className="row gap6">
+                          <span className={`pill small ${isRunning ? 'accent' : 'info'}`} style={{ fontWeight: 600 }}>
+                            {isRunning ? '● On Tour' : '⏳ Booked Tour'}
+                          </span>
+                          <span className="bold">{activeChtr.title}</span>
+                        </div>
+                        <div className="small dim mt2">
+                          Client: <b>{activeChtr.clientName}</b> · {activeChtr.destinationName} ({activeChtr.roundTripKm} km)
+                        </div>
+                        <div className="small good mt2 font-semibold">
+                          Day {activeChtr.currentDayProgress} of {activeChtr.durationDays} · Returns {fmtDate(activeChtr.endDay)} · Payout: {fmtCompact(activeChtr.payout)}
+                        </div>
+                      </div>
+                    )
+                  }
+                  return (
+                    <span className="pill small info bold">
+                      Charter Duty (Available for Hire)
+                    </span>
+                  )
+                })() : (
+                  <span className="warn">idle</span>
+                )],
+              ['Duty Roster', (
+                <div className="row gap wrap">
+                  <span className={`pill small ${bus.duty === 'charter' ? 'info' : 'good'}`}>
+                    {bus.duty === 'charter' ? 'Charter Operations' : 'Scheduled Line Service'}
+                  </span>
+                  {!bus.scheduleId && bus.status === 'active' && !isCharterModel(bus.modelId) && (
+                    <button
+                      className="small dim"
+                      onClick={() => {
+                        const targetDuty = bus.duty === 'charter' ? 'line' : 'charter'
+                        g.setBusDuty(bus.id, targetDuty)
+                      }}
+                      title={bus.duty === 'charter' ? 'Return to scheduled line pool' : 'Dedicate exclusively to Charter & Special Hire contracts'}
+                    >
+                      {bus.duty === 'charter' ? 'Switch to Line' : 'Dedicate to Charter'}
+                    </button>
+                  )}
+                  {isCharterModel(bus.modelId) && (
+                    <span className="dim small">Dedicated Charter Carrier</span>
+                  )}
+                </div>
+              )],
               ...(bus.impoundUntilDay !== undefined && bus.impoundUntilDay > s.day ? [
               ['RTO Impound', <span className="bad">Impounded at checkpost until {fmtDate(bus.impoundUntilDay)}</span>] as [string, React.ReactNode]
             ] : []),
@@ -355,7 +407,7 @@ export function BusDetailPage() {
                             onClick={() => g.serviceBus(bus.id, tier)}
                             disabled={!isOverdue || bus.status === 'workshop' || deferred}
                             title={deferred
-                              ? `Festival hold — scheduled coach keeps running; workshop booking opens after ${resume ? `day ${resume}` : 'the festival + 3 days'}`
+                              ? `Festival hold — scheduled coach keeps running; workshop booking opens after ${resume ? fmtDate(resume) : 'the festival + 3 days'}`
                               : isOverdue
                               ? `Service coach (${tier.toUpperCase()}-tier, ${q.days}d in ${q.outside ? 'outside garage' : 'workshop'})`
                               : 'Service is not due yet'}
@@ -365,7 +417,7 @@ export function BusDetailPage() {
                         )}
                         {deferred && (
                           <span className="dim" title="Scheduled coaches are not pulled into the workshop on festival dates; the service stays due until 3 days after the festival ends.">
-                            festival hold{resume ? ` · day ${resume}` : ''}
+                            festival hold{resume ? ` · ${fmtDateShort(resume)}` : ''}
                           </span>
                         )}
                         <span className={isOverdue ? 'bad' : 'good'}>
@@ -391,7 +443,7 @@ export function BusDetailPage() {
                   <span className={(bus.busCleanliness ?? 85) >= 70 ? 'good' : (bus.busCleanliness ?? 85) >= 40 ? 'warn' : 'bad'}>
                     {Math.round(bus.busCleanliness ?? 85)}/100
                     {cond && (
-                      <span className="dim small" style={{ marginLeft: 6 }}>
+                      <span className="dim small ml6">
                         ({cond.name} {cond.skill}★ {target > 0 ? `· target ${target}` : '· no deep clean'})
                       </span>
                     )}
@@ -697,7 +749,7 @@ export function BusDetailPage() {
           {!ownerPaysService(bus) && !isCargoModel(model) && (
             <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
               <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: 8 }}>Re-body & Coach Refurbishment</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="stack10">
                 {/* Re-body trigger */}
                 {(() => {
                   const rebodyAvg = Math.round((bus.condition.body + bus.condition.ac + bus.condition.electrical) / 3)
@@ -708,7 +760,7 @@ export function BusDetailPage() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div className="row gap">
                             <span style={{ fontWeight: 500 }}>Re-body</span>
                             <span className={rebodyAvg >= 75 ? 'good small' : rebodyAvg >= 50 ? 'warn small' : 'bad small'} style={{ fontWeight: 600 }}>
                               <Bar value={rebodyAvg / 100} tone="auto" width={6} /> {rebodyAvg}%
@@ -716,7 +768,7 @@ export function BusDetailPage() {
                           </div>
                           <div className="dim small" style={{ marginTop: 2 }}>
                             {bus.refurbishedDay !== undefined
-                              ? `Already re-bodied on day ${bus.refurbishedDay} (+${bus.lifeExtensionYears ?? 0}y useful life)`
+                              ? `Already re-bodied on ${fmtDate(bus.refurbishedDay)} (+${bus.lifeExtensionYears ?? 0}y useful life)`
                               : 'Resets body / AC / electrical to 90 and adds 5y useful life (scores above)'}
                           </div>
                         </div>
@@ -782,7 +834,7 @@ export function BusDetailPage() {
                   return (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="row gap">
                           <span style={{ fontWeight: 500 }}>Seat Refurbishment</span>
                           <span className={seatComfortPct >= 75 ? 'good small' : seatComfortPct >= 50 ? 'warn small' : 'bad small'} style={{ fontWeight: 600 }}>
                             <Bar value={seatComfortPct / 100} tone="auto" width={6} /> {seatComfortPct}%
@@ -820,6 +872,87 @@ export function BusDetailPage() {
                   )
                 })()}
 
+                {/* Powertrain Overhaul */}
+                {(() => {
+                  const qPowertrain = quotePowertrainOverhaul(s, bus)
+                  const engineCond = bus.condition.engine
+                  const gearboxCond = bus.condition.gearbox
+                  const powertrainAvg = Math.round((engineCond + gearboxCond) / 2)
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div className="row gap">
+                          <span style={{ fontWeight: 500 }}>Powertrain Rebuild</span>
+                          <span className={powertrainAvg >= 75 ? 'good small' : powertrainAvg >= 50 ? 'warn small' : 'bad small'} style={{ fontWeight: 600 }}>
+                            <Bar value={powertrainAvg / 100} tone="auto" width={6} /> {powertrainAvg}%
+                          </span>
+                        </div>
+                        <div className="dim small" style={{ marginTop: 2 }}>
+                          {bus.powertrainOverhaulDay
+                            ? `Overhauled on ${fmtDate(bus.powertrainOverhaulDay)} (+10% fuel economy · -50% breakdown risk)`
+                            : 'Strips block, pistons & turbo: resets engine & gearbox to 98% · +10% fuel mileage'}
+                        </div>
+                      </div>
+                      <div>
+                        {bus.ownership !== 'owned' ? (
+                          <span className="dim small">owned only</span>
+                        ) : (
+                          <button
+                            className="small"
+                            onClick={() => g.overhaulPowertrain(bus.id)}
+                            disabled={bus.status !== 'active'}
+                            title={`${qPowertrain.days}d in Central Workshop — precision engine & transmission rebuild`}
+                          >
+                            Overhaul Powertrain ({fmtCompact(qPowertrain.cost)} · {qPowertrain.days}d)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Luxury Amenities & Air Suspension Retrofit */}
+                {(() => {
+                  const qLuxury = quoteLuxuryRetrofit(s, bus)
+                  return (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div className="row gap">
+                          <span style={{ fontWeight: 500 }}>Luxury Amenities & Air-Suspension</span>
+                          {bus.airSuspensionFitted && <span className="pill good small">Air-Ride</span>}
+                        </div>
+                        <div className="dim small" style={{ marginTop: 2 }}>
+                          {bus.airSuspensionFitted
+                            ? 'Fitted with individual HD screens, 45W Type-C fast-chargers & pneumatic air suspension'
+                            : 'Retrofits seatback entertainment screens, Type-C 45W ports & pneumatic air bellows'}
+                        </div>
+                      </div>
+                      <div>
+                        {bus.ownership !== 'owned' ? (
+                          <span className="dim small">owned only</span>
+                        ) : bus.airSuspensionFitted ? (
+                          <span className="good small">fitted</span>
+                        ) : (
+                          <button
+                            className="small"
+                            onClick={() => g.retrofitLuxuryAmenities(bus.id)}
+                            disabled={bus.status !== 'active'}
+                            title={`${qLuxury.days}d in Central Workshop — screens, fast charging & air suspension`}
+                          >
+                            Retrofit Luxury ({fmtCompact(qLuxury.cost)} · {qLuxury.days}d)
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                  <Link to="/workshop" className="small accent font-semibold">
+                    Open Central Workshop Mid-Life Studio →
+                  </Link>
+                </div>
+
                 {/* In-Cabin Tech & Safety Retrofits */}
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-dim)', marginBottom: 8 }}>
@@ -839,7 +972,7 @@ export function BusDetailPage() {
                           </div>
                           <div style={{ flexShrink: 0 }}>
                             {fitted ? (
-                              <span className="pill good small">✓ Fitted</span>
+                              <span className="pill good small">Fitted</span>
                             ) : bus.ownership !== 'owned' ? (
                               <span className="dim small">owned only</span>
                             ) : (
@@ -887,9 +1020,7 @@ export function BusDetailPage() {
                   <SlotRow busId={bus.id} role="conductor" label="Conductor" slots={crewLimit(s, bus, 'conductor')} />
                 </tbody>
               </table>
-              <div className="dim small" style={{ marginTop: 6 }}>
-                CMVR: a leg over 10h needs 2 drivers. One driver can cover up to 13h in a day. Paired schedules (2 trips/day) require 2 drivers (one per trip) and 2 conductors. After a night departure crew members rest until 8:00.
-              </div>
+              <Hint text={"CMVR: a leg over 10h needs 2 drivers. One driver can cover up to 13h in a day. Paired schedules (2 trips/day) require 2 drivers (one per trip) and 2 conductors. After a night departure crew members rest until 8:00."} />
             </>
           )}
 
@@ -901,7 +1032,7 @@ export function BusDetailPage() {
             const rebrandFee = canRebrand && doRebrand ? BAL.rebrandCost : 0
             const afford = rebrandFee <= 0 || canAfford(s, rebrandFee)
             return (
-              <div style={{ marginBottom: 12 }}>
+              <div className="mb12">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <GroupBadge group={bus.groupId && s.groups ? s.groups[bus.groupId] : undefined} />
                   <select
@@ -926,7 +1057,7 @@ export function BusDetailPage() {
                       const newName = nextGid && s.groups?.[nextGid] ? s.groups[nextGid].name : 'Unassigned'
                       const err = g.assignBusToGroup(bus.id, nextGid, { chargeRebrand: rebrandFee > 0 })
                       if (err) {
-                        pushLog(s, 'warn', err)
+                        pushLog(s, 'alert', err)
                         return
                       }
                       setDoRebrand(false)

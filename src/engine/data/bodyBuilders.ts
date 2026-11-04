@@ -307,7 +307,7 @@ export function bodyPackagePriceRange(
 /** Check if this chassis model supports custom body designs (Ashok Leyland & BharatBenz passenger coaches). */
 export function modelSupportsBodyDesigns(modelOrId: BusModel | string | undefined): boolean {
   const model = typeof modelOrId === 'string' ? BUS_MODELS[modelOrId] : modelOrId
-  if (!model || model.isCargoOnly || isCargoModel(model)) return false
+  if (!model || model.isCargoOnly || isCargoModel(model) || model.isCharterOnly) return false
   return model.maker === 'Ashok Leyland' || model.maker === 'BharatBenz'
 }
 

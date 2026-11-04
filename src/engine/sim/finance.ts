@@ -264,6 +264,12 @@ const FOLDED_HEADS: ReadonlySet<string> = new Set([
 ])
 
 export function pushTxn(s: GameState, t: Omit<Txn, 'id'>): void {
+  // Every posting that names a bus carries that bus's brand, so charter and other
+  // non-route income can still be rolled up per subsidiary.
+  if (t.busId && !t.groupId) {
+    const gid = s.buses[t.busId]?.groupId
+    if (gid) t = { ...t, groupId: gid }
+  }
   // Fold same-day ticket postings that share an identity (head + refs).
   // A 20-coach day posts hundreds of per-batch sale rows; keeping each one is
   // pure history — totals are identical after folding, and the ledger stays
@@ -680,7 +686,7 @@ export function settleAttachOwnerCash(
   ownerShare: number,
   refs: TxnRefs = {},
 ): void {
-  const { fullShare, tds, payout } = attachShareParts(tripRevenue, ownerShare)
+  const { tds, payout } = attachShareParts(tripRevenue, ownerShare)
   if (payout <= 0) return
 
   let payable = s.company.attachOwnerPayable ?? 0
@@ -759,7 +765,7 @@ export function receivablesTotal(s: GameState): Money {
 }
 
 export function fleetBookValue(s: GameState): Money {
-  return Object.values(s.buses).reduce((a, b) => a + (b.ownership === 'owned' ? b.bookValue : 0), 0)
+  return Object.values(s.buses).reduce((a, b) => a + (b.ownership === 'owned' ? (b.bookValue ?? 0) : 0), 0)
 }
 
 /**

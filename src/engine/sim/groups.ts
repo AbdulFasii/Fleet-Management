@@ -91,7 +91,9 @@ export function createGroup(
   const color = input.color ?? GROUP_PALETTE[Object.keys(s.groups).length % GROUP_PALETTE.length]
   const cargoBrand = Boolean(input.cargoBrand)
   const brandingPic =
-    input.brandingPic && input.brandingPic.startsWith('data:image/') ? input.brandingPic : undefined
+    input.brandingPic && (input.brandingPic.startsWith('data:image/') || /^https?:\/\//i.test(input.brandingPic))
+      ? input.brandingPic
+      : undefined
 
   const newGroup: BusGroup = {
     id,
@@ -121,6 +123,22 @@ export function createGroup(
   return { id }
 }
 
+/** Find all child/grandchild descendant IDs for a brand group to prevent circular hierarchy loops. */
+export function getDescendantGroupIds(groups: Record<ID, BusGroup>, groupId: ID): Set<ID> {
+  const descendants = new Set<ID>()
+  const queue = [groupId]
+  while (queue.length > 0) {
+    const curr = queue.shift()!
+    for (const g of Object.values(groups)) {
+      if (g.parentGroupId === curr && !descendants.has(g.id)) {
+        descendants.add(g.id)
+        queue.push(g.id)
+      }
+    }
+  }
+  return descendants
+}
+
 export function updateGroup(
   s: GameState,
   id: ID,
@@ -146,13 +164,28 @@ export function updateGroup(
     patch.name = name
   }
 
+  if (patch.parentGroupId !== undefined) {
+    if (patch.parentGroupId === id) {
+      return 'A brand cannot be its own parent.'
+    }
+    if (patch.parentGroupId) {
+      const descendants = getDescendantGroupIds(s.groups ?? {}, id)
+      if (descendants.has(patch.parentGroupId)) {
+        return 'Cannot set a sub-brand as the parent (circular hierarchy).'
+      }
+    }
+  }
+
   if (patch.brandingPic !== undefined && patch.brandingPic !== '') {
-    if (!patch.brandingPic.startsWith('data:image/')) return 'Invalid branding picture.'
+    if (!patch.brandingPic.startsWith('data:image/') && !/^https?:\/\//i.test(patch.brandingPic)) {
+      return 'Invalid branding picture.'
+    }
   }
 
   Object.assign(g, patch)
   if (!g.brandingPic) delete g.brandingPic
   if (!g.parentGroupId) delete g.parentGroupId
+  if (g.gallery && g.gallery.length === 0) delete g.gallery
   return null
 }
 
@@ -228,7 +261,7 @@ export function deleteGroup(s: GameState, id: ID): string | null {
     }
   }
 
-  delete s.groups[id]
+  if (s.groups) delete s.groups[id]
   return null
 }
 

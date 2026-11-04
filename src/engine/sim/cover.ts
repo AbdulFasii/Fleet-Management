@@ -6,7 +6,7 @@
  * then returns when cover ends.
  */
 import { BAL } from '../data/balance'
-import { BUS_MODELS } from '../data/busModels'
+import { BUS_MODELS, isCharterModel } from '../data/busModels'
 import { ROUTES } from '../data/routes'
 import type { Bus, BusDuty, GameState, ID, Staff, Trip } from '../types'
 import { spend } from './finance'
@@ -212,7 +212,7 @@ function pickIdleClassMatched(s: GameState, down: Bus): Bus | undefined {
     if (b.id === down.id) return false
     if (!isIdleCoverCandidate(b)) return false
     // Never pull a spare from another subsidiary brand.
-    if ((b.groupId ?? null) !== downBrand) return false
+    if (s.config?.autoCoverPolicy !== 'any' && (b.groupId ?? null) !== downBrand) return false
     const m = BUS_MODELS[b.modelId]
     return m?.cls === cls && m.seats >= need
   })
@@ -227,6 +227,7 @@ function pickIdleClassMatched(s: GameState, down: Bus): Bus | undefined {
 
 export function tryCoverBus(s: GameState, downId: ID): Bus | undefined {
   if (!fleetManagerOnDuty(s)) return undefined
+  if (s.config?.autoCoverPolicy === 'off') return undefined
   const down = s.buses[downId]
   if (!down || down.ownership === 'attached') return undefined
   if (down.coveringBusId) return undefined // this bus is itself covering someone
@@ -246,14 +247,38 @@ export function tryCoverBus(s: GameState, downId: ID): Bus | undefined {
   return spare
 }
 
-/** Legacy: spare duty is no longer used — idle buses cover automatically. */
+/** Switch bus duty between regular line and dedicated charter operations. */
 export function setBusDuty(s: GameState, busId: ID, duty: BusDuty): string | null {
   const bus = s.buses[busId]
   if (!bus) return 'No such bus.'
   if (duty === 'spare') {
-    return 'No need — any idle same-class bus covers automatically when a line bus is in the shop.'
+    return 'No need — any idle line coach covers automatically when another is in the workshop.'
   }
   if (bus.coveringBusId) return 'Wait until this bus is finished covering.'
+
+  if (duty === 'charter') {
+    if (bus.scheduleId) {
+      return 'Cannot switch to charter duty while bus is assigned to a schedule. Unassign from timetable first.'
+    }
+    bus.duty = 'charter'
+    return null
+  }
+
+  // duty === 'line'
+  if (bus.duty === 'charter') {
+    if (isCharterModel(bus.modelId)) {
+      return 'This vehicle is a dedicated charter van/coach and cannot be assigned to line service.'
+    }
+    const hasContract = (s.charterContracts ?? []).some(
+      (c) => c.busId === busId && (c.status === 'booked' || c.status === 'active'),
+    )
+    if (hasContract) {
+      return 'Cannot return to line duty while an active or booked charter contract is assigned.'
+    }
+    bus.duty = 'line'
+    return null
+  }
+
   bus.duty = 'line'
   return null
 }

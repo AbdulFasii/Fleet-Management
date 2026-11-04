@@ -4,7 +4,7 @@
  * (third-party) buses on revenue share, resale.
  */
 import { BAL } from '../data/balance'
-import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, VOLVO_9600_IDS, REMOVED_CHASSIS_MODEL_IDS, isCargoModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
+import { BUS_MODELS, MODEL_LIST, NO_NEW_ORDER_IDS, VOLVO_9600_IDS, REMOVED_CHASSIS_MODEL_IDS, isCargoModel, isCharterModel, marketAgeRange, marketOdoBand, marketOdometer, modelTitle } from '../data/busModels'
 import { BUS_NICKNAMES } from '../data/names'
 import { nextId, makeRegistration } from '../core/ids'
 import { daysInMonth, fromCivil, toCivil } from '../core/calendar'
@@ -595,7 +595,7 @@ function addBus(s: GameState, o: CreateBusOpts): Bus {
     rearTyreKm: Math.round(o.odometer % BAL.tyreLifeKm * 0.6),
     frontBrand: 'oem',
     rearBrand: 'oem',
-    tyreCount: (model.cls === 'sleeper' || model.sleeper || model.layout?.kind === 'sleeper' || model.layout?.kind === 'hybrid' || model.cls === 'AC_HYBRID' || model.cls === 'AC_SLEEPER') ? 10 : 6,
+    tyreCount: (model.sleeper || model.layout?.kind === 'sleeper' || model.layout?.kind === 'hybrid' || model.cls === 'AC_HYBRID' || model.cls === 'AC_SLEEPER') ? 10 : 6,
     lastServiceOdo: Math.max(0, o.odometer - rInt(rng, 0, BAL.serviceIntervalKm)),
     lastMajorServiceOdo: Math.max(0, o.odometer - rInt(rng, 0, BAL.serviceTiers.b.intervalKm)),
     lastOverhaulDay: s.day - rInt(rng, 0, 300),
@@ -609,7 +609,7 @@ function addBus(s: GameState, o: CreateBusOpts): Bus {
     parkedCityId: s.company.homeCityId,
     cargoVolumeCbm: model?.cargoVolumeCbm ?? (model ? (model.seats < 30 ? 4 : model.seats < 45 ? 8 : 12) : 8),
     status: 'active',
-    duty: 'line',
+    duty: isCharterModel(model) ? 'charter' : 'line',
     accidentHistory: o.accidentHistory ?? false,
     busCleanliness: 90,
     loanId: o.loanId,
@@ -723,6 +723,14 @@ export function effectiveNewPrice(s: GameState, modelId: string, bodyDesignId?: 
   return Math.max(0, price)
 }
 
+/** Cash purchases must leave at least the player's reserve. Financed purchases are unaffected. */
+function reserveBlock(s: GameState, price: Money, financed: boolean): string | null {
+  const reserve = s.config?.emergencyReserveBuffer ?? 0
+  if (financed || reserve <= 0) return null
+  if (s.company.cash - price >= reserve) return null
+  return `That would leave less than your ${fmtCompact(reserve)} cash reserve. Lower the reserve in Settings or finance the purchase.`
+}
+
 export function orderNewBus(
   s: GameState,
   modelId: string,
@@ -756,6 +764,8 @@ export function orderNewBus(
   }
 
   const price = effectiveNewPrice(s, modelId, design?.id)
+  const blocked = reserveBlock(s, price, Boolean(plan.loanProductId))
+  if (blocked) return blocked
   const leadTimeDays = composeLeadTime(model, design)
   const orderId = nextId(s.ids, 'ord')
   let loanId: ID | undefined
@@ -829,6 +839,8 @@ export function inspectListing(s: GameState, listingId: ID): string | null {
 export function buyUsed(s: GameState, listingId: ID, plan: FinancePlan, groupId?: ID): string | null {
   const l = s.usedMarket.find((x) => x.id === listingId)
   if (!l) return 'Listing gone.'
+  const blocked = reserveBlock(s, l.askPrice, Boolean(plan.loanProductId))
+  if (blocked) return blocked
   let loanId: ID | undefined
   if (plan.loanProductId) {
     const loan = createLoan(s, plan.loanProductId, l.askPrice, plan.months ?? 36)

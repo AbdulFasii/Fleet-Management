@@ -114,7 +114,7 @@ export function syncRouteShare(s: GameState, routeId: string): void {
  * Compares player fare, comfort, punctuality, and awareness against each rival.
  * Moves 0.2 to 0.8 percentage points. KSRTC moves at 0.4x. Renormalizes to 100%.
  */
-export function dailyRivalPass(s: GameState, rng: Rng): void {
+export function dailyRivalPass(s: GameState, _rng: Rng): void {
   const w = s.world
   if (!w.rivals) w.rivals = { ...RIVALS_DATA }
   if (!w.share) w.share = {}

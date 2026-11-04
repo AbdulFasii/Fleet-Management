@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from 'react'
 import { useGame } from '../../store/gameStore'
-import { fmtYm, fmtDateShort, ymKey } from '../../engine/core/calendar'
+import { fmtDate, fmtDateShort, fmtYm, ymKey } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
 import { calcGstDue, incomeTaxOn } from '../../engine/sim/tax'
 import { BAL } from '../../engine/data/balance'
@@ -14,7 +14,7 @@ import {
   getMonthlyFuelBreakdown,
 } from '../../engine/sim/finance'
 import type { MonthlySummary, Txn, TxnHead } from '../../engine/types'
-import { M, Panel } from '../bits'
+import { M, Panel, StatRow, Tabs, PageHeader } from '../bits'
 import { BankPage } from './Bank'
 
 const INCOME_LABELS: Partial<Record<TxnHead, string>> = {
@@ -162,7 +162,7 @@ function PnlPanel() {
                 )}
                 <b><M v={curTicketBd.channels.redbus.revenue} /></b>
                 {curTicketBd.gross > 0 && curTicketBd.channels.redbus.revenue > 0 && (
-                  <span className="dim small" style={{ marginLeft: 6 }}>
+                  <span className="dim small ml6">
                     ({Math.round((curTicketBd.channels.redbus.revenue / curTicketBd.gross) * 100)}%)
                   </span>
                 )}
@@ -177,7 +177,7 @@ function PnlPanel() {
                 )}
                 <b><M v={curTicketBd.channels.abhibus.revenue} /></b>
                 {curTicketBd.gross > 0 && curTicketBd.channels.abhibus.revenue > 0 && (
-                  <span className="dim small" style={{ marginLeft: 6 }}>
+                  <span className="dim small ml6">
                     ({Math.round((curTicketBd.channels.abhibus.revenue / curTicketBd.gross) * 100)}%)
                   </span>
                 )}
@@ -192,7 +192,7 @@ function PnlPanel() {
                 )}
                 <b><M v={curTicketBd.channels.ownapp.revenue} /></b>
                 {curTicketBd.gross > 0 && curTicketBd.channels.ownapp.revenue > 0 && (
-                  <span className="dim small" style={{ marginLeft: 6 }}>
+                  <span className="dim small ml6">
                     ({Math.round((curTicketBd.channels.ownapp.revenue / curTicketBd.gross) * 100)}%)
                   </span>
                 )}
@@ -207,7 +207,7 @@ function PnlPanel() {
                 )}
                 <b><M v={curTicketBd.channels.counter.revenue} /></b>
                 {curTicketBd.gross > 0 && curTicketBd.channels.counter.revenue > 0 && (
-                  <span className="dim small" style={{ marginLeft: 6 }}>
+                  <span className="dim small ml6">
                     ({Math.round((curTicketBd.channels.counter.revenue / curTicketBd.gross) * 100)}%)
                   </span>
                 )}
@@ -277,7 +277,7 @@ function PnlPanel() {
               <b><M v={s.company.gstPayable ?? 0} /></b>
             </div>
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim">Input Tax Credit Balance (5% on diesel/energy):</span>
+              <span className="dim" title="5% on diesel and energy">Input tax credit balance:</span>
               <span className="good"><b><M v={s.company.gstInputCredit ?? 0} /></b></span>
             </div>
             {s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' && (
@@ -298,8 +298,8 @@ function PnlPanel() {
               <span className="small dim">
                 {s.company.gstDueDay !== undefined
                   ? s.day > s.company.gstDueDay
-                    ? <span className="bad">OVERDUE (due Day {s.company.gstDueDay}, 1%/mo penalty)</span>
-                    : `Due on Day ${s.company.gstDueDay}`
+                    ? <span className="bad">OVERDUE (due {fmtDate(s.company.gstDueDay)}, 1%/mo penalty)</span>
+                    : `Due ${fmtDate(s.company.gstDueDay)}`
                   : 'Due within 7 days of month-end close'}
               </span>
               <button
@@ -328,7 +328,7 @@ function PnlPanel() {
               <span className="dim">Advance Income Tax Provided ({Math.round(BAL.incomeTaxRate * 100)}%):</span>
               <span>
                 <b><M v={provided} /></b>
-                <span className="dim small" style={{ marginLeft: 6 }}>
+                <span className="dim small ml6">
                   (Next close: <M v={nextProvision} />{chargedAtClose > 0 ? <> · Last close: <M v={chargedAtClose} /></> : ''})
                 </span>
               </span>
@@ -337,8 +337,8 @@ function PnlPanel() {
               <span className="small dim">
                 {s.company.tdsDueDay !== undefined
                   ? s.day > s.company.tdsDueDay
-                    ? <span className="bad">TDS OVERDUE (due Day {s.company.tdsDueDay})</span>
-                    : `TDS due Day ${s.company.tdsDueDay}`
+                    ? <span className="bad">TDS OVERDUE (due {fmtDate(s.company.tdsDueDay)})</span>
+                    : `TDS due ${fmtDate(s.company.tdsDueDay)}`
                   : 'TDS due quarterly'}
               </span>
               <button
@@ -355,7 +355,7 @@ function PnlPanel() {
 
       {/* Multi-Month P&L Comparative Statement */}
       <Panel flat title="Comparative Profit & Loss Statement (Trailing 5 Months + Live Current Month)">
-        <div style={{ overflowX: 'auto' }}>
+        <div className="xscroll">
           <table className="data">
             <thead>
               <tr>
@@ -429,7 +429,7 @@ function PnlPanel() {
                               {months.map((m) => {
                                 const bd = getMonthlyFuelBreakdown(s, m)
                                 return (
-                                  <td key={m.ym} className="num good small" style={{ fontWeight: 600 }}>
+                                  <td key={m.ym} className="num good small bold">
                                     {bd.cashback > 0 ? (
                                       <>
                                         +<M v={bd.cashback} />
@@ -455,7 +455,7 @@ function PnlPanel() {
                               {months.map((m) => {
                                 const bd = getMonthlyFuelBreakdown(s, m)
                                 return (
-                                  <td key={m.ym} className="num small" style={{ fontWeight: 600 }}>
+                                  <td key={m.ym} className="num small bold">
                                     {bd.gross > 0 ? <M v={-bd.net} /> : <span className="faint">—</span>}
                                   </td>
                                 )
@@ -588,9 +588,9 @@ function BooksPanel() {
     <>
       <div className="flex" style={{ marginBottom: 12, gap: 6 }}>
         {([
-          ['bs', '⚖️ Balance Sheet'],
-          ['cf', '💵 Cash Flow Statement'],
-          ['ledger', '📒 General Ledger'],
+          ['bs', 'Balance Sheet'],
+          ['cf', 'Cash Flow Statement'],
+          ['ledger', 'General Ledger'],
         ] as const).map(([id, label]) => (
           <button key={id} className={`small ${bookTab === id ? 'primary' : ''}`} onClick={() => setBookTab(id)}>
             {label}
@@ -642,7 +642,7 @@ function BooksPanel() {
 
       {bookTab === 'cf' && (
         <Panel flat title="Cash Flow Statement (Activity Breakdown)">
-          <div style={{ overflowX: 'auto' }}>
+          <div className="xscroll">
             <table className="data">
               <thead>
                 <tr>
@@ -707,7 +707,7 @@ function BooksPanel() {
             </div>
           }
         >
-          <div style={{ overflowX: 'auto' }}>
+          <div className="xscroll">
             <table className="data">
               <thead>
                 <tr>
@@ -760,75 +760,23 @@ export function MoneyPage() {
   return (
     <>
       {/* Top Page Header */}
-      <div className="page-title">
-        <span>Money & Financial Control</span>
-        <span className="sub">Executive Treasury · P&L Statement · Banking & Loans · Books</span>
-        <span className="spacer" />
-        <span className="flex" style={{ gap: 6 }}>
-          {([
-            ['ops', '📊 Profit & Loss (P&L)'],
-            ['bank', '🏦 Banking & Loans'],
-            ['books', '⚖️ Balance Sheet & Books'],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              className={`small ${tab === id ? 'primary' : ''}`}
-              onClick={() => setTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
+      <PageHeader title="Money">
+        <Tabs inline tabs={[
+            ['ops', 'Profit & Loss (P&L)'],
+            ['bank', 'Banking & Loans'],
+            ['books', 'Balance Sheet & Books'],
+          ] as const} value={tab} onChange={setTab} />
+      </PageHeader>
 
-      {/* Executive Treasury Strip */}
-      <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Cash Treasury Balance</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className={s.company.cash < 0 ? 'bad' : 'good'}>
-              <M v={s.company.cash} full />
-            </span>
-          </div>
-          <div className="small dim">
-            {s.od.limit > 0 ? (
-              <span>OD Drawn: <M v={s.od.drawn} /> / <M v={s.od.limit} /></span>
-            ) : (
-              <span>No overdraft facility</span>
-            )}
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Receivables (T+2 Settlements)</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className="good"><M v={receivables} full /></span>
-          </div>
-          <div className="small dim">
-            RedBus, AbhiBus & PG clearing
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Live Month Net Profit</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <M v={s.curMonth.profit} colored full />
-          </div>
-          <div className="small dim">
-            Gross Rev: <M v={s.curMonth.revenueTotal} /> · {s.curMonth.trips} trips
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Company Net Worth (Equity)</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className="accent"><M v={equity} full /></span>
-          </div>
-          <div className="small dim">
-            Credit Score: <b>{s.company.creditScore}</b> (CIBIL / Experian)
-          </div>
-        </div>
-      </div>
+      <StatRow
+        items={[
+          { label: 'Cash', value: <M v={s.company.cash} />, tone: s.company.cash < 0 ? 'bad' : 'good', title: s.od.limit > 0 ? `Overdraft ${fmtCompact(s.od.drawn)} of ${fmtCompact(s.od.limit)}` : 'No overdraft facility' },
+          { label: 'Receivables', value: <M v={receivables} />, title: 'T+2 settlements from RedBus, AbhiBus and payment gateways' },
+          { label: 'Month profit', value: <M v={s.curMonth.profit} colored />, title: `Revenue ${fmtCompact(s.curMonth.revenueTotal)} · ${s.curMonth.trips} trips` },
+          { label: 'Net worth', value: <M v={equity} />, tone: 'accent' },
+          { label: 'Credit score', value: s.company.creditScore },
+        ]}
+      />
 
       {/* Main Sub-View */}
       {tab === 'ops' && <PnlPanel />}

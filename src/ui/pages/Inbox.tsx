@@ -3,6 +3,7 @@ import { useGame } from '../../store/gameStore'
 import { fmtDate } from '../../engine/core/calendar'
 import { ACHIEVEMENT_DEFS } from '../../engine/sim/reputation'
 import type { LogCat } from '../../engine/types'
+import { Link } from 'react-router-dom'
 import { Panel } from '../bits'
 
 type FilterCat = 'all' | 'alert' | 'finance' | 'event' | 'good' | 'info' | 'trip'
@@ -56,8 +57,8 @@ export function InboxPage() {
   return (
     <>
       <div className="page-title">
-        Inbox & Notifications
-        <span className="sub">Retained for past 30 days ({s.inbox.length} entries · {unreadCount} unread)</span>
+        Inbox
+        <span className="sub" title="Messages are kept for 30 days">{s.inbox.length} messages · {unreadCount} unread</span>
         <span className="spacer" />
         <button
           className="small"
@@ -122,7 +123,7 @@ export function InboxPage() {
                       <td className="nowrap dim small">
                         {isUnread && <span style={{ color: 'var(--accent)', marginRight: 4 }}>●</span>}
                         <b style={{ color: isUnread ? 'var(--accent)' : 'var(--text-main)' }}>{fmtDate(m.day)}</b>
-                        <span className="dim" style={{ marginLeft: 6 }}>
+                        <span className="dim ml6">
                           {m.day === s.day ? '(today)' : `(Day ${m.day - s.startDay + 1})`}
                         </span>
                       </td>
@@ -134,6 +135,9 @@ export function InboxPage() {
                       <td className={`log-cat-${m.cat}`} style={{ lineHeight: 1.45, fontSize: '0.92rem' }}>
                         <div style={{ fontWeight: isUnread ? 600 : 400 }}>
                           {m.text.length > 90 && !isExpanded ? `${m.text.slice(0, 87)}...` : m.text}
+                          {m.link && (
+                            <Link to={m.link} className="small" style={{ marginLeft: 8 }} onClick={(e) => e.stopPropagation()}>Open ›</Link>
+                          )}
                         </div>
                         {isExpanded && (
                           <div
@@ -149,7 +153,7 @@ export function InboxPage() {
                             }}
                           >
                             <div style={{ marginBottom: 4, fontSize: '0.75rem' }} className="dim">
-                              Ref: {m.id} · Cat: {m.cat.toUpperCase()} · Day: {m.day}
+                              Ref: {m.id} · Cat: {m.cat.toUpperCase()} · {fmtDate(m.day)}
                             </div>
                             {m.text}
                           </div>
@@ -174,7 +178,14 @@ export function InboxPage() {
                       <td className={day !== undefined ? 'good' : 'faint'}>
                         {day !== undefined ? '★' : '☆'} {a.label}
                       </td>
-                      <td className="num dim small">{day !== undefined ? fmtDate(day) : ''}</td>
+                      <td className="num dim small">
+                        {day !== undefined ? fmtDate(day) : (() => {
+                          const p = a.progress?.(s)
+                          if (!p) return ''
+                          const f = p.fmt ?? ((v: number) => String(Math.round(v)))
+                          return `${f(p.current)} / ${f(p.target)}`
+                        })()}
+                      </td>
                     </tr>
                   )
                 })}

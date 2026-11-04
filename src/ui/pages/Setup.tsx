@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { fmtDate } from '../../engine/core/calendar'
 import { useGame } from '../../store/gameStore'
+import { listCloudSaves, type CloudSaveHeader } from '../../store/cloudGameSave'
 import { DIFFICULTIES } from '../../engine/data/balance'
 import { starterRoutes } from '../../engine/newGame'
 import { routeName, ROUTES, haulBrief, haulTitle, routeViaLabel } from '../../engine/data/routes'
@@ -13,6 +15,8 @@ export function SetupScreen() {
   const [diff, setDiff] = useState<Difficulty>('malik')
   const [route, setRoute] = useState(starterRoutes()[0])
   const [saveFiles, setSaveFiles] = useState<{ name: string; size: number; mtime: string }[]>([])
+  const [cloudSaves, setCloudSaves] = useState<CloudSaveHeader[]>([])
+  const [selectedCloudId, setSelectedCloudId] = useState<string>('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -22,7 +26,21 @@ export function SetupScreen() {
         if (d.ok && Array.isArray(d.files)) setSaveFiles(d.files)
       })
       .catch(() => {})
+
+    listCloudSaves()
+      .then((list) => {
+        setCloudSaves(list)
+        if (list.length > 0) setSelectedCloudId(list[0].id)
+      })
+      .catch(() => {})
   }, [])
+
+  const loadCloud = (id: string) => {
+    g.loadCloudSaveById(id).then((res) => {
+      if (res.ok) g.toast(`Loaded "${res.label}" from cloud.`, 'good')
+      else g.toast(res.error || 'Failed to load cloud save.', 'bad')
+    })
+  }
 
   const importSave = (file: File) => {
     file.text()
@@ -52,10 +70,6 @@ export function SetupScreen() {
   return (
     <div className="setup-screen">
       <h1>Bus Operator Tycoon</h1>
-      <p className="tagline">
-        Run a private intercity bus company in India. Buy diesel, dodge the RTO,
-        out-price the rivals on RedBus, and don't miss an EMI.
-      </p>
 
       <div className="form-row">
         <label>Company name</label>
@@ -70,12 +84,11 @@ export function SetupScreen() {
 
       <div className="diff-cards">
         {DIFFICULTIES.map((d) => (
-          <div key={d.id} className={`diff-card ${diff === d.id ? 'sel' : ''}`} onClick={() => setDiff(d.id)}>
+          <div key={d.id} className={`diff-card ${diff === d.id ? 'sel' : ''}`} title={d.desc} onClick={() => setDiff(d.id)}>
             <h3>{d.label}</h3>
             <ul>
               <li>Seed capital {fmtCompact(d.seedCapital)}</li>
               <li>Credit score {d.startCredit}</li>
-              <li>{d.desc}</li>
             </ul>
           </div>
         ))}
@@ -92,16 +105,36 @@ export function SetupScreen() {
           ))}
         </select>
       </div>
-      <p className="small dim" style={{ maxWidth: 560 }}>{ROUTES[route].notes}</p>
-      <p className="small" style={{ maxWidth: 560 }}>
+      <p className="small" style={{ maxWidth: 560 }} title={`${ROUTES[route].notes} ${haulBrief(ROUTES[route])}`}>
         <b className="accent">{haulTitle(ROUTES[route])}</b>
-        {routeViaLabel(route) ? ` · ${routeViaLabel(route)}` : ''} — <span className="dim">{haulBrief(ROUTES[route])}</span>
+        {routeViaLabel(route) ? ` · ${routeViaLabel(route)}` : ''}
       </p>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
         <button className="primary" style={{ padding: '8px 24px' }} onClick={() => startNew(name.trim() || 'Bharat Bus Co', diff, route)}>
           REGISTER THE COMPANY ▸
         </button>
+        {cloudSaves.length > 0 && (
+          <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+            <select
+              value={selectedCloudId}
+              onChange={(e) => setSelectedCloudId(e.target.value)}
+              style={{ fontSize: '0.85rem', padding: '6px 8px' }}
+            >
+              {cloudSaves.map((cs) => (
+                <option key={cs.id} value={cs.id}>
+                  ☁️ {cs.label} ({cs.company_name}, {fmtDate(cs.day)})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => selectedCloudId && loadCloud(selectedCloudId)}
+              title="Load selected cloud save"
+            >
+              Resume Cloud Game
+            </button>
+          </div>
+        )}
         {saveFiles.length > 0 && (
           <button onClick={() => loadSaveFile(saveFiles[0].name)}>
             Resume latest save ({saveFiles[0].name})

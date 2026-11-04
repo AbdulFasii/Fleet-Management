@@ -73,10 +73,6 @@ function pickMotive(rng: Rng): SellerMotive {
   return MOTIVES[MOTIVES.length - 1]!
 }
 
-function pending(s: GameState, kind: string): boolean {
-  return s.decisions.some((d) => d.kind === kind)
-}
-
 /** The lender that leaves the least cash on the table, if any will lend. */
 function bestLender(s: GameState): { productId: string; lender: string; months: number } | null {
   const products = availableLoanProducts(s)
@@ -252,7 +248,7 @@ function fairTotal(lot: LotSpec): Money {
   if (lot.items && lot.items.length > 0) {
     return lot.items.reduce((acc, it) => acc + usedPrice(it.modelId, it.age) * it.count, 0)
   }
-  return usedPrice(lot.modelId, lot.age) * lot.count
+  return usedPrice(lot.modelId ?? lot.items[0]?.modelId ?? '', lot.age) * lot.count
 }
 
 function discountPct(lot: LotSpec): number {
@@ -328,7 +324,7 @@ export const DISTRESS_EVENTS: EventDef[] = [
           })
           return `PACKAGE: ${lot.count} buses (${lot.age} yrs avg) — ${parts.join(', ')} offered at ${fmtCompact(lot.total)} (${fmtCompact(each)} avg/bus, ${discount}% under market).`
         }
-        const m = BUS_MODELS[lot.modelId]
+        const m = BUS_MODELS[lot.modelId ?? lot.items[0]?.modelId ?? '']
         return `PACKAGE: ${lot.count}× ${m ? modelTitle(m) : lot.modelId} (${m ? coachSpec(m) + ', ' : ''}${lot.age} yrs old) offered at ${fmtCompact(lot.total)} (${fmtCompact(each)}/bus, ${discount}% under market).`
       })()
 

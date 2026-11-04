@@ -2,16 +2,16 @@
  * Maintenance: workshop jobs (service, repairs, tyres), document renewals
  * (insurance, fitness, AITP/state tax), workshop upgrades.
  */
-import { BAL, nextWorkshopBayCost, workshopJobDiscount, workshopJobSpeedup } from '../data/balance'
-import { BUS_MODELS } from '../data/busModels'
+import { BAL, workshopJobDiscount, workshopJobSpeedup } from '../data/balance'
+import { BUS_MODELS, chassisLayoutVariants, isCargoModel, isCharterModel } from '../data/busModels'
 import { ROUTES } from '../data/routes'
 import { cityName } from '../data/cities'
 import { fmtCompact, type Money } from '../core/money'
 import { SUBSYSTEMS, type Bus, type GameState, type SubsystemId, type ID, type ServiceTierId, type TyreBrand, type TyreAxle, type MechanicTrade, type Staff, type WorkshopLocation } from '../types'
 // (SUBSYSTEMS also used for owner-side upkeep of attached buses)
-import { isFestivalDay } from '../core/calendar'
+import { fmtDate, isFestivalDay } from '../core/calendar'
 import { nextId } from '../core/ids'
-import { canAfford, spend, capitalOut } from './finance'
+import { canAfford, spend, capitalOut, earn } from './finance'
 import { pushLog } from './log'
 import { fleetManagerOnDuty, staffedWorkshopBays, docsManagerOnDuty, workshopMechanicsOnDuty, monthlyOfficeAdminCost, ensureWorkshopMechanicSlots } from './staffing'
 import { releaseFinishedCovers, tryCoverBus } from './cover'
@@ -27,6 +27,7 @@ import {
   busMaintCostIndex,
   bodyPackagePrice,
   resolveModelForChassisAndDesign,
+  type CoachLayoutKind,
 } from '../data/bodyBuilders'
 
 export type RetrofitFeature = string
@@ -225,6 +226,15 @@ export function tradeMultipliers(mechTrade?: MechanicTrade, requiredTrade?: Mech
   return { costMult: 1, daysMult: 1.20 }
 }
 
+/** A skilled mechanic (skill 10) saves up to 15% cost and 30% time; a poor one (skill 1) costs a little more. */
+export function mechanicSkillMult(mech: Staff | undefined): { costMult: number; daysMult: number } {
+  const sk = mech?.skill ?? 5
+  return {
+    costMult: Math.max(0.85, Math.min(1.1, 1 - (sk - 5) * 0.015)),
+    daysMult: Math.max(0.7, Math.min(1.15, 1 - (sk - 5) * 0.06)),
+  }
+}
+
 export function findMechanicForBus(s: GameState, bus: Bus): Staff | undefined {
   if (bus.outsideGarage) return undefined
   if (s.workshop.level === 0 || (s.workshop.bays ?? 0) <= 0) return undefined
@@ -343,8 +353,9 @@ export function quoteService(
     const mech = findMechanicForBus(s, bus)
     if (mech?.mechanicTrade) {
       const tm = tradeMultipliers(mech.mechanicTrade, requiredTradeForJob(tier))
-      cost = Math.round(cost * tm.costMult)
-      days = Math.max(1, Math.round(days * tm.daysMult))
+      const sk = mechanicSkillMult(mech)
+      cost = Math.round(cost * tm.costMult * sk.costMult)
+      days = Math.max(1, Math.round(days * tm.daysMult * sk.daysMult))
     }
   }
 
@@ -451,7 +462,7 @@ export function serviceBus(
   if (serviceDeferredForBus(s, bus)) {
     const resume = serviceResumeDay(s.day)
     return `${bus.reg} is on a scheduled service — workshop booking deferred${
-      resume !== null ? ` until day ${resume} (3 days after the festival ends)` : ''
+      resume !== null ? ` until ${fmtDate(resume)} (3 days after the festival ends)` : ''
     }. It keeps running with the service due.`
   }
 
@@ -497,8 +508,9 @@ export function quoteRepair(s: GameState, busId: ID, sub: SubsystemId): { cost: 
     const mech = findMechanicForBus(s, bus)
     if (mech?.mechanicTrade) {
       const tm = tradeMultipliers(mech.mechanicTrade, requiredTradeForJob(sub))
-      cost = Math.round(cost * tm.costMult)
-      days = Math.max(1, Math.round(days * tm.daysMult))
+      const sk = mechanicSkillMult(mech)
+      cost = Math.round(cost * tm.costMult * sk.costMult)
+      days = Math.max(1, Math.round(days * tm.daysMult * sk.daysMult))
     }
   }
 
@@ -562,8 +574,9 @@ export function quoteReplaceTyres(
     const mech = findMechanicForBus(s, bus)
     if (mech?.mechanicTrade) {
       const tm = tradeMultipliers(mech.mechanicTrade, requiredTradeForJob('tyres'))
-      cost = Math.round(cost * tm.costMult)
-      days = Math.max(1, Math.round(days * tm.daysMult))
+      const sk = mechanicSkillMult(mech)
+      cost = Math.round(cost * tm.costMult * sk.costMult)
+      days = Math.max(1, Math.round(days * tm.daysMult * sk.daysMult))
     }
   }
 
@@ -634,10 +647,55 @@ export function chassisCondition(bus: Bus): number {
   return worst
 }
 
+/** Check if a vehicle chassis platform can be re-bodied by coachbuilders (requires heavy commercial bus chassis). */
+export function canChassisBeRebodied(modelOrId: import('../types').BusModel | string | undefined): boolean {
+  const model = typeof modelOrId === 'string' ? BUS_MODELS[modelOrId] : modelOrId
+  if (!model) return false
+  if (model.isCargoOnly || isCargoModel(model)) return false
+  // Factory monocoque vans & mini-buses (Force Traveller, Urbania, Tata Winger) have integral bodies and cannot be re-bodied
+  if (model.maker === 'Force Motors') return false
+  if (model.id.startsWith('winger') || model.id.startsWith('urbania') || model.id.startsWith('traveller')) return false
+  if (model.seats <= 26 && isCharterModel(model)) return false
+  return true
+}
+
+/** Sanitize invalid re-body jobs on factory monocoque vans / mini-buses */
+export function sanitizeInvalidRebodyJobs(s: GameState): void {
+  for (const bus of Object.values(s.buses ?? {})) {
+    const model = BUS_MODELS[bus.modelId]
+    if (model && !canChassisBeRebodied(model)) {
+      if (bus.status === 'workshop' && bus.workshopJob && bus.workshopJob.toLowerCase().includes('re-body')) {
+        if (bus.workshopCost) {
+          earn(s, 'other_income', bus.workshopCost, { busId: bus.id, note: 'Re-body job cancelled — workshop fee refunded' })
+        }
+        bus.status = 'active'
+        bus.workshopJob = undefined
+        bus.workshopUntilDay = undefined
+        bus.workshopCost = undefined
+        bus.refurbishedDay = undefined
+        pushLog(
+          s,
+          'alert',
+          `WORKSHOP REVERSAL: Cancelled invalid re-body on ${bus.reg} (${model.name}). Factory monocoque vans cannot be re-bodied. Refunded ${fmtCompact(bus.workshopCost ?? 0)}.`,
+        )
+      }
+      if (bus.refurbishedDay !== undefined) {
+        bus.refurbishedDay = undefined
+        bus.lifeExtensionYears = Math.max(0, (bus.lifeExtensionYears ?? 0) - (BAL.refurb?.rebodyLifeExtensionYears ?? 5))
+      }
+    }
+  }
+}
+
 /** Once per owned coach; the chassis has to be mechanically sound to be worth re-bodying. */
 export function rebodyBlocker(bus: Bus): string | null {
   if (bus.ownership !== 'owned') {
     return 'Only owned coaches can be re-bodied — leased and attached buses keep their owner\'s papers.'
+  }
+  const model = BUS_MODELS[bus.modelId]
+  if (!model) return 'Unknown vehicle model.'
+  if (!canChassisBeRebodied(model)) {
+    return `Factory monocoque vans and mini-buses (${model.name}) have integral pressed-steel bodies without a detachable heavy chassis frame, and cannot be re-bodied by coachbuilders.`
   }
   if (bus.refurbishedDay !== undefined) return 'Already re-bodied — a chassis can only take one new body.'
   if (bus.status !== 'active') return 'Bus must be active before it can go in for a re-body.'
@@ -667,8 +725,8 @@ export function quoteRebody(s: GameState, bus: Bus, bodyDesignId?: string): { co
   return { cost, days }
 }
 
-/** New fibreglass body on the original chassis: body, AC and electrical back to 90, +5 years of life. */
-export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string): string | null {
+/** New fibreglass body on the original chassis: body, AC and electrical back to 90, +5 years of life, with optional layout conversion (e.g. Semi-Sleeper -> Executive Sleeper). */
+export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string, desiredLayoutKind?: CoachLayoutKind): string | null {
   const bus = s.buses[busId]
   if (!bus) return 'No such bus.'
   const blocker = rebodyBlocker(bus)
@@ -709,20 +767,104 @@ export function rebodyBus(s: GameState, busId: ID, bodyDesignId?: string): strin
     bus.bodyBuilderId = builder.id
     bus.bodyDesignName = design.name
     if (model) {
-      const resolved = resolveModelForChassisAndDesign(model, design)
+      const resolved = resolveModelForChassisAndDesign(model, design, desiredLayoutKind)
       if (resolved && resolved.id !== bus.modelId) {
         bus.modelId = resolved.id
       }
     }
+  } else if (model && desiredLayoutKind) {
+    const variants = chassisLayoutVariants(model)
+    const exact = variants.find((m) => m.layout.kind === desiredLayoutKind)
+    if (exact && exact.id !== bus.modelId) {
+      bus.modelId = exact.id
+    }
   }
   bus.status = 'workshop'
   bus.workshopUntilDay = s.day + q.days
-  bus.workshopJob = `re-body${designNote ? ` (${design?.name})` : ' (new body, AC & electrical)'}`
+  bus.workshopJob = `re-body${designNote ? ` (${design?.name})` : ' (new body & layout conversion)'}`
+  bus.workshopCost = q.cost
   tryCoverBus(s, busId)
   pushLog(
     s,
     'good',
     `${bus.reg}: Re-bodied${designNote ? ` with ${design?.name}` : ''} — new fibreglass body, AC and electricals reset to ${restored}. Useful life extended by ${BAL.refurb.rebodyLifeExtensionYears} years (${fmtCompact(q.cost)}, ${q.days}d).`,
+  )
+  return null
+}
+
+export function quotePowertrainOverhaul(s: GameState, bus: Bus): { cost: Money; days: number } {
+  const model = BUS_MODELS[bus.modelId]
+  const t = upkeepPosition(model?.maintCostIndex ?? 1)
+  const baseCost = Math.round(
+    BAL.refurb.powertrainCostMin + (BAL.refurb.powertrainCostMax - BAL.refurb.powertrainCostMin) * t,
+  )
+  const cost = Math.max(0, baseCost)
+  const days = jobDays(s, BAL.refurb.powertrainDays, bus)
+  return { cost, days }
+}
+
+export function overhaulPowertrain(s: GameState, busId: ID): string | null {
+  const bus = s.buses[busId]
+  if (!bus) return 'No such bus.'
+  if (bus.ownership !== 'owned') return 'Only owned coaches can undergo central powertrain overhaul.'
+  if (bus.status !== 'active') return 'Bus must be active before entering the workshop for overhaul.'
+  const q = quotePowertrainOverhaul(s, bus)
+  if (!canAfford(s, q.cost)) return `Powertrain overhaul costs ${fmtCompact(q.cost)}.`
+
+  spend(s, 'maintenance', q.cost, { busId, note: 'powertrain overhaul — engine & transmission precision rebuild' })
+  bus.condition.engine = Math.max(bus.condition.engine, BAL.refurb.powertrainRestore ?? 98)
+  bus.condition.gearbox = Math.max(bus.condition.gearbox, BAL.refurb.powertrainRestore ?? 98)
+  bus.powertrainOverhaulDay = s.day
+  bus.powertrainKmplBonus = BAL.refurb.powertrainKmplBonus ?? 0.10
+  bus.lastOverhaulDay = s.day
+  bus.lastOverhaulOdo = bus.odometer
+  bus.status = 'workshop'
+  bus.workshopUntilDay = s.day + q.days
+  bus.workshopJob = 'Powertrain Overhaul (Engine & Gearbox)'
+  bus.workshopCost = q.cost
+  tryCoverBus(s, busId)
+  pushLog(
+    s,
+    'good',
+    `${bus.reg}: Powertrain overhauled — engine & gearbox precision rebuilt to ${BAL.refurb.powertrainRestore}%. Breakdown risk minimized and fuel economy restored by +10% (${fmtCompact(q.cost)}, ${q.days}d).`,
+  )
+  return null
+}
+
+export function quoteLuxuryRetrofit(s: GameState, bus: Bus): { cost: Money; days: number } {
+  const model = BUS_MODELS[bus.modelId]
+  const seatT = Math.max(0, Math.min(1, ((model?.seats ?? 40) - 30) / 20))
+  const t = 0.5 * upkeepPosition(model?.maintCostIndex ?? 1) + 0.5 * seatT
+  const baseCost = Math.round(
+    BAL.refurb.luxuryCostMin + (BAL.refurb.luxuryCostMax - BAL.refurb.luxuryCostMin) * t,
+  )
+  const cost = Math.max(0, baseCost)
+  const days = jobDays(s, BAL.refurb.luxuryDays, bus)
+  return { cost, days }
+}
+
+export function retrofitLuxuryAmenities(s: GameState, busId: ID): string | null {
+  const bus = s.buses[busId]
+  if (!bus) return 'No such bus.'
+  if (bus.ownership !== 'owned') return 'Only owned coaches can undergo luxury amenities retrofit.'
+  if (bus.status !== 'active') return 'Bus must be active before entering the workshop.'
+  const q = quoteLuxuryRetrofit(s, bus)
+  if (!canAfford(s, q.cost)) return `Luxury retrofit costs ${fmtCompact(q.cost)}.`
+
+  spend(s, 'maintenance', q.cost, { busId, note: 'luxury retrofit — seatback screens, Type-C 45W ports, pneumatic air-suspension' })
+  bus.luxuryRetrofitDay = s.day
+  bus.airSuspensionFitted = true
+  bus.condition.suspension = Math.max(bus.condition.suspension, BAL.refurb.luxuryRestoreSuspension ?? 95)
+  bus.comfortBonus = Math.min(3.5, (bus.comfortBonus ?? 0) + (BAL.refurb.luxuryComfortBonus ?? 2.0))
+  bus.status = 'workshop'
+  bus.workshopUntilDay = s.day + q.days
+  bus.workshopJob = 'Luxury Retrofit (Screens, Type-C & Air Suspension)'
+  bus.workshopCost = q.cost
+  tryCoverBus(s, busId)
+  pushLog(
+    s,
+    'good',
+    `${bus.reg}: Luxury retrofit completed — fitted individual touchscreens, 45W Type-C fast chargers, and pneumatic air-suspension. Comfort +${BAL.refurb.luxuryComfortBonus} and PSS boosted (${fmtCompact(q.cost)}, ${q.days}d).`,
   )
   return null
 }
@@ -959,7 +1101,11 @@ function managerAutoMaint(s: GameState): void {
   const cap = Math.floor(deskCapacity(s, 'workshop'))
   let booked = 0
   const dueLead = mgr.skill >= 8 ? -4000 : 0
-  const repairAt = 48 + mgr.skill
+  // The Settings threshold (default 75) shifts how early the manager repairs a weak subsystem.
+  const shift = (s.config?.preventiveServiceThreshold ?? 75) - 75
+  const repairAt = Math.max(30, Math.min(90, 48 + mgr.skill + shift))
+  const neglectBelow = 50 + shift
+  const tyreMarginKm = s.config?.tyreReplacementKmThreshold ?? 15_000
   const queue = Object.values(s.buses)
     .filter((b) => b.status === 'active' && !ownerPaysService(b))
     .sort((a, b) => serviceDueKm(b) - serviceDueKm(a) || worstSubsystem(a.condition) - worstSubsystem(b.condition))
@@ -998,12 +1144,18 @@ function managerAutoMaint(s: GameState): void {
 
     // 2. Tyres check (in-house bay)
     if (freeBays > 0 && inOwnWorkshop(s, bus)) {
-      const tyreInfo = axleTyresDue(bus)
+      const rawTyres = axleTyresDue(bus)
+      // Also fit early when the remaining life drops under the player's km threshold.
+      const tyreInfo = {
+        ...rawTyres,
+        frontDue: rawTyres.frontDue || rawTyres.frontLife - rawTyres.frontKm <= tyreMarginKm,
+        rearDue: rawTyres.rearDue || rawTyres.rearLife - rawTyres.rearKm <= tyreMarginKm,
+      }
       if (tyreInfo.frontDue || tyreInfo.rearDue) {
         if (tyreInfo.frontDue && tyreInfo.rearDue) {
           const frontBrand = bus.frontBrand ?? defaultBrand
           const rearBrand = bus.rearBrand ?? defaultBrand
-          if (frontBrand === rearBrand && frontBrand !== 'retread') {
+          if (frontBrand === rearBrand && (frontBrand as string) !== 'retread') {
             if (!replaceTyres(s, bus.id, 'both', frontBrand, { outside: false })) { freeBays--; booked++; continue }
           } else {
             if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside: false })) { freeBays--; booked++; continue }
@@ -1021,7 +1173,7 @@ function managerAutoMaint(s: GameState): void {
     // 3. Subsystem overhaul check (in-house bay)
     if (freeBays > 0 && inOwnWorkshop(s, bus)) {
       const worst = worstSubsystem(bus.condition)
-      const neglected = serviceDueKm(bus) > 0 || worst < 50
+      const neglected = serviceDueKm(bus) > 0 || worst < neglectBelow
       if (neglected && worst < repairAt) {
         let sub = SUBSYSTEMS[0]
         for (const x of SUBSYSTEMS) if (bus.condition[x] < bus.condition[sub]) sub = x
@@ -1055,10 +1207,12 @@ export function quoteInsurance(s: GameState, bus: Bus): Money {
     mult *= 1.10
   }
 
+  const tier = s.config?.insuranceTier ?? 'standard'
+  mult *= tier === 'basic' ? 0.7 : tier === 'comprehensive' ? 1.3 : 1
   return Math.round(base * mult)
 }
 
-function tryRenewInsurance(s: GameState, bus: Bus, model: (typeof BUS_MODELS)[string], silent?: boolean): number {
+function tryRenewInsurance(s: GameState, bus: Bus, _model: (typeof BUS_MODELS)[string], silent?: boolean): number {
   const left = bus.insuranceExpiryDay - s.day
   if (left > BAL.docRenewLeadDays) return 0
   const premium = quoteInsurance(s, bus)
@@ -1089,7 +1243,7 @@ export function renewBusInsurance(s: GameState, busId: string): string | null {
     bus.status = 'active'
     pushLog(s, 'good', `Insurance renewed for ${bus.reg}. Bus back on road.`)
   } else {
-    pushLog(s, 'good', `Insurance renewed for ${bus.reg} until day ${bus.insuranceExpiryDay}.`)
+    pushLog(s, 'good', `Insurance renewed for ${bus.reg} until ${fmtDate(bus.insuranceExpiryDay)}.`)
   }
   return null
 }
@@ -1121,7 +1275,7 @@ export function renewFitness(s: GameState, busId: ID): string | null {
     bus.status = 'active'
     pushLog(s, 'good', `Fitness cert renewed for ${bus.reg}. Bus restored to service.`)
   } else {
-    pushLog(s, 'good', `Fitness cert renewed for ${bus.reg} until day ${bus.fitnessExpiryDay}.`)
+    pushLog(s, 'good', `Fitness cert renewed for ${bus.reg} until ${fmtDate(bus.fitnessExpiryDay)}.`)
   }
   return null
 }
@@ -1348,6 +1502,7 @@ function tryRenewAnnualRoadTax(s: GameState, bus: Bus, silent?: boolean): number
 
 /** Daily: release finished jobs, renew documents, quarterly road taxes, annual road taxes. */
 export function dailyMaintenancePass(s: GameState): void {
+  sanitizeInvalidRebodyJobs(s)
   const docsMgr = docsManagerOnDuty(s)
   const hasDocsMgr = !!docsMgr
   const docsCoverage = docsMgr ? deskCoverage(s, 'documents') : 1

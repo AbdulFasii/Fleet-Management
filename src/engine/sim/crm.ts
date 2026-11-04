@@ -1,7 +1,13 @@
 /**
  * CRM, passenger grievances, compliments and dispute resolutions.
  */
-import type { GameState, Grievance, ID, RouteDef, Trip, TripCrew, Bus } from '../types'
+import type { GameState, Grievance, ID, RouteDef, Staff, Trip, Bus } from '../types'
+
+/** Crew that worked the trip. */
+interface TripCrew {
+  drivers: Staff[]
+  conductor?: Staff
+}
 import { BAL } from '../data/balance'
 import { nextId } from '../core/ids'
 import { rs, toRupees, fmtCompact } from '../core/money'
@@ -23,10 +29,10 @@ export function recordTripGrievanceOrCompliment(
   route: RouteDef,
   tripPss: number,
   delay: number,
-  cleanScore: number,
-  acScore: number,
-  driverScore: number,
-  condScore: number,
+  _cleanScore: number,
+  _acScore: number,
+  _driverScore: number,
+  _condScore: number,
   crew: TripCrew,
   rng: Rng,
 ): void {

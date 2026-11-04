@@ -1,16 +1,19 @@
 import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
-import { fmtDate } from '../../engine/core/calendar'
+import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import {
   BAL,
-  nextWorkshopBayCost,
   workshopJobDiscount,
   workshopJobSpeedup,
 } from '../../engine/data/balance'
 import { BUS_MODELS, modelTitleById } from '../../engine/data/busModels'
-import { coachTitle } from '../../engine/data/bodyBuilders'
-import { worstSubsystem } from '../../engine/sim/fleet'
+import {
+  coachTitle,
+  type CoachLayoutKind,
+  DEFAULT_BODY_BUILDERS,
+  busComfort,
+} from '../../engine/data/bodyBuilders'
+import { worstSubsystem, busAgeYears } from '../../engine/sim/fleet'
 import {
   axleTyresDue,
   bServiceDueKm,
@@ -26,17 +29,21 @@ import {
   serviceDueKm,
   serviceDeferredForBus,
   serviceResumeDay,
-  sortWorkshopBayJobs,
   tyresDue,
+  rebodyBlocker,
+  canChassisBeRebodied,
+  quoteRebody,
+  quotePowertrainOverhaul,
+  quoteLuxuryRetrofit,
 } from '../../engine/sim/maintenance'
 import { fmtCompact, rs } from '../../engine/core/money'
 import { CITIES, cityName } from '../../engine/data/cities'
 import { ROUTES } from '../../engine/data/routes'
 import { yardMonthlyRent, busesParkedInCity, outstationNightlyFee } from '../../engine/sim/depot'
-import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays, workshopMechanicsOnDuty } from '../../engine/sim/staffing'
+import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays } from '../../engine/sim/staffing'
 import { spanMeters } from '../../engine/sim/span'
 import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand, WorkshopLocation, ID } from '../../engine/types'
-import { Bar, KV, M, Panel, Modal, GroupBadge } from '../bits'
+import { Bar, BusLink, Empty, GroupBadge, KV, M, Modal, PageHeader, Panel, StatRow, Tabs } from '../bits'
 
 const TRADE_LABEL: Record<MechanicTrade, string> = {
   engine_gearbox: 'Engine/Gearbox',
@@ -53,16 +60,16 @@ function ServiceJobBadge({ jobLabel }: { jobLabel?: string }) {
   if (!jobLabel) return null
   const clean = jobLabel.replace(/^breakdown:\s*/i, '')
   if (clean.includes('Overhaul')) {
-    return <span className="pill accent small" style={{ marginLeft: 6 }}>Annual Overhaul</span>
+    return <span className="pill accent small ml6">Annual Overhaul</span>
   }
   if (clean.includes('B-Service')) {
-    return <span className="pill info small" style={{ marginLeft: 6 }}>B-Service (Major)</span>
+    return <span className="pill info small ml6">B-Service (Major)</span>
   }
   if (clean.includes('A-Service')) {
-    return <span className="pill dim small" style={{ marginLeft: 6 }}>A-Service (Minor)</span>
+    return <span className="pill dim small ml6">A-Service (Minor)</span>
   }
   if (/tyres?:?/i.test(clean)) {
-    return <span className="pill warn small" style={{ marginLeft: 6 }}>{clean}</span>
+    return <span className="pill warn small ml6">{clean}</span>
   }
   return <span className="dim"> · {clean}</span>
 }
@@ -78,12 +85,35 @@ function OwnershipCell({ ownership, attachShare }: { ownership: Ownership; attac
 export function WorkshopPage() {
   const s = useGame((g) => g.state)!
   const g = useGame()
-  const [activeTab, setActiveTab] = useState<'bays' | 'service' | 'depot' | 'claims'>('bays')
+  const [activeTab, setActiveTab] = useState<'jobs' | 'due' | 'upgrades' | 'depot' | 'claims'>('jobs')
   const [serviceFilter, setServiceFilter] = useState<'all' | 'overhaul' | 'service_b' | 'service_a' | 'tyres' | 'gps'>('all')
+  const [overhaulFilter, setOverhaulFilter] = useState<'candidates' | 'all' | 'semi_sleeper' | 'low_condition' | 'in_progress'>('candidates')
+  const [overhaulStudioBus, setOverhaulStudioBus] = useState<Bus | null>(null)
+  const [overhaulTab, setOverhaulTab] = useState<'rebody' | 'powertrain' | 'luxury'>('rebody')
+  const [selectedBuilderId, setSelectedBuilderId] = useState<string>('')
+  const [selectedDesignId, setSelectedDesignId] = useState<string>('')
+  const [selectedLayoutKind, setSelectedLayoutKind] = useState<CoachLayoutKind>('sleeper')
+
+  const openOverhaulStudio = (bus: Bus, tab?: 'rebody' | 'powertrain' | 'luxury') => {
+    setOverhaulStudioBus(bus)
+    const model = BUS_MODELS[bus.modelId]
+    const canRebody = model ? canChassisBeRebodied(model) : false
+    const initialTab = tab ?? (canRebody ? 'rebody' : 'powertrain')
+    setOverhaulTab(initialTab)
+    const builders = s.bodyBuilders ?? DEFAULT_BODY_BUILDERS
+    const compatible = Object.values(builders).filter((b) =>
+      !model || b.makers.includes(model.maker as any),
+    )
+    const firstB = compatible[0] ?? Object.values(builders)[0]
+    const bId = bus.bodyBuilderId && builders[bus.bodyBuilderId] ? bus.bodyBuilderId : (firstB?.id ?? 'prakesh')
+    setSelectedBuilderId(bId)
+    const firstD = builders[bId]?.designs[0]
+    setSelectedDesignId(bus.bodyDesignId ?? firstD?.id ?? '')
+    setSelectedLayoutKind('sleeper')
+  }
 
   const buses = Object.values(s.buses)
   const inShop = buses.filter((b) => b.status === 'workshop')
-  const manager = s.workshop.managerId ? s.staff[s.workshop.managerId] : undefined
   const managerCandidates = managersOnPayroll(s).filter(
     (st) => st.id === s.workshop.managerId || !deskOf(s, st.id),
   )
@@ -227,456 +257,279 @@ export function WorkshopPage() {
       (b) =>
         b.status === 'workshop' &&
         b.workshopJob &&
-        (b.workshopJob.toLowerCase().includes('re-body') || b.workshopJob.toLowerCase().includes('seat')),
+        (b.workshopJob.toLowerCase().includes('re-body') ||
+         b.workshopJob.toLowerCase().includes('seat') ||
+         b.workshopJob.toLowerCase().includes('powertrain') ||
+         b.workshopJob.toLowerCase().includes('luxury')),
     )
     .sort((a, b) => (a.workshopUntilDay ?? 0) - (b.workshopUntilDay ?? 0))
 
+  const midLifeCandidates = useMemo(() => {
+    return buses.filter((b) => {
+      if (b.ownership !== 'owned') return false
+      const age = busAgeYears(s, b)
+      return age >= 2.5 || b.odometer >= 200_000 || b.condition.engine < 75 || b.condition.body < 75
+    })
+  }, [buses, s.day])
+
+  const filteredOverhaulBuses = useMemo(() => {
+    const owned = buses.filter((b) => b.ownership === 'owned')
+    if (overhaulFilter === 'candidates') {
+      return owned.filter((b) => {
+        const age = busAgeYears(s, b)
+        return age >= 2.5 || b.odometer >= 200_000 || b.condition.engine < 75 || b.condition.body < 75
+      })
+    }
+    if (overhaulFilter === 'semi_sleeper') {
+      return owned.filter((b) => {
+        const m = BUS_MODELS[b.modelId]
+        return m && !m.sleeper && m.layout?.kind !== 'sleeper' && canChassisBeRebodied(m)
+      })
+    }
+    if (overhaulFilter === 'low_condition') {
+      return owned.filter((b) => b.condition.engine < 70 || b.condition.gearbox < 70 || b.condition.body < 70)
+    }
+    if (overhaulFilter === 'in_progress') {
+      return owned.filter((b) => b.status === 'workshop' && b.workshopJob && (
+        b.workshopJob.toLowerCase().includes('re-body') ||
+        b.workshopJob.toLowerCase().includes('powertrain') ||
+        b.workshopJob.toLowerCase().includes('luxury') ||
+        b.workshopJob.toLowerCase().includes('seat')
+      ))
+    }
+    return owned
+  }, [buses, overhaulFilter, s.day])
+
   const activeClaims = s.insuranceClaims?.filter((c) => c.status !== 'settled' && c.status !== 'rejected') ?? []
+
+  const unstaffedWarning = bayMechs.length < s.workshop.bays
+
+  const openSatellite = () => {
+    setNewSiteCity('')
+    setNewSiteBrands([])
+    setShowAddSatelliteModal(true)
+  }
+
+  const yardRows = s.yards ?? []
+  const depotCap = s.depotSlots ?? BAL.depot.baseSlots
 
   return (
     <>
-      {/* Top Header */}
-      <div className="page-title">
-        <span>Workshop & Fleet Maintenance</span>
-        <span className="sub">
-          {s.workshop.bays === 0
-            ? 'Outside commercial garage rates (0% discount)'
-            : `${staffed}/${s.workshop.bays} Bays Staffed · ${Math.round(disc * 100)}% Cost Savings · ${Math.round(speed * 100)}% Faster Turnaround · Foreman Span: ${wsSpan.demand}/${wsSpan.capacity} bays (${Math.round(wsSpan.coverage * 100)}%)`}
-        </span>
-        <span className="spacer" />
-        <span className="flex" style={{ gap: 6 }}>
-          {([
-            ['bays', `🛠️ Service Bays (${s.workshop.bays})`],
-            ['service', `⚠️ Maintenance Due (${needsWork.length})`],
-            ['depot', `🅿️ Depot & Yards (${homeParkedCount}/${s.depotSlots ?? 4})`],
-            ['claims', `📑 Claims & Refurb (${activeClaims.length + refurbBusesInWorks.length})`],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              className={`small ${activeTab === id ? 'primary' : ''}`}
-              onClick={() => setActiveTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
+      <PageHeader
+        title="Workshop"
+        facts={<>{s.workshop.bays === 0 ? 'no bays' : `${staffed}/${s.workshop.bays} bays staffed · -${Math.round(disc * 100)}% cost · ${Math.round(speed * 100)}% faster`}</>}
+        factsTip={s.workshop.bays === 0 ? 'No own bays: outside garage rates apply' : `Foreman span ${wsSpan.demand}/${wsSpan.capacity} bays (${Math.round(wsSpan.coverage * 100)}%)`}
+      >
+        <Tabs
+          inline
+          tabs={[
+            ['jobs', `Jobs (${inShop.length})`],
+            ['due', `Due (${needsWork.length})`],
+            ['upgrades', `Upgrades (${refurbBusesInWorks.length > 0 ? `${refurbBusesInWorks.length} in shop` : midLifeCandidates.length})`],
+            ['depot', 'Depot'],
+            ['claims', `Claims (${activeClaims.length})`],
+          ] as const}
+          value={activeTab}
+          onChange={setActiveTab}
+        />
+      </PageHeader>
 
-      {/* KPI Status Strip */}
-      <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Workshop Facility</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
+      <StatRow
+        items={[
+          { label: 'Bays', value: s.workshop.bays === 0 ? 'outside only' : `${freeBays} free / ${s.workshop.bays}`, tone: s.workshop.bays === 0 ? 'warn' : freeBays > 0 ? 'good' : 'warn', title: `${staffed} staffed (${Math.round(util * 100)}% used)` },
+          { label: 'Speed', value: `+${Math.round(speed * 100)}%`, tone: 'accent', title: `${Math.round(disc * 100)}% cheaper than outside garages` },
+          { label: 'Due', value: needsWork.length, tone: needsWork.length > 0 ? 'warn' : 'good' },
+          { label: 'In shop', value: inShop.length, title: `${inShop.filter((b) => assignedJobIds.has(b.id)).length} on a bay, ${overflow.length} outside or queued` },
+          { label: 'Depot', value: `${homeParkedCount}/${depotCap}`, tone: homeParkedCount > depotCap ? 'bad' : 'good', title: homeParkedCount > depotCap ? 'Street overflow: nightly fee and RTO risk' : 'Sheltered: -40% decay' },
+        ]}
+      />
+
+      {/* ---------------- JOBS ---------------- */}
+      {activeTab === 'jobs' && (
+        <>
+          <div className="row gap wrap mb12">
+            <label className="row gap6" title="Books A and B services in-house on its own and pulls idle cover coaches">
+              <span className="muted">Manager</span>
+              <select value={s.workshop.managerId ?? ''} onChange={(e) => g.appointFleetManager(e.target.value || undefined)}>
+                <option value="">none</option>
+                {managerCandidates.map((st) => (
+                  <option key={st.id} value={st.id}>{st.name} · skill {st.skill}</option>
+                ))}
+              </select>
+            </label>
+            <label className="row gap6" title="Tyre brand the manager fits when tyres wear out">
+              <span className="muted">Tyres</span>
+              <select value={s.company.workshopTyreBrand ?? 'oem'} onChange={(e) => g.setWorkshopTyreBrand(e.target.value as 'oem' | 'tier2')}>
+                <option value="oem">OEM · {fmtCompact(BAL.tyres.oem.price)}</option>
+                <option value="tier2">Tier-2 · {fmtCompact(BAL.tyres.tier2.price)}</option>
+              </select>
+            </label>
+            <span className="grow" />
             {s.workshop.bays === 0 ? (
-              <span className="warn">Outside Only</span>
+              <button className="primary small" onClick={() => g.openWorkshopLocation(s.company.homeCityId, [])}>
+                Build HQ workshop · {fmtCompact(BAL.workshopSiteFirstBayCost)}
+              </button>
             ) : (
-              <span className="good">{s.workshop.bays} Bay{s.workshop.bays === 1 ? '' : 's'} Built</span>
+              <button className="primary small" onClick={openSatellite} title="A workshop in another city: first bay includes opening the depot">
+                + Satellite · {fmtCompact(BAL.workshopSiteFirstBayCost)}
+              </button>
             )}
           </div>
-          <div className="small dim">
-            {freeBays > 0 ? <span className="good">{freeBays} bay(s) available</span> : <span className="warn">0 bays free</span>} · {staffed}/{s.workshop.bays} staffed
-          </div>
-        </div>
 
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Turnaround & Efficiency</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className="accent">+{Math.round(speed * 100)}% Speed</span>
-          </div>
-          <div className="small dim">
-            <span className="good">{Math.round(disc * 100)}% job discount</span> vs outside garages
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Fleet Upkeep Queue</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className={needsWork.length > 0 ? 'warn' : 'good'}>{needsWork.length} Bus{needsWork.length === 1 ? '' : 'es'} Due</span>
-          </div>
-          <div className="small dim">
-            {inShop.length} in shop ({inShop.filter((b) => assignedJobIds.has(b.id)).length} on bay, {overflow.length} outside/queue)
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Home Depot Yard</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className={homeParkedCount > (s.depotSlots ?? 4) ? 'bad' : 'good'}>
-              {homeParkedCount} / {s.depotSlots ?? 4} Slots
-            </span>
-          </div>
-          <div className="small dim">
-            {homeParkedCount > (s.depotSlots ?? 4) ? (
-              <span className="bad">⚠️ Street overflow ({homeParkedCount - (s.depotSlots ?? 4)} bus)</span>
-            ) : (
-              <span className="good">✓ Fully sheltered (-40% decay)</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* TAB 1: SERVICE BAYS & ACTIVE JOBS                                         */}
-      {/* ========================================================================= */}
-      {activeTab === 'bays' && (
-        <div className="grid-2" style={{ alignItems: 'start' }}>
-          {/* Bay Board */}
-          <Panel
-            title={`Bay Board (${staffed} Live / ${s.workshop.bays} Built)`}
-            right={
-              s.workshop.bays > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="dim small">
-                    {freeBays} bay(s) ready for service
-                  </span>
-                  <button
-                    className="small primary"
-                    onClick={() => {
-                      setNewSiteCity('')
-                      setNewSiteBrands([])
-                      setShowAddSatelliteModal(true)
-                    }}
-                  >
-                    + Open Satellite ({fmtCompact(BAL.workshopSiteFirstBayCost)})
-                  </button>
-                </div>
-              )
-            }
-          >
-            {s.workshop.bays === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center' }}>
-                <p className="warn" style={{ marginBottom: 8 }}>
-                  No in-house workshop built yet. All fleet maintenance is outsourced to outside commercial garages at full price.
-                </p>
-                <button className="primary" onClick={() => g.openWorkshopLocation(s.company.homeCityId, [])}>
-                  Build HQ Workshop — 1 Bay ({fmtCompact(BAL.workshopSiteFirstBayCost)})
-                </button>
-              </div>
-            ) : (
-              <div>
-                {locations.map((loc) => {
-                  const locBays = bays.filter((b) => b.locationId === loc.id)
-                  const isHQ = loc.cityId === s.company.homeCityId
-                  return (
-                    <div
-                      key={loc.id}
-                      style={{
-                        marginBottom: 16,
-                        border: '1px solid var(--border)',
-                        borderRadius: 6,
-                        background: 'var(--bg2)',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '8px 12px',
-                          background: 'var(--bg3)',
-                          borderBottom: '1px solid var(--border)',
-                          flexWrap: 'wrap',
-                          gap: 8,
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 700, fontSize: 14 }}>
-                            {cityName(loc.cityId)}
-                          </span>
-                          {isHQ && <span className="pill good small">HQ Depot</span>}
-                          <span className="dim small">
-                            {loc.bayCount} Bay{loc.bayCount === 1 ? '' : 's'}
-                          </span>
-                          <span className="dim small">· Allowed:</span>
-                          {loc.groupIds.length === 0 ? (
-                            <span className="pill faint small">All Brands</span>
-                          ) : (
-                            loc.groupIds.map((gid) => {
-                              const grp = s.groups?.[gid]
-                              return grp ? <GroupBadge key={gid} group={grp} /> : null
-                            })
-                          )}
-                        </div>
-
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button
-                            className="small"
-                            onClick={() => {
-                              setEditingLocation(loc)
-                              setEditLocationBrands([...loc.groupIds])
-                            }}
-                          >
-                            Brands
-                          </button>
-                          <button
-                            className="small primary"
-                            onClick={() => g.addWorkshopBayAtLocation(loc.id)}
-                            title={`Add 1 bay at ${cityName(loc.cityId)} for ${fmtCompact(BAL.workshopBayCostFlat)}`}
-                          >
-                            + Bay ({fmtCompact(BAL.workshopBayCostFlat)})
-                          </button>
-                        </div>
-                      </div>
-
-                      <table className="data" style={{ margin: 0 }}>
-                        <thead>
-                          <tr>
-                            <th>Bay</th>
-                            <th>Assigned Mechanic</th>
-                            <th>Active Job</th>
-                            <th>Type</th>
-                            <th className="num">ETA</th>
+          {s.workshop.bays === 0 ? (
+            <Panel flat><Empty text="No workshop built. Maintenance is outsourced at full price." /></Panel>
+          ) : (
+            locations.map((loc) => {
+              const locBays = bays.filter((b) => b.locationId === loc.id)
+              const isHQ = loc.cityId === s.company.homeCityId
+              return (
+                <Panel
+                  key={loc.id}
+                  flat
+                  title={
+                    <>
+                      {cityName(loc.cityId)}
+                      {isHQ && <span className="pill good small ml8">HQ</span>}
+                      <span className="muted ml8">{loc.bayCount} bay{loc.bayCount === 1 ? '' : 's'}</span>
+                    </>
+                  }
+                  right={
+                    <span className="row gap6">
+                      {loc.groupIds.length === 0
+                        ? <span className="muted">all brands</span>
+                        : loc.groupIds.map((gid) => (s.groups?.[gid] ? <GroupBadge key={gid} group={s.groups[gid]} /> : null))}
+                      <button className="small" onClick={() => { setEditingLocation(loc); setEditLocationBrands([...loc.groupIds]) }}>Brands</button>
+                      <button className="small primary" onClick={() => g.addWorkshopBayAtLocation(loc.id)} title={`Add a bay at ${cityName(loc.cityId)}`}>
+                        + Bay · {fmtCompact(BAL.workshopBayCostFlat)}
+                      </button>
+                    </span>
+                  }
+                >
+                  <table className="data">
+                    <thead>
+                      <tr><th>Bay</th><th>Mechanic</th><th>Job</th><th>Owner</th><th className="num">Left</th></tr>
+                    </thead>
+                    <tbody>
+                      {locBays.map((bay) => {
+                        const onLeave = Boolean(bay.mechanic?.onLeaveUntilDay && bay.mechanic.onLeaveUntilDay >= s.day)
+                        const vacant = !bay.mechanic
+                        return (
+                          <tr key={bay.index}>
+                            <td className="accent"><b>#{bay.index}</b></td>
+                            <td className="nowrap">
+                              {vacant ? (
+                                freeMechanics.length > 0 ? (
+                                  <select
+                                    value=""
+                                    onChange={(e) => { if (e.target.value) g.appointBayMechanic(e.target.value, bay.globalBayIndex) }}
+                                  >
+                                    <option value="">+ appoint mechanic</option>
+                                    {freeMechanics.map((st) => (
+                                      <option key={st.id} value={st.id}>{st.name} · {tradeLabel(st.mechanicTrade)} · sk {st.skill}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="bad" title="Hire mechanics on the Staff page">unstaffed</span>
+                                )
+                              ) : (
+                                <>
+                                  <b>{bay.mechanic!.name}</b>
+                                  <span className="muted"> {tradeLabel(bay.mechanic!.mechanicTrade)} · sk {bay.mechanic!.skill}{onLeave ? ' · on leave' : ''}</span>{' '}
+                                  <button className="small dim" title="Remove from this bay" onClick={() => g.unappointBayMechanic(bay.mechanic!.id)}>×</button>
+                                </>
+                              )}
+                            </td>
+                            <td>
+                              {vacant || onLeave ? (
+                                <span className="dim">{vacant ? 'idle' : 'mechanic on leave'}</span>
+                              ) : bay.job ? (
+                                <>
+                                  <BusLink id={bay.job.id} reg={bay.job.reg} />
+                                  <span className="muted"> {modelTitleById(bay.job.modelId)}</span>
+                                  <ServiceJobBadge jobLabel={bay.job.workshopJob} />
+                                </>
+                              ) : (
+                                <span className="good">ready</span>
+                              )}
+                            </td>
+                            <td>{bay.job ? <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} /> : <span className="dim">—</span>}</td>
+                            <td className="num">{bay.job ? <b className="accent">{Math.max(0, (bay.job.workshopUntilDay ?? s.day) - s.day)}d</b> : <span className="dim">—</span>}</td>
                           </tr>
-                        </thead>
-                        <tbody>
-                          {locBays.map((bay) => {
-                            const onLeave = bay.mechanic?.onLeaveUntilDay && bay.mechanic.onLeaveUntilDay >= s.day
-                            const vacant = !bay.mechanic
-                            return (
-                              <tr key={bay.index}>
-                                <td className="accent">
-                                  <b>#{bay.index}</b>
-                                  <span className="dim small" style={{ marginLeft: 4 }}>
-                                    (Bay {bay.bayIndexInLoc + 1})
-                                  </span>
-                                </td>
-                                <td className="nowrap">
-                                  {vacant ? (
-                                    freeMechanics.length > 0 ? (
-                                      <select
-                                        value=""
-                                        style={{ maxWidth: 170 }}
-                                        onChange={(e) => {
-                                          const id = e.target.value
-                                          if (id) g.appointBayMechanic(id, bay.globalBayIndex)
-                                        }}
-                                      >
-                                        <option value="">+ Appoint Mechanic…</option>
-                                        {freeMechanics.map((st) => (
-                                          <option key={st.id} value={st.id}>
-                                            {st.name} ({tradeLabel(st.mechanicTrade)} · sk {st.skill})
-                                          </option>
-                                        ))}
-                                      </select>
-                                    ) : (
-                                      <span className="bad small">⚠️ Unstaffed (Hire on Staff)</span>
-                                    )
-                                  ) : (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <div>
-                                        <b>{bay.mechanic!.name}</b>
-                                        <div className="dim small">
-                                          {tradeLabel(bay.mechanic!.mechanicTrade)} · Skill {bay.mechanic!.skill}
-                                          {onLeave && <span className="warn"> (on leave)</span>}
-                                        </div>
-                                      </div>
-                                      <button
-                                        className="small text"
-                                        title="Unappoint mechanic from this bay"
-                                        onClick={() => g.unappointBayMechanic(bay.mechanic!.id)}
-                                      >
-                                        ×
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
-                                <td>
-                                  {vacant || onLeave ? (
-                                    <span className="dim small">{vacant ? 'Bay idle (unstaffed)' : 'Mechanic on leave'}</span>
-                                  ) : bay.job ? (
-                                    <div>
-                                      <Link to={`/fleet/${bay.job.id}`}><b>{bay.job.reg}</b></Link>
-                                      <div className="small dim">{modelTitleById(bay.job.modelId)}</div>
-                                      <ServiceJobBadge jobLabel={bay.job.workshopJob} />
-                                    </div>
-                                  ) : (
-                                    <span className="good small">✓ Bay Ready & Clean</span>
-                                  )}
-                                </td>
-                                <td>
-                                  {bay.job ? (
-                                    <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} />
-                                  ) : (
-                                    <span className="dim">—</span>
-                                  )}
-                                </td>
-                                <td className="num">
-                                  {bay.job ? (
-                                    <b className="accent">{Math.max(0, (bay.job.workshopUntilDay ?? s.day) - s.day)}d left</b>
-                                  ) : (
-                                    <span className="dim">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )
-                })}
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </Panel>
+              )
+            })
+          )}
 
-                {bayMechs.length < s.workshop.bays && (
-                  <p className="small warn" style={{ padding: '8px 10px 0' }}>
-                    💡 Unstaffed bays remain idle. Hire mechanics in the Staff desk to operate all bays.
-                  </p>
-                )}
-              </div>
-            )}
-          </Panel>
+          {unstaffedWarning && s.workshop.bays > 0 && (
+            <div className="warn muted mb12">Unstaffed bays stay idle. Hire mechanics on the Staff page.</div>
+          )}
 
-          {/* Facility Management & Expansion */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Panel title="Workshop Facility & Expansion">
-              <KV rows={[
-                ['Workshop Capacity', `${s.workshop.bays} Bay(s) Built across ${locations.length} Location(s) · ${staffed} Staffed (${Math.round(util * 100)}% utilization)`],
-                ['Foreman Span', <span><b>{wsSpan.demand}</b> / {wsSpan.capacity} bays ({Math.round(wsSpan.coverage * 100)}% coverage){wsSpan.demand > wsSpan.capacity ? <span className="warn" style={{ marginLeft: 6 }}>+{wsSpan.assistantsToCover} assistant(s) needed</span> : null}</span>],
-                ['Free Staffed Bays', <span className={freeBays > 0 ? 'good' : 'warn'}>{freeBays} bay(s) available</span>],
-                ['Cost Reduction', <span className="good">-{Math.round(disc * 100)}% cheaper vs outside commercial rate</span>],
-                ['Turnaround Speedup', <span className="accent">+{Math.round(speed * 100)}% faster overhaul turnaround</span>],
-                ['Workshop Manager', manager ? (
-                  <span>
-                    <b>{manager.name}</b> (Skill {manager.skill})
-                    <div className="dim small">Auto-schedules 25k/100k/250k services in-house on owned bays & pulls idle cover coaches</div>
-                  </span>
-                ) : (
-                  <span className="warn">None appointed (Manual service booking only)</span>
-                )],
-              ]} />
-
-              <div className="form-row mt12">
-                <label>Appoint Workshop Manager</label>
-                <select
-                  value={s.workshop.managerId ?? ''}
-                  onChange={(e) => g.appointFleetManager(e.target.value || undefined)}
-                >
-                  <option value="">— None (Manual Operations) —</option>
-                  {managerCandidates.map((st) => (
-                    <option key={st.id} value={st.id}>
-                      {st.name} · Skill {st.skill} ({st.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-row mt12">
-                <label>Default Manager Tyre Replacement Brand</label>
-                <select
-                  value={s.company.workshopTyreBrand ?? 'oem'}
-                  onChange={(e) => g.setWorkshopTyreBrand(e.target.value as 'oem' | 'tier2')}
-                >
-                  <option value="oem">OEM Tier-1 (Apollo / MRF — {fmtCompact(BAL.tyres.oem.price)}/tyre)</option>
-                  <option value="tier2">Tier-2 Quality (JK / BKT — {fmtCompact(BAL.tyres.tier2.price)}/tyre)</option>
-                </select>
-              </div>
-
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {s.workshop.bays === 0 ? (
-                  <button className="primary" onClick={() => g.openWorkshopLocation(s.company.homeCityId, [])}>
-                    Build HQ Workshop — 1 Bay ({fmtCompact(BAL.workshopSiteFirstBayCost)})
-                  </button>
-                ) : (
-                  <button
-                    className="primary"
-                    onClick={() => {
-                      setNewSiteCity('')
-                      setNewSiteBrands([])
-                      setShowAddSatelliteModal(true)
-                    }}
-                  >
-                    + Open Satellite Workshop ({fmtCompact(BAL.workshopSiteFirstBayCost)})
-                  </button>
-                )}
-              </div>
-            </Panel>
-
-            {/* Outside / Waiting Queue */}
-            {overflow.length > 0 && (
-              <Panel title={`Waiting / Commercial Outside Queue (${overflow.length})`} flat>
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th>Bus</th>
-                      <th>Model</th>
-                      <th>Ownership</th>
-                      <th>Job</th>
-                      <th className="num">Days Left</th>
+          {overflow.length > 0 && (
+            <Panel
+              flat
+              title={`Outside or waiting (${overflow.length})`}
+              right={<span className="muted" title="Owned coaches get staffed bays first. Overflow runs at outside garage rates until a bay frees up.">why?</span>}
+            >
+              <table className="data">
+                <thead>
+                  <tr><th>Bus</th><th>Model</th><th>Owner</th><th>Job</th><th className="num">Left</th></tr>
+                </thead>
+                <tbody>
+                  {overflow.map((b) => (
+                    <tr key={b.id}>
+                      <td><BusLink id={b.id} reg={b.reg} /></td>
+                      <td className="muted">{modelTitleById(b.modelId)}</td>
+                      <td><OwnershipCell ownership={b.ownership} attachShare={b.attach?.ownerShare} /></td>
+                      <td><ServiceJobBadge jobLabel={b.workshopJob} /></td>
+                      <td className="num">{Math.max(0, (b.workshopUntilDay ?? s.day) - s.day)}d</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {overflow.map((b) => (
-                      <tr key={b.id}>
-                        <td><Link to={`/fleet/${b.id}`}><b>{b.reg}</b></Link></td>
-                        <td className="dim">{modelTitleById(b.modelId)}</td>
-                        <td><OwnershipCell ownership={b.ownership} attachShare={b.attach?.ownerShare} /></td>
-                        <td><ServiceJobBadge jobLabel={b.workshopJob} /></td>
-                        <td className="num">{Math.max(0, (b.workshopUntilDay ?? s.day) - s.day)}d</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="small warn" style={{ padding: '6px 10px 0' }}>
-                  Owned coaches take priority on staffed bays; overflow jobs run at commercial outside garage rates until a bay frees up.
-                </p>
-              </Panel>
-            )}
-          </div>
-        </div>
+                  ))}
+                </tbody>
+              </table>
+            </Panel>
+          )}
+        </>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 2: FLEET MAINTENANCE & DUE SERVICING                                  */}
-      {/* ========================================================================= */}
-      {activeTab === 'service' && (
+      {/* ---------------- DUE ---------------- */}
+      {activeTab === 'due' && (
         <Panel
-          title={`Fleet Maintenance Due (${filteredNeedsWork.length} Coaches)`}
           flat
+          title={`Due (${filteredNeedsWork.length})`}
           right={
-            <div className="flex" style={{ gap: 4 }}>
-              {([
-                ['all', `All Due (${needsWork.length})`],
-                ['overhaul', 'Annual Overhauls'],
-                ['service_b', 'Major B-Service'],
-                ['service_a', 'Minor A-Service'],
-                ['tyres', 'Tyres Due'],
-                ['gps', 'Missing GPS'],
-              ] as const).map(([id, label]) => (
-                <button
-                  key={id}
-                  className={`small ${serviceFilter === id ? 'primary' : ''}`}
-                  onClick={() => setServiceFilter(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              inline
+              tabs={[
+                ['all', `All (${needsWork.length})`],
+                ['overhaul', 'Overhaul'],
+                ['service_b', 'B-service'],
+                ['service_a', 'A-service'],
+                ['tyres', 'Tyres'],
+                ['gps', 'GPS'],
+              ] as const}
+              value={serviceFilter}
+              onChange={setServiceFilter}
+            />
           }
         >
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
-            <span className="dim small">
-              Owned coaches take in-house bays first. Attached / leased coaches use leftover bays or outside garages.
-              Tyres wear on steer and drive axles independently.
-            </span>
-          </div>
-
           {filteredNeedsWork.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center' }} className="good">
-              ✓ All active coaches in this category are healthy and road-ready.
-            </div>
+            <Empty text="Nothing due here. Active coaches are road-ready." />
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="xscroll">
               <table className="data">
                 <thead>
                   <tr>
-                    <th>Bus / Reg</th>
-                    <th>Model</th>
+                    <th>Bus</th>
                     <th>Own</th>
                     <th>Condition</th>
-                    <th className="num">Due Interval</th>
-                    <th>Front Steer Tyres</th>
-                    <th>Rear Drive Tyres</th>
-                    <th className="num">Service Action</th>
+                    <th>Due</th>
+                    <th>Front tyres</th>
+                    <th>Rear tyres</th>
+                    <th className="num">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -692,131 +545,69 @@ export function WorkshopPage() {
                     const rQuote = quoteReplaceTyres(s, b, 'rear', rBrand, s.workshop.bays <= 0)
                     const fCost = fQuote && typeof fQuote === 'object' ? fQuote.cost : 0
                     const rCost = rQuote && typeof rQuote === 'object' ? rQuote.cost : 0
-
+                    const worst = worstSubsystem(b.condition)
+                    const deferred = serviceDeferredForBus(s, b)
+                    const resume = serviceResumeDay(s.day)
                     return (
                       <tr key={b.id}>
                         <td>
-                          <Link to={`/fleet/${b.id}`}><b>{b.reg}</b></Link>
-                          {!b.gpsDeviceFitted && (
-                            <span className="pill warn small" style={{ marginLeft: 6 }}>No GPS</span>
-                          )}
+                          <BusLink id={b.id} reg={b.reg} />
+                          {!b.gpsDeviceFitted && <span className="pill warn small ml6">no GPS</span>}
+                          <div className="muted">{modelTitleById(b.modelId)}</div>
                         </td>
-                        <td className="dim small">{modelTitleById(b.modelId)}</td>
                         <td><OwnershipCell ownership={b.ownership} attachShare={b.attach?.ownerShare} /></td>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <Bar value={worstSubsystem(b.condition) / 100} tone="auto" width={8} />
-                            <span className={worstSubsystem(b.condition) < 50 ? 'bad' : 'good'}>
-                              {Math.round(worstSubsystem(b.condition))}%
-                            </span>
-                          </div>
+                        <td className="nowrap">
+                          <Bar value={worst / 100} tone="auto" width={8} /> <span className={worst < 50 ? 'bad' : 'good'}>{Math.round(worst)}%</span>
                         </td>
-                        <td className="num">
+                        <td className="nowrap">
                           {overhaulInfo.isDue ? (
-                            <span className="bad" title="Annual Overhaul due (365d or 250k km)">
-                              <b>Overhaul</b> ({Math.max(1, Math.round(overhaulInfo.dueKm / 1000))}k over)
-                            </span>
+                            <span className="bad" title="Annual overhaul due (365 days or 250k km)"><b>Overhaul</b> {Math.max(1, Math.round(overhaulInfo.dueKm / 1000))}k over</span>
                           ) : dueB > 0 ? (
-                            <span className="bad" title="Major B-Service due (100k km interval)">
-                              <b>B-Service</b> ({Math.round(dueB / 1000)}k over)
-                            </span>
+                            <span className="bad" title="B-service due every 100k km"><b>B-service</b> {Math.round(dueB / 1000)}k over</span>
                           ) : due > 0 ? (
-                            <span className="warn" title="Minor A-Service due (25k km interval)">
-                              <b>A-Service</b> ({Math.round(due / 1000)}k over)
-                            </span>
+                            <span className="warn" title="A-service due every 25k km"><b>A-service</b> {Math.round(due / 1000)}k over</span>
                           ) : (
-                            <span className="dim">ok ({Math.round(-due / 1000)}k to A)</span>
+                            <span className="dim">{Math.round(-due / 1000)}k to A</span>
                           )}
                         </td>
                         <td className="nowrap">
-                          <div className={tyreInfo.frontDue ? 'bad' : tyreInfo.frontPct >= 0.75 ? 'warn' : 'dim small'}>
-                            Front: {Math.round(tyreInfo.frontPct * 100)}% ({b.frontBrand?.toUpperCase() ?? 'OEM'})
-                          </div>
-                          <div className="flex gap-4 mt4" style={{ alignItems: 'center' }}>
-                            <select
-                              className="small"
-                              style={{ maxWidth: 80 }}
-                              value={fBrand}
-                              onChange={(e) =>
-                                setFrontBrandSelect((prev) => ({ ...prev, [b.id]: e.target.value as 'oem' | 'tier2' }))
-                              }
-                            >
-                              <option value="oem">OEM</option>
-                              <option value="tier2">Tier-2</option>
-                            </select>
-                            <button
-                              className="small"
-                              onClick={() => handleReplaceTyres(b, 'front', fBrand)}
-                              title={`Replace 2 front steer tyres with ${fBrand.toUpperCase()} (${fmtCompact(fCost)})`}
-                            >
-                              Fit ({fmtCompact(fCost)})
-                            </button>
-                          </div>
+                          <span className={tyreInfo.frontDue ? 'bad' : tyreInfo.frontPct >= 0.75 ? 'warn' : 'dim'}>{Math.round(tyreInfo.frontPct * 100)}%</span>{' '}
+                          <select value={fBrand} onChange={(e) => setFrontBrandSelect((p) => ({ ...p, [b.id]: e.target.value as 'oem' | 'tier2' }))}>
+                            <option value="oem">OEM</option>
+                            <option value="tier2">Tier-2</option>
+                          </select>{' '}
+                          <button className="small" onClick={() => handleReplaceTyres(b, 'front', fBrand)} title={`Fit 2 front tyres (${fBrand.toUpperCase()})`}>
+                            Fit {fmtCompact(fCost)}
+                          </button>
                         </td>
                         <td className="nowrap">
-                          <div className={tyreInfo.rearDue ? 'bad' : tyreInfo.rearPct >= 0.75 ? 'warn' : 'dim small'}>
-                            Rear: {Math.round(tyreInfo.rearPct * 100)}% ({b.rearBrand?.toUpperCase() ?? 'OEM'})
-                          </div>
-                          <div className="flex gap-4 mt4" style={{ alignItems: 'center' }}>
-                            <select
-                              className="small"
-                              style={{ maxWidth: 88 }}
-                              value={rBrand}
-                              onChange={(e) =>
-                                setRearBrandSelect((prev) => ({
-                                  ...prev,
-                                  [b.id]: e.target.value as 'oem' | 'tier2' | 'retread',
-                                }))
-                              }
-                            >
-                              <option value="oem">OEM</option>
-                              <option value="tier2">Tier-2</option>
-                              <option value="retread">Retread</option>
-                            </select>
-                            <button
-                              className="small"
-                              onClick={() => handleReplaceTyres(b, 'rear', rBrand)}
-                              title={`Replace rear drive tyres with ${rBrand.toUpperCase()} (${fmtCompact(rCost)})`}
-                            >
-                              Fit ({fmtCompact(rCost)})
-                            </button>
-                          </div>
+                          <span className={tyreInfo.rearDue ? 'bad' : tyreInfo.rearPct >= 0.75 ? 'warn' : 'dim'}>{Math.round(tyreInfo.rearPct * 100)}%</span>{' '}
+                          <select value={rBrand} onChange={(e) => setRearBrandSelect((p) => ({ ...p, [b.id]: e.target.value as 'oem' | 'tier2' | 'retread' }))}>
+                            <option value="oem">OEM</option>
+                            <option value="tier2">Tier-2</option>
+                            <option value="retread">Retread</option>
+                          </select>{' '}
+                          <button className="small" onClick={() => handleReplaceTyres(b, 'rear', rBrand)} title={`Fit rear drive tyres (${rBrand.toUpperCase()})`}>
+                            Fit {fmtCompact(rCost)}
+                          </button>
                         </td>
                         <td className="num nowrap">
-                          {(() => {
-                            const deferred = serviceDeferredForBus(s, b)
-                            const resume = serviceResumeDay(s.day)
-                            if (deferred) {
-                              return (
-                                <span
-                                  className="dim small"
-                                  title="Scheduled coaches are protected from workshop downtime during peak festival windows."
-                                >
-                                  Festival hold{resume ? ` (d${resume})` : ''}
-                                </span>
-                              )
-                            }
-                            return (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                                {!b.gpsDeviceFitted && (
-                                  <button
-                                    className="small warn"
-                                    onClick={() => g.fitGps(b.id)}
-                                    title={`Fit mandatory AIS-140 GPS telematics (${fmtCompact(BAL.gpsFitCost)})`}
-                                  >
-                                    Fit GPS
-                                  </button>
-                                )}
-                                <button
-                                  className={`small ${tierDue === 'overhaul' ? 'accent' : tierDue === 'b' ? 'primary' : ''}`}
-                                  onClick={() => handleService(b, tierDue)}
-                                  title={`Book ${BAL.serviceTiers[tierDue].label} (${BAL.serviceTiers[tierDue].costMult}× cost, ${BAL.serviceTiers[tierDue].days}d turnaround)`}
-                                >
-                                  {tierDue === 'overhaul' ? 'Overhaul' : tierDue === 'b' ? 'B-Service' : 'A-Service'}
-                                </button>
-                              </div>
-                            )
-                          })()}
+                          {deferred ? (
+                            <span className="dim" title="Scheduled coaches are kept on the road through peak festival windows">festival hold{resume ? ` · ${fmtDateShort(resume)}` : ''}</span>
+                          ) : (
+                            <>
+                              {!b.gpsDeviceFitted && (
+                                <button className="small warn" onClick={() => g.fitGps(b.id)} title={`Fit AIS-140 GPS (${fmtCompact(BAL.gpsFitCost)})`}>GPS</button>
+                              )}{' '}
+                              <button
+                                className={`small ${tierDue === 'overhaul' ? 'accent' : tierDue === 'b' ? 'primary' : ''}`}
+                                onClick={() => handleService(b, tierDue)}
+                                title={`${BAL.serviceTiers[tierDue].label}: ${BAL.serviceTiers[tierDue].costMult}× cost, ${BAL.serviceTiers[tierDue].days} days`}
+                              >
+                                {tierDue === 'overhaul' ? 'Overhaul' : tierDue === 'b' ? 'B-service' : 'A-service'}
+                              </button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     )
@@ -828,194 +619,188 @@ export function WorkshopPage() {
         </Panel>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 3: DEPOT & OUTSTATION YARDS                                           */}
-      {/* ========================================================================= */}
-      {activeTab === 'depot' && (
-        <div className="grid-2" style={{ alignItems: 'start' }}>
-          {/* Home Yard */}
-          <Panel
-            title={`Home Depot Yard (${cityName(s.company.homeCityId)})`}
-            info="Home depot overnight parking is capped. Buses parked on the road at home incur nightly overflow fees and risk RTO fines. Expanding slots covers fleet vehicles safely."
-          >
-            <KV rows={[
-              ['Home City', cityName(s.company.homeCityId)],
-              ['Slot Capacity', `${homeParkedCount} / ${s.depotSlots ?? BAL.depot.baseSlots} Slots`],
-              ['Parking Status', homeParkedCount > (s.depotSlots ?? BAL.depot.baseSlots) ? (
-                <span className="bad">
-                  ⚠️ {homeParkedCount - (s.depotSlots ?? BAL.depot.baseSlots)} Bus(es) in street overflow ({fmtCompact(BAL.depot.overflowFeePerBusNight)}/bus nightly fee + RTO impound risk)
-                </span>
-              ) : (
-                <span className="good">✓ Fully sheltered & secure (-40% time decay)</span>
-              )],
-              ['Monthly Base Rent', `${fmtCompact(BAL.depotRentBase + Math.max(0, Math.max(buses.length, s.depotSlots ?? BAL.depot.baseSlots) - BAL.depot.baseSlots) * BAL.depotRentPerExtraBus)}/month`],
-            ]} />
-
-            <div style={{ marginTop: 14 }}>
-              <button className="primary" onClick={() => g.expandDepot()}>
-                Expand Depot Yard (+1 Slot for {fmtCompact(BAL.depot.expandSlotCost)})
-              </button>
-              <div className="dim small" style={{ marginTop: 6 }}>
-                Current slots: {s.depotSlots ?? BAL.depot.baseSlots} · Expansion permanently expands overnight capacity.
-              </div>
-            </div>
-          </Panel>
-
-          {/* Depot Bulk Fuel Tank */}
-          <Panel
-            title="Home Depot Bulk Fuel Yard Tank"
-            info="Underground bulk diesel storage allows wholesale tanker procurement at ₹4/L discount. Buses departing from home depot fuel directly from the yard tank."
-          >
-            {s.company.depotFuelTank?.installed ? (
-              <div>
-                <KV rows={[
-                  ['Tank Capacity', '10,000 Litres (Commercial Grade)'],
-                  ['Current Fuel Level', (
-                    <div>
-                      <div className="flex" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
-                        <b>{Math.round(s.company.depotFuelTank.litres).toLocaleString('en-IN')} / 10,000 L</b>
-                        <span className={s.company.depotFuelTank.litres > 2500 ? 'good' : 'warn'}>
-                          {Math.round((s.company.depotFuelTank.litres / 10000) * 100)}%
-                        </span>
-                      </div>
-                      <Bar value={s.company.depotFuelTank.litres / 10000} tone="auto" />
-                    </div>
-                  )],
-                  ['Wholesale Savings', (
-                    <span className="good">
-                      -₹4.00 / Litre vs pump price (saving ₹32,000 per 8,000L tanker)
-                    </span>
-                  )],
-                  ['Auto-Refill Status', (
-                    <label className="flex" style={{ gap: 8 }}>
-                      <input
-                        type="checkbox"
-                        checked={!!s.company.depotFuelTank.autoRefill}
-                        onChange={(e) => g.toggleAutoRefillDepotTank(e.target.checked)}
-                      />
-                      <span className={s.company.depotFuelTank.autoRefill ? 'good small' : 'dim small'}>
-                        {s.company.depotFuelTank.autoRefill ? 'Active (auto-orders 8,000L tanker at 2,000L)' : 'Manual ordering'}
-                      </span>
-                    </label>
-                  )],
-                ]} />
-
-                <div style={{ marginTop: 14 }}>
-                  {(() => {
-                    const wholesalePrice = Math.max(rs(70), s.world.dieselPaise - BAL.fuelCommercial.wholesaleDiscountPerLitre)
-                    const cost8k = Math.round(8_000 * wholesalePrice)
-                    const canFill = s.company.depotFuelTank.capacityLitres - s.company.depotFuelTank.litres >= 1000
-                    return (
-                      <button
-                        className="primary"
-                        onClick={() => g.orderDepotFuelRefill(8_000)}
-                        disabled={!canFill}
-                      >
-                        Order 8,000L Bulk Tanker ({fmtCompact(cost8k)})
-                      </button>
-                    )
-                  })()}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <p className="dim small" style={{ marginBottom: 12 }}>
-                  No bulk fuel tank installed at the home depot. Fleet buses currently refuel at highway pumps at retail diesel rates without wholesale discount.
-                </p>
-                <button
-                  className="primary"
-                  onClick={() => g.installDepotFuelTank()}
-                >
-                  Install 10,000L Bulk Fuel Tank ({fmtCompact(BAL.fuelCommercial.depotTankInstallCost)})
-                </button>
-                <div className="dim small" style={{ marginTop: 6 }}>
-                  Capex: ₹4.5 L. Saves ₹4.00 per litre on all home departures!
-                </div>
-              </div>
-            )}
-          </Panel>
-
-          {/* Outstation Leased Yards */}
-          <Panel
-            title="Outstation Leased Yards Network"
-            info="Buses parked overnight in destination cities incur public parking fees. Leasing covered yards in turnaround cities eliminates nightly parking fees and prevents wear."
-          >
-            {(s.yards?.length ?? 0) === 0 ? (
-              <div style={{ padding: '10px 0' }}>
-                <p className="dim small" style={{ marginBottom: 12 }}>
-                  No outstation yards leased yet. Turnaround coaches incur public parking fees of ₹200–₹500/night.
-                </p>
-              </div>
-            ) : (
-              <table className="data" style={{ marginBottom: 14 }}>
+      {/* ---------------- UPGRADES ---------------- */}
+      {activeTab === 'upgrades' && (
+        <>
+          {refurbBusesInWorks.length > 0 && (
+            <Panel flat title={`In the workshop (${refurbBusesInWorks.length})`}>
+              <table className="data">
                 <thead>
-                  <tr>
-                    <th>Turnaround City</th>
-                    <th className="num">Buses Parked</th>
-                    <th className="num">Monthly Rent</th>
-                    <th>Type</th>
-                    <th />
-                  </tr>
+                  <tr><th>Coach</th><th>Job</th><th>Progress</th><th className="num">Ready</th></tr>
                 </thead>
                 <tbody>
-                  {s.yards.map((y) => {
-                    const parked = busesParkedInCity(s, y.cityId)
+                  {refurbBusesInWorks.map((b) => {
+                    const daysLeft = Math.max(0, (b.workshopUntilDay ?? s.day) - s.day)
+                    const done = Math.max(0.05, Math.min(1, (14 - daysLeft) / 14))
                     return (
-                      <tr key={y.cityId}>
-                        <td><b>{cityName(y.cityId)}</b></td>
-                        <td className="num">
-                          {parked.length > 0 ? (
-                            <span title={parked.map((b) => b.reg).join(', ')}>
-                              <b>{parked.length}</b> bus{parked.length === 1 ? '' : 'es'}
-                            </span>
-                          ) : (
-                            <span className="dim">0 (idle yard)</span>
-                          )}
-                        </td>
-                        <td className="num"><M v={y.monthlyRent} /></td>
-                        <td className="dim small">{y.covered ? 'Covered Yard' : 'Open Lot'}</td>
-                        <td className="num">
-                          <button className="small warn" onClick={() => g.cancelYard(y.cityId)}>
-                            Cancel Lease
-                          </button>
-                        </td>
+                      <tr key={b.id}>
+                        <td><BusLink id={b.id} reg={b.reg} /><div className="muted">{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</div></td>
+                        <td>{b.workshopJob}</td>
+                        <td className="nowrap"><Bar value={done} tone="good" width={10} /> <span className="muted">{Math.round(done * 100)}%</span></td>
+                        <td className="num">{daysLeft}d{b.workshopUntilDay ? <span className="muted"> · {fmtDate(b.workshopUntilDay)}</span> : null}</td>
                       </tr>
                     )
                   })}
-                  <tr className="total">
-                    <td>Total ({s.yards.length} yard{s.yards.length === 1 ? '' : 's'})</td>
-                    <td className="num">{s.yards.reduce((n, y) => n + busesParkedInCity(s, y.cityId).length, 0)}</td>
-                    <td className="num"><M v={s.yards.reduce((n, y) => n + y.monthlyRent, 0)} /></td>
-                    <td />
-                    <td />
-                  </tr>
                 </tbody>
               </table>
-            )}
+            </Panel>
+          )}
 
-            {availableCitiesToLease.length > 0 && (
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-                <label className="dim small" style={{ display: 'block', marginBottom: 6 }}>
-                  Available Turnaround Cities on Permitted Routes:
-                </label>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <select
-                    value={selectedLeaseCity || availableCitiesToLease[0]}
-                    onChange={(e) => setSelectedLeaseCity(e.target.value)}
-                    style={{ flex: 1 }}
-                  >
+          <Panel
+            flat
+            title={`Fleet (${filteredOverhaulBuses.length})`}
+            right={
+              <Tabs
+                inline
+                tabs={[
+                  ['candidates', `Mid-life (${midLifeCandidates.length})`],
+                  ['semi_sleeper', 'Semi-sleepers'],
+                  ['low_condition', 'Low health'],
+                  ['in_progress', 'In shop'],
+                  ['all', 'All owned'],
+                ] as const}
+                value={overhaulFilter}
+                onChange={setOverhaulFilter}
+              />
+            }
+          >
+            {filteredOverhaulBuses.length === 0 ? (
+              <Empty text="No coaches match." />
+            ) : (
+              <div className="xscroll">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Coach</th>
+                      <th>Layout</th>
+                      <th className="num" title="Engine / gearbox condition">Engine / box</th>
+                      <th>Spec</th>
+                      <th className="num">Upgrade</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOverhaulBuses.map((bus) => {
+                      const m = BUS_MODELS[bus.modelId]
+                      const canRebody = canChassisBeRebodied(m)
+                      const isSleeper = Boolean(m?.sleeper || m?.layout?.kind === 'sleeper')
+                      const isLuxury = bus.luxuryRetrofitDay !== undefined || bus.airSuspensionFitted
+                      const inShopNow = bus.status === 'workshop'
+                      const tone = (v: number) => (v >= 75 ? 'good' : v >= 50 ? 'warn' : 'bad')
+                      return (
+                        <tr key={bus.id}>
+                          <td>
+                            <BusLink id={bus.id} reg={bus.reg} />
+                            <div className="muted">{coachTitle(m, bus.bodyDesignName)} · {busAgeYears(s, bus).toFixed(1)}y · {(bus.odometer / 1000).toFixed(0)}k km</div>
+                          </td>
+                          <td className="nowrap">
+                            {isSleeper ? 'Sleeper' : m?.layout?.kind === 'hybrid' ? 'Hybrid' : 'Semi-sleeper'}
+                            <span className="muted"> {m?.seats} {isSleeper ? 'berths' : 'seats'}</span>
+                          </td>
+                          <td className="num nowrap">
+                            <span className={tone(bus.condition.engine)}>{Math.round(bus.condition.engine)}%</span>
+                            {' / '}
+                            <span className={tone(bus.condition.gearbox)}>{Math.round(bus.condition.gearbox)}%</span>
+                          </td>
+                          <td className="nowrap">
+                            <b>{busComfort(s, bus).toFixed(1)}★</b>
+                            {bus.powertrainOverhaulDay !== undefined && <span className="pill good small ml6" title="+10% fuel economy">rebuilt</span>}
+                            {isLuxury && <span className="pill accent small ml6">air susp.</span>}
+                            {bus.refurbishedDay !== undefined && <span className="pill good small ml6">re-bodied</span>}
+                          </td>
+                          <td className="num nowrap">
+                            {inShopNow ? (
+                              <span className="pill info small">in shop · {Math.max(0, (bus.workshopUntilDay ?? s.day) - s.day)}d</span>
+                            ) : (
+                              <>
+                                {canRebody ? (
+                                  <button className="small primary" onClick={() => openOverhaulStudio(bus, 'rebody')} title="New body and layout. Resets body, AC and electrical, +5 years of life">Re-body</button>
+                                ) : (
+                                  <span className="pill dim small" title="Factory monocoque van: cannot be re-bodied">monocoque</span>
+                                )}{' '}
+                                <button className={`small ${!canRebody ? 'primary' : ''}`} onClick={() => openOverhaulStudio(bus, 'powertrain')} title="Engine and gearbox rebuild: +10% fuel economy, half the breakdown risk">Powertrain</button>{' '}
+                                <button className="small" onClick={() => openOverhaulStudio(bus, 'luxury')} title="Touchscreens, fast chargers and air suspension: +2.0 comfort">Luxury</button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Panel>
+        </>
+      )}
+
+      {/* ---------------- DEPOT ---------------- */}
+      {activeTab === 'depot' && (
+        <>
+          <div className="grid-2">
+            <Panel title={`Home depot · ${cityName(s.company.homeCityId)}`}>
+              <KV rows={[
+                ['Slots', <span className={homeParkedCount > depotCap ? 'bad' : ''}>{homeParkedCount} / {depotCap}</span>],
+                ['Parking', homeParkedCount > depotCap
+                  ? <span className="bad" title={`${fmtCompact(BAL.depot.overflowFeePerBusNight)} per bus per night, plus RTO impound risk`}>{homeParkedCount - depotCap} on the street</span>
+                  : <span className="good" title="Sheltered coaches decay 40% slower">sheltered</span>],
+                ['Rent', `${fmtCompact(BAL.depotRentBase + Math.max(0, Math.max(buses.length, depotCap) - BAL.depot.baseSlots) * BAL.depotRentPerExtraBus)}/mo`],
+              ]} />
+              <button className="primary small mt12" onClick={() => g.expandDepot()}>+1 slot · {fmtCompact(BAL.depot.expandSlotCost)}</button>
+            </Panel>
+
+            <Panel title="Fuel tank">
+              {s.company.depotFuelTank?.installed ? (
+                (() => {
+                  const tank = s.company.depotFuelTank
+                  const wholesale = Math.max(rs(70), s.world.dieselPaise - BAL.fuelCommercial.wholesaleDiscountPerLitre)
+                  const cost8k = Math.round(8_000 * wholesale)
+                  const canFill = tank.capacityLitres - tank.litres >= 1000
+                  return (
+                    <>
+                      <KV rows={[
+                        ['Level', <span><Bar value={tank.litres / 10000} tone="auto" /> <b>{Math.round(tank.litres).toLocaleString('en-IN')} L</b> <span className="muted">of 10,000</span></span>],
+                        ['Saving', <span className="good" title="₹4.00 a litre below pump price">₹4/L</span>],
+                        ['Auto-refill', (
+                          <label className="row gap6" title="Orders an 8,000 L tanker when the level drops to 2,000 L">
+                            <input type="checkbox" checked={!!tank.autoRefill} onChange={(e) => g.toggleAutoRefillDepotTank(e.target.checked)} />
+                            <span>{tank.autoRefill ? 'on' : 'off'}</span>
+                          </label>
+                        )],
+                      ]} />
+                      <button className="primary small mt12" disabled={!canFill} onClick={() => g.orderDepotFuelRefill(8_000)}>
+                        Order 8,000 L · {fmtCompact(cost8k)}
+                      </button>
+                    </>
+                  )
+                })()
+              ) : (
+                <>
+                  <Empty text="No bulk tank. Coaches fuel at pumps at retail price." />
+                  <button className="primary small" title="Saves ₹4 a litre on all home departures" onClick={() => g.installDepotFuelTank()}>
+                    Install 10,000 L tank · {fmtCompact(BAL.fuelCommercial.depotTankInstallCost)}
+                  </button>
+                </>
+              )}
+            </Panel>
+          </div>
+
+          <Panel
+            flat
+            title="Outstation yards"
+            right={
+              availableCitiesToLease.length > 0 && (
+                <span className="row gap6">
+                  <select value={selectedLeaseCity || availableCitiesToLease[0]} onChange={(e) => setSelectedLeaseCity(e.target.value)}>
                     {availableCitiesToLease.map((c) => {
                       const parked = busesParkedInCity(s, c).length
-                      const nightly = parked * outstationNightlyFee(c)
                       return (
                         <option key={c} value={c}>
-                          {cityName(c)} — {fmtCompact(yardMonthlyRent(c))}/mo ({parked} bus{parked === 1 ? '' : 'es'} parked{parked > 0 ? ` · saves ${fmtCompact(nightly * 30)}/mo` : ''})
+                          {cityName(c)} · {fmtCompact(yardMonthlyRent(c))}/mo · {parked} parked{parked > 0 ? ` · saves ${fmtCompact(parked * outstationNightlyFee(c) * 30)}/mo` : ''}
                         </option>
                       )
                     })}
                   </select>
                   <button
-                    type="button"
                     className="small primary"
                     onClick={() => {
                       const target = selectedLeaseCity || availableCitiesToLease[0]
@@ -1025,202 +810,144 @@ export function WorkshopPage() {
                       }
                     }}
                   >
-                    Lease Yard
+                    Lease
                   </button>
-                </div>
-              </div>
-            )}
-          </Panel>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 4: CLAIMS & REFURBISHMENT                                             */}
-      {/* ========================================================================= */}
-      {activeTab === 'claims' && (
-        <div className="grid-2" style={{ alignItems: 'start' }}>
-          {/* Insurance Claims Desk */}
-          <Panel
-            title="Insurance Claims Desk"
-            flat
-            info={
-              accountantOnDuty(s)
-                ? `Accounts Manager ${accountantOnDuty(s)!.name} auto-settles surveyed claims and processes garage payouts.`
-                : 'Appoint an Accounts Manager on Staff to auto-process insurance claims upon surveyor clearance.'
+                </span>
+              )
             }
           >
-            {(s.insuranceClaims?.length ?? 0) === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center' }} className="dim">
-                No insurance claims filed. Accidents and major en-route breakdowns generate claims here.
-              </div>
+            {yardRows.length === 0 ? (
+              <Empty text="No yards leased. Turnaround coaches pay public parking of ₹200 to ₹500 a night." />
             ) : (
               <table className="data">
                 <thead>
-                  <tr>
-                    <th>Bus</th>
-                    <th>Claim Status</th>
-                    <th className="num">Repair Estimate</th>
-                    <th className="num">Action</th>
-                  </tr>
+                  <tr><th>City</th><th className="num">Parked</th><th className="num">Rent/mo</th><th>Type</th><th /></tr>
                 </thead>
                 <tbody>
-                  {s.insuranceClaims
-                    .filter(
-                      (c) =>
-                        (c.status !== 'settled' && c.status !== 'rejected') ||
-                        s.day - (c.resolvedDay ?? c.filedDay) <= 14,
+                  {yardRows.map((y) => {
+                    const parked = busesParkedInCity(s, y.cityId)
+                    return (
+                      <tr key={y.cityId}>
+                        <td><b>{cityName(y.cityId)}</b></td>
+                        <td className="num" title={parked.map((b) => b.reg).join(', ')}>{parked.length}</td>
+                        <td className="num"><M v={y.monthlyRent} /></td>
+                        <td className="muted">{y.covered ? 'covered' : 'open lot'}</td>
+                        <td className="num"><button className="small warn" onClick={() => g.cancelYard(y.cityId)}>Cancel</button></td>
+                      </tr>
                     )
-                    .map((c) => {
-                      const bus = s.buses[c.busId]
-                      const ready = s.day >= c.surveyorUntilDay
-                      const acct = accountantOnDuty(s)
-                      return (
-                        <tr key={c.id}>
-                          <td><b>{bus?.reg ?? c.busId}</b></td>
-                          <td className="small">
-                            {c.status === 'settled' ? (
-                              <span className="good">✓ Settled (+<M v={c.payout ?? 0} />)</span>
-                            ) : c.status === 'rejected' ? (
-                              <span className="bad">✗ Rejected (Co. Expense)</span>
-                            ) : c.status === 'garage_paid' ? (
-                              <span className="info">Garage Paid</span>
-                            ) : ready ? (
-                              <span className="accent">{acct ? 'Survey Ready · Accounts Mgr' : 'Survey Complete'}</span>
-                            ) : (
-                              <span className="dim">Survey in progress (Day {c.surveyorUntilDay})</span>
-                            )}
-                          </td>
-                          <td className="num"><b><M v={c.repairEstimate} /></b></td>
-                          <td className="num">
-                            {c.status !== 'settled' && c.status !== 'rejected' && (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                                {c.status !== 'garage_paid' && (
-                                  <button className="small" onClick={() => g.payGarageClaim(c.id)}>
-                                    Pay Garage
-                                  </button>
-                                )}
-                                <button
-                                  className="small primary"
-                                  disabled={!ready && c.status === 'survey'}
-                                  onClick={() => g.settleInsuranceClaim(c.id)}
-                                >
-                                  Settle Claim
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                  })}
+                  <tr className="total">
+                    <td><b>{yardRows.length} yard{yardRows.length === 1 ? '' : 's'}</b></td>
+                    <td className="num">{yardRows.reduce((n, y) => n + busesParkedInCity(s, y.cityId).length, 0)}</td>
+                    <td className="num"><M v={yardRows.reduce((n, y) => n + y.monthlyRent, 0)} /></td>
+                    <td />
+                    <td />
+                  </tr>
                 </tbody>
               </table>
             )}
           </Panel>
+        </>
+      )}
 
-          {/* Re-body & Seat Refurbishment */}
-          <Panel
-            title="Re-body & Seat Refurbishment Works"
-            flat
-            info="Specialist fibreglass body building (+3 years life extension) and luxury upholstery (+2 comfort rating points). In-house workshop accelerates turnaround."
-          >
+      {/* ---------------- CLAIMS ---------------- */}
+      {activeTab === 'claims' && (
+        <Panel
+          flat
+          title="Insurance claims"
+          right={
+            <span className="muted" title={accountantOnDuty(s) ? `${accountantOnDuty(s)!.name} settles surveyed claims automatically` : 'Appoint an accounts manager to settle claims automatically'}>
+              {accountantOnDuty(s) ? 'auto-settle on' : 'manual'}
+            </span>
+          }
+        >
+          {(s.insuranceClaims?.length ?? 0) === 0 ? (
+            <Empty text="No claims. Accidents and major breakdowns file them here." />
+          ) : (
             <table className="data">
               <thead>
-                <tr>
-                  <th>Bus / Reg</th>
-                  <th>Model</th>
-                  <th>Work Order</th>
-                  <th>Condition</th>
-                  <th>Completion Date</th>
-                  <th className="num">Status</th>
-                </tr>
+                <tr><th>Bus</th><th>Status</th><th className="num">Repair estimate</th><th className="num">Action</th></tr>
               </thead>
               <tbody>
-                {refurbBusesInWorks.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="dim" style={{ textAlign: 'center', padding: 20 }}>
-                      No coaches currently undergoing re-body or seat refurbishment. Start jobs from any coach's Condition card in Fleet Details.
-                    </td>
-                  </tr>
-                ) : (
-                  refurbBusesInWorks.map((b) => {
-                    const daysLeft = Math.max(0, (b.workshopUntilDay ?? s.day) - s.day)
-                    const isRebody = b.workshopJob?.includes('re-body')
-                    const condPct = isRebody
-                      ? Math.round((b.condition.body + b.condition.ac + b.condition.electrical) / 3)
-                      : Math.round(((BUS_MODELS[b.modelId]?.comfort ?? 7) + (b.comfortBonus ?? 0)) * 10)
+                {s.insuranceClaims
+                  .filter((c) => (c.status !== 'settled' && c.status !== 'rejected') || s.day - (c.resolvedDay ?? c.filedDay) <= 14)
+                  .map((c) => {
+                    const bus = s.buses[c.busId]
+                    const ready = s.day >= c.surveyorUntilDay
                     return (
-                      <tr key={b.id}>
-                        <td><Link to={`/fleet/${b.id}`}><b>{b.reg}</b></Link></td>
-                        <td className="dim small">{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</td>
-                        <td><b>{b.workshopJob}</b></td>
-                        <td className="small">
-                          <span className={condPct >= 75 ? 'good' : condPct >= 50 ? 'warn' : 'bad'}>
-                            {condPct}%
-                          </span>
-                          <span className="dim"> ({isRebody ? 'Body/AC/Elec' : 'Comfort'})</span>
+                      <tr key={c.id}>
+                        <td>{bus ? <BusLink id={bus.id} reg={bus.reg} /> : c.busId}</td>
+                        <td>
+                          {c.status === 'settled' ? (
+                            <span className="good">settled +<M v={c.payout ?? 0} /></span>
+                          ) : c.status === 'rejected' ? (
+                            <span className="bad" title="Rejected: the cost stays with the company">rejected</span>
+                          ) : c.status === 'garage_paid' ? (
+                            <span className="info">garage paid</span>
+                          ) : ready ? (
+                            <span className="accent">survey done</span>
+                          ) : (
+                            <span className="dim">survey until {fmtDateShort(c.surveyorUntilDay)}</span>
+                          )}
                         </td>
-                        <td className="small">
-                          {b.workshopUntilDay ? `${fmtDate(b.workshopUntilDay)} (${daysLeft}d left)` : 'In progress'}
-                        </td>
-                        <td className="num">
-                          <span className="pill info small">In Progress</span>
+                        <td className="num"><b><M v={c.repairEstimate} /></b></td>
+                        <td className="num nowrap">
+                          {c.status !== 'settled' && c.status !== 'rejected' && (
+                            <>
+                              {c.status !== 'garage_paid' && <button className="small" onClick={() => g.payGarageClaim(c.id)}>Pay garage</button>}{' '}
+                              <button className="small primary" disabled={!ready && c.status === 'survey'} onClick={() => g.settleInsuranceClaim(c.id)}>Settle</button>
+                            </>
+                          )}
                         </td>
                       </tr>
                     )
-                  })
-                )}
+                  })}
               </tbody>
             </table>
-          </Panel>
-        </div>
+          )}
+        </Panel>
       )}
 
-      {/* Outside Commercial Garage Confirmation Modal */}
+      {/* ---------------- MODALS ---------------- */}
       {outsideModal && (
-        <div className="modal-backdrop" onClick={() => setOutsideModal(null)}>
-          <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
-            <h3>Outside Commercial Garage Dispatch</h3>
-            <p>
-              Your in-house workshop has <strong>no eligible free staffed bay</strong> for this vehicle (capacity full or brand restricted). Would you like to outsource{' '}
-              <strong>{outsideModal.reg}</strong> to an authorized commercial garage?
-            </p>
-            <div className="panel flat" style={{ margin: '12px 0', padding: '10px 14px' }}>
-              <div><strong>Maintenance Job:</strong> {outsideModal.title}</div>
-              <div><strong>Commercial Quote:</strong> {fmtCompact(outsideModal.cost)} (undiscounted outside rate)</div>
-              <div><strong>Turnaround:</strong> {outsideModal.days} day(s)</div>
-            </div>
-            <div className="flex gap-8" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
+        <Modal
+          title="Send to an outside garage?"
+          onClose={() => setOutsideModal(null)}
+          actions={
+            <>
               <button onClick={() => setOutsideModal(null)}>Cancel</button>
               <button
                 className="primary"
                 onClick={() => {
-                  if (outsideModal.action === 'service') {
-                    g.serviceBus(outsideModal.busId, outsideModal.tier, { outside: true })
-                  } else if (outsideModal.action === 'tyres') {
-                    g.replaceTyres(outsideModal.busId, outsideModal.axle, outsideModal.brand, { outside: true })
-                  }
+                  if (outsideModal.action === 'service') g.serviceBus(outsideModal.busId, outsideModal.tier, { outside: true })
+                  else if (outsideModal.action === 'tyres') g.replaceTyres(outsideModal.busId, outsideModal.axle, outsideModal.brand, { outside: true })
                   setOutsideModal(null)
                 }}
               >
-                Send to Outside Garage
+                Send for {fmtCompact(outsideModal.cost)}
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <KV rows={[
+            ['Coach', outsideModal.reg],
+            ['Job', outsideModal.title],
+            ['Outside quote', fmtCompact(outsideModal.cost)],
+            ['Turnaround', `${outsideModal.days} day${outsideModal.days === 1 ? '' : 's'}`],
+          ]} />
+          <div className="muted mt12">No free staffed bay here (full, or the bay is restricted to other brands).</div>
+        </Modal>
       )}
 
-      {/* Open Satellite Workshop Modal */}
       {showAddSatelliteModal && (
         <Modal
-          title="Open Satellite Workshop Depot"
+          title="Open satellite workshop"
           onClose={() => setShowAddSatelliteModal(false)}
           actions={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="small text" onClick={() => setShowAddSatelliteModal(false)}>
-                Cancel
-              </button>
+            <>
+              <button onClick={() => setShowAddSatelliteModal(false)}>Cancel</button>
               <button
-                className="primary small"
+                className="primary"
                 disabled={!newSiteCity}
                 onClick={() => {
                   if (!newSiteCity) return
@@ -1228,155 +955,228 @@ export function WorkshopPage() {
                   setShowAddSatelliteModal(false)
                 }}
               >
-                Open Satellite Depot ({fmtCompact(BAL.workshopSiteFirstBayCost)})
+                Open for {fmtCompact(BAL.workshopSiteFirstBayCost)}
               </button>
-            </div>
+            </>
           }
         >
-          <p className="dim small" style={{ marginBottom: 14 }}>
-            Open a regional satellite workshop in another city hub. The first bay at this site costs{' '}
-            <strong style={{ color: 'var(--fg)' }}>{fmtCompact(BAL.workshopSiteFirstBayCost)}</strong>{' '}
-            (includes opening the depot). Any additional bays built at this location cost flat{' '}
-            <strong style={{ color: 'var(--fg)' }}>{fmtCompact(BAL.workshopBayCostFlat)}</strong> each.
-          </p>
-
-          <div className="form-row">
-            <label>Site City</label>
-            <select
-              value={newSiteCity}
-              onChange={(e) => setNewSiteCity(e.target.value)}
-            >
-              <option value="">— Select Outstation City —</option>
-              {Object.keys(CITIES)
-                .filter((cid) => !locations.some((l) => l.cityId === cid))
-                .sort((a, b) => cityName(a).localeCompare(cityName(b)))
-                .map((cid) => (
-                  <option key={cid} value={cid}>
-                    {cityName(cid)} ({CITIES[cid].state})
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          <div className="form-row mt12">
-            <label>Allowed Brands</label>
-            <div className="dim small" style={{ marginBottom: 6 }}>
-              Bays at this satellite will only service coaches of selected subsidiary brands. Select none to allow all brands across the company.
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                maxHeight: 180,
-                overflowY: 'auto',
-                padding: '8px 10px',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-                background: 'var(--bg)',
-              }}
-            >
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={newSiteBrands.length === 0}
-                  onChange={(e) => {
-                    if (e.target.checked) setNewSiteBrands([])
-                  }}
-                />
-                <span><strong>All Brands</strong> (Universal access)</span>
-              </label>
-              {Object.values(s.groups ?? {}).map((grp) => (
-                <label key={grp.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={newSiteBrands.includes(grp.id)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setNewSiteBrands([...newSiteBrands, grp.id])
-                      } else {
-                        setNewSiteBrands(newSiteBrands.filter((id) => id !== grp.id))
-                      }
-                    }}
-                  />
-                  <GroupBadge group={grp} />
-                  <span>{grp.name} ({grp.code})</span>
-                </label>
-              ))}
+          <div className="stack14">
+            <label className="stack10" title={`First bay ${fmtCompact(BAL.workshopSiteFirstBayCost)} includes opening the depot. Each extra bay ${fmtCompact(BAL.workshopBayCostFlat)}.`}>
+              <span className="muted">City</span>
+              <select value={newSiteCity} onChange={(e) => setNewSiteCity(e.target.value)}>
+                <option value="">choose a city</option>
+                {Object.keys(CITIES)
+                  .filter((cid) => !locations.some((l) => l.cityId === cid))
+                  .sort((a, b) => cityName(a).localeCompare(cityName(b)))
+                  .map((cid) => <option key={cid} value={cid}>{cityName(cid)} ({CITIES[cid].state})</option>)}
+              </select>
+            </label>
+            <div>
+              <div className="muted mb8" title="Bays here only serve the selected brands. Leave on all brands to serve the whole company.">Allowed brands</div>
+              <BrandChecks groups={Object.values(s.groups ?? {})} value={newSiteBrands} onChange={setNewSiteBrands} />
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Edit Workshop Location Brands Modal */}
       {editingLocation && (
         <Modal
-          title={`Allowed Brands — ${cityName(editingLocation.cityId)}`}
+          title={`Allowed brands · ${cityName(editingLocation.cityId)}`}
           onClose={() => setEditingLocation(null)}
           actions={
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button className="small text" onClick={() => setEditingLocation(null)}>
-                Cancel
-              </button>
+            <>
+              <button onClick={() => setEditingLocation(null)}>Cancel</button>
               <button
-                className="primary small"
+                className="primary"
                 onClick={() => {
                   g.updateWorkshopLocationBrands(editingLocation.id, editLocationBrands)
                   setEditingLocation(null)
                 }}
               >
-                Save Allowed Brands
+                Save
               </button>
-            </div>
+            </>
           }
         >
-          <p className="dim small" style={{ marginBottom: 12 }}>
-            Choose which subsidiary brands may occupy bays at <strong>{cityName(editingLocation.cityId)}</strong>.
-            Buses not in this list will use other locations or outside commercial garages.
-          </p>
-
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-              margin: '10px 0',
-              padding: '10px 12px',
-              border: '1px solid var(--border)',
-              borderRadius: 4,
-              background: 'var(--bg)',
-            }}
-          >
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={editLocationBrands.length === 0}
-                onChange={(e) => {
-                  if (e.target.checked) setEditLocationBrands([])
-                }}
-              />
-              <span><strong>All Brands</strong> (Allow any company fleet vehicle)</span>
-            </label>
-            {Object.values(s.groups ?? {}).map((grp) => (
-              <label key={grp.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={editLocationBrands.includes(grp.id)}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setEditLocationBrands([...editLocationBrands, grp.id])
-                    } else {
-                      setEditLocationBrands(editLocationBrands.filter((id) => id !== grp.id))
-                    }
-                  }}
-                />
-                <GroupBadge group={grp} />
-                <span>{grp.name} ({grp.code})</span>
-              </label>
-            ))}
-          </div>
+          <div className="muted mb8" title="Coaches of other brands use other locations or outside garages">Brands served at this workshop</div>
+          <BrandChecks groups={Object.values(s.groups ?? {})} value={editLocationBrands} onChange={setEditLocationBrands} />
         </Modal>
       )}
+
+      {overhaulStudioBus && (() => {
+        const bus = overhaulStudioBus
+        const m = BUS_MODELS[bus.modelId]
+        const age = busAgeYears(s, bus)
+        const canRebody = canChassisBeRebodied(m)
+        const blocker = rebodyBlocker(bus)
+        const builders = s.bodyBuilders ?? DEFAULT_BODY_BUILDERS
+        const compatibleBuilders = Object.values(builders).filter((b) => !m || b.makers.includes(m.maker as never))
+        const currentBuilder = builders[selectedBuilderId] ?? compatibleBuilders[0] ?? Object.values(builders)[0]
+        const currentDesign = currentBuilder?.designs.find((d) => d.id === selectedDesignId) ?? currentBuilder?.designs[0]
+
+        const quote =
+          overhaulTab === 'rebody' ? quoteRebody(s, bus, currentDesign?.id)
+          : overhaulTab === 'powertrain' ? quotePowertrainOverhaul(s, bus)
+          : quoteLuxuryRetrofit(s, bus)
+        const affordable = s.company.cash >= quote.cost
+        const idle = bus.status === 'active'
+        const blocked =
+          !affordable || !idle || (overhaulTab === 'rebody' && (!canRebody || Boolean(blocker)))
+        const confirmLabel =
+          overhaulTab === 'rebody' && !canRebody ? 'Cannot re-body a monocoque van'
+          : !affordable ? 'Not enough cash'
+          : !idle ? 'Coach not active'
+          : overhaulTab === 'rebody' && blocker ? 'Requirements not met'
+          : overhaulTab === 'rebody' ? 'Start re-body'
+          : overhaulTab === 'powertrain' ? 'Start rebuild'
+          : 'Start retrofit'
+        const pct = (v: number) => `${Math.round(v)}%`
+
+        const confirm = () => {
+          if (overhaulTab === 'rebody') g.rebodyBus(bus.id, selectedDesignId, selectedLayoutKind)
+          else if (overhaulTab === 'powertrain') g.overhaulPowertrain(bus.id)
+          else g.retrofitLuxuryAmenities(bus.id)
+          setOverhaulStudioBus(null)
+        }
+
+        const LAYOUTS: [CoachLayoutKind, string, string][] = [
+          ['sleeper', 'Executive sleeper 2+1', 'All berths. Highest weekend fares, suits overnight routes.'],
+          ['hybrid', 'Hybrid sleeper 2+1', 'Lower deck seats, upper deck berths.'],
+          ['semi', 'Semi-sleeper 2+2', 'Most seats. Suits dense daytime corridors.'],
+        ]
+        const layoutLabel = LAYOUTS.find(([k]) => k === selectedLayoutKind)?.[1] ?? ''
+
+        return (
+          <Modal
+            title={`Upgrade ${bus.reg}`}
+            wide
+            onClose={() => setOverhaulStudioBus(null)}
+            actions={
+              <>
+                <div className="grow">
+                  <b className="accent">{fmtCompact(quote.cost)}</b>
+                  <span className="muted"> · {quote.days} days in the workshop</span>
+                </div>
+                <button onClick={() => setOverhaulStudioBus(null)}>Close</button>
+                <button className="primary" disabled={blocked} onClick={confirm}>{confirmLabel}</button>
+              </>
+            }
+          >
+            <div className="stack14">
+              <div className="muted">
+                {coachTitle(m, bus.bodyDesignName)} · {age.toFixed(1)} years · {(bus.odometer / 1000).toFixed(0)}k km
+              </div>
+
+              <Tabs
+                tabs={[
+                  ['rebody', 'Re-body'],
+                  ['powertrain', 'Powertrain'],
+                  ['luxury', 'Luxury'],
+                ] as const}
+                value={overhaulTab}
+                onChange={setOverhaulTab}
+              />
+
+              {overhaulTab === 'rebody' && (
+                <>
+                  {blocker && <div className="bad">{blocker}</div>}
+                  <div className="grid-2">
+                    <label className="stack10">
+                      <span className="muted">Body builder</span>
+                      <select
+                        value={selectedBuilderId}
+                        onChange={(e) => {
+                          const bId = e.target.value
+                          setSelectedBuilderId(bId)
+                          const d = builders[bId]?.designs[0]
+                          if (d) setSelectedDesignId(d.id)
+                        }}
+                      >
+                        {compatibleBuilders.map((b) => <option key={b.id} value={b.id}>{b.name} ({b.makers.join(', ')})</option>)}
+                      </select>
+                    </label>
+                    <label className="stack10">
+                      <span className="muted">Design</span>
+                      <select value={selectedDesignId} onChange={(e) => setSelectedDesignId(e.target.value)}>
+                        {(currentBuilder?.designs ?? []).map((d) => (
+                          <option key={d.id} value={d.id}>{d.name} {d.layoutKinds ? `(${d.layoutKinds.join(', ')})` : ''}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="stack10">
+                    {LAYOUTS.map(([k, title, desc]) => (
+                      <label key={k} className="row gap" style={{ cursor: 'pointer' }} title={desc}>
+                        <input type="radio" name="layout" checked={selectedLayoutKind === k} onChange={() => setSelectedLayoutKind(k)} />
+                        <b className="bold">{title}</b>
+                        <span className="muted">{desc}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <table className="data">
+                    <thead><tr><th /><th>Now</th><th>After</th></tr></thead>
+                    <tbody>
+                      <tr><td>Coach</td><td>{coachTitle(m, bus.bodyDesignName)}</td><td className="accent">{currentDesign?.name ?? 'Custom shell'} · {layoutLabel}</td></tr>
+                      <tr><td>Useful life</td><td>~{Math.max(0, 15 - Math.round(age))} years left</td><td className="good">+5 years</td></tr>
+                      <tr><td>Body / AC / electrical</td><td>{pct(bus.condition.body)} / {pct(bus.condition.ac)} / {pct(bus.condition.electrical)}</td><td className="good">reset to 90%</td></tr>
+                    </tbody>
+                  </table>
+                </>
+              )}
+
+              {overhaulTab === 'powertrain' && (
+                <table className="data" title="Full strip-down: liners, pistons, crankshaft, turbo, injectors and synchro rings">
+                  <thead><tr><th /><th>Now</th><th>After</th></tr></thead>
+                  <tbody>
+                    <tr><td>Engine</td><td className={bus.condition.engine >= 75 ? 'good' : 'warn'}>{pct(bus.condition.engine)}</td><td className="good">98%</td></tr>
+                    <tr><td>Gearbox</td><td className={bus.condition.gearbox >= 75 ? 'good' : 'warn'}>{pct(bus.condition.gearbox)}</td><td className="good">98%</td></tr>
+                    <tr><td>Breakdown risk</td><td>normal wear</td><td className="good">halved</td></tr>
+                    <tr><td>Fuel economy</td><td>{bus.powertrainOverhaulDay ? '+10% (rebuilt)' : 'stock'}</td><td className="good">+10%</td></tr>
+                  </tbody>
+                </table>
+              )}
+
+              {overhaulTab === 'luxury' && (
+                <table className="data" title="Seatback touchscreens, 45W Type-C chargers at every seat, and pneumatic air suspension">
+                  <thead><tr><th /><th>Now</th><th>After</th></tr></thead>
+                  <tbody>
+                    <tr><td>Comfort</td><td>{busComfort(s, bus).toFixed(1)}★</td><td className="good">+2.0★</td></tr>
+                    <tr><td>Suspension</td><td>{pct(bus.condition.suspension)}</td><td className="good">95%</td></tr>
+                    <tr><td>Passenger reviews</td><td>standard</td><td className="good">+15% PSS bonus</td></tr>
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </Modal>
+        )
+      })()}
     </>
+  )
+}
+
+/** Brand access list shared by the satellite and brand-edit screens. Empty selection means all brands. */
+function BrandChecks({ groups, value, onChange }: {
+  groups: { id: ID; name: string; code: string; color: string }[]
+  value: ID[]
+  onChange: (v: ID[]) => void
+}) {
+  return (
+    <div className="stack10">
+      <label className="row gap6" style={{ cursor: 'pointer' }}>
+        <input type="checkbox" checked={value.length === 0} onChange={(e) => { if (e.target.checked) onChange([]) }} />
+        <b className="bold">All brands</b>
+      </label>
+      {groups.map((grp) => (
+        <label key={grp.id} className="row gap6" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={value.includes(grp.id)}
+            onChange={(e) => onChange(e.target.checked ? [...value, grp.id] : value.filter((id) => id !== grp.id))}
+          />
+          <GroupBadge group={grp} />
+          <span>{grp.name}</span>
+        </label>
+      ))}
+    </div>
   )
 }

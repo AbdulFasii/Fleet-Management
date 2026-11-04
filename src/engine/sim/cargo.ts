@@ -10,13 +10,13 @@
  * Chennai–Madurai) share a pool, so the same kilograms cannot be sold twice.
  */
 import { BAL } from '../data/balance'
-import { CITIES, cityFreightProfile, type FreightTier, type CityFreightProfile } from '../data/cities'
+import { CITIES, cityFreightProfile } from '../data/cities'
 import { isCargoModel } from '../data/busModels'
 import { ROUTES, routeName, canonicalRouteId } from '../data/routes'
-import { dow, festivalEffect, seasonInfo, ymKey } from '../core/calendar'
-import { rngFor, rChance, rInt, rJitter, rPick, type Rng } from '../core/rng'
+import { dow, festivalEffect, fmtDate, seasonInfo, ymKey } from '../core/calendar'
+import { rngFor, rChance, rJitter, rPick, type Rng } from '../core/rng'
 import { nextId } from '../core/ids'
-import { rs, toRupees, fmtCompact } from '../core/money'
+import { rs, fmtCompact } from '../core/money'
 import type {
   CargoContract,
   CargoHaulLine,
@@ -32,9 +32,9 @@ import type {
   SpotCargoOffer,
 } from '../types'
 import { corridorProfile, windowMass } from './corridor'
-import { corridorArchetype, demandFactors } from './demand'
+import { demandFactors } from './demand'
 import { canAfford, routeDayFor, spend } from './finance'
-import { pushDecision, pushLog } from './log'
+import { pushLog } from './log'
 import { cargoManagerOnDuty } from './staffing'
 import { assistantsToCover, deskCapacity, deskCoverage } from './span'
 import { tonnesText } from '../core/units'
@@ -380,7 +380,11 @@ export function cargoBookKg(
   const bonus = s.company.dedicatedCargoSubsidiary ? (1 + BAL.cargoSubsidiaryShareBonus) : 1
   const fillEff = cargoFillRate(cargoManagerOnDuty(s), cargoEffSkill(s))
   // Manager booking efficiency and desk span directly scale book capture share
-  const capture = Math.min(0.85, Math.max(0.04, brandShare(cargoManagerOnDuty(s), cargoEffSkill(s)) * (0.55 + fillEff * 0.45) * price * damp * bonus))
+  // Shippers favour carriers that arrive on time; a bandh/flood on the lane shuts most bookings.
+  const reliability = Math.max(0.7, Math.min(1.1, 0.8 + 0.4 * (s.company.punctuality - 0.5)))
+  const closure = s.world.closures?.[route.id]
+  const closureMult = closure && closure.untilDay >= day ? 0.4 : 1
+  const capture = Math.min(0.85, Math.max(0.04, brandShare(cargoManagerOnDuty(s), cargoEffSkill(s)) * (0.55 + fillEff * 0.45) * price * damp * bonus * reliability * closureMult))
   const adHoc = BAL.cargoAdHocParcelMult ?? 1
   return {
     // Walk-in + spot parcels share this book; scale ad-hoc volume without touching bulk trucks.
@@ -767,7 +771,7 @@ export function renewCargoPermit(s: GameState, routeId: string): string | null {
   cargo.activeFromDay = s.day
   cargo.expiryDay = s.day + BAL.cargoPermitTermDays
   cargo.feePaid = fee
-  pushLog(s, 'good', `Cargo licence renewed on ${routeName(route.id)} until day ${cargo.expiryDay} (${fmtCompact(fee)}).`)
+  pushLog(s, 'good', `Cargo licence renewed on ${routeName(route.id)} until ${fmtDate(cargo.expiryDay)} (${fmtCompact(fee)}).`)
   return null
 }
 
@@ -817,7 +821,7 @@ export function cargoPermitPass(s: GameState): void {
     cargo.activeFromDay = s.day
     cargo.expiryDay = s.day + BAL.cargoPermitTermDays
     cargo.feePaid = fee
-    pushLog(s, 'info', `Cargo licence renewed on ${routeName(permit.routeId)} until day ${cargo.expiryDay} (${fmtCompact(fee)}).`)
+    pushLog(s, 'info', `Cargo licence renewed on ${routeName(permit.routeId)} until ${fmtDate(cargo.expiryDay)} (${fmtCompact(fee)}).`)
   }
 }
 
@@ -1331,25 +1335,11 @@ export function dailyCargoPass(s: GameState): void {
         queueSpot(s, offer, mgr.name)
       }
     }
-  } else if (openSpotCount(s) < maxSpots) {
-    const rng = rngFor(s.seed, 'spot-cargo', s.day)
-    const adHoc = BAL.cargoAdHocParcelMult ?? 1
-    const chance = isDedicated ? 0.40 : 0.20 * adHoc
-    if (rChance(rng, chance)) {
-      const offer = buildSpotOffer(s, rng, 'offered')
-      if (offer) {
-        s.company.spotOffers.push(offer)
-        pushDecision(s, {
-          kind: 'spot_cargo',
-          title: `Spot Cargo Offer: ${tonnesText(offer.weightKg)} ${offer.cargoType}`,
-          body: `Shipper offering ${tonnesText(offer.weightKg)} (${offer.volumeCbm} CBM) on ${routeName(offer.routeId)} for ₹${Math.round(toRupees(offer.totalPayment)).toLocaleString('en-IN')}.\nAccept to queue it on the next departure that has room.`,
-          options: [
-            { id: `accept_${offer.id}`, label: `Queue (₹${Math.round(toRupees(offer.totalPayment)).toLocaleString('en-IN')})` },
-            { id: 'decline', label: 'Decline' },
-          ],
-          data: { offerId: offer.id },
-        })
-      }
+  } else {
+    // If no cargo manager is assigned to the desk, do not generate spot cargo offers
+    // and do not popup decisions. Clear any lingering spot cargo decisions.
+    if (s.decisions.some((d) => d.kind === 'spot_cargo')) {
+      s.decisions = s.decisions.filter((d) => d.kind !== 'spot_cargo')
     }
   }
 
@@ -1734,8 +1724,26 @@ export function settleCargoShortfall(s: GameState): void {
     const promised = lines.reduce((a, l) => a + l.promisedKg, 0)
     const hauled = lines.reduce((a, l) => a + l.hauledKg, 0)
     const miss = promised - hauled
-    if (miss < 20) continue
     const routeId = lines[0]!.routeId
+    // SLA: a freight run that broke down or arrived >2h late costs 10% of the freight actually moved
+    // and dents reputation, even when every kilogram eventually arrived.
+    const lateRun = Object.values(s.trips).some(
+      (t) =>
+        t.routeId === routeId && t.day === s.day && t.status === 'completed' &&
+        isCargoModel(s.buses[t.busId]?.modelId) &&
+        (t.outcome?.breakdown || (t.outcome?.delayMin ?? 0) > (s.config?.slaToleranceMin ?? 120)),
+    )
+    if (lateRun && hauled > 0) {
+      const slaFee = rs(lines.reduce((a, l) => a + cargoFreightRupees(l.hauledKg, l.km, l.ratePerKg100Km), 0) * 0.1)
+      if (slaFee > 0) {
+        spend(s, 'penalty', slaFee, { routeId, note: 'Cargo SLA penalty (late/broken-down delivery)' })
+        s.company.reputation = Math.max(0, s.company.reputation - 0.5)
+        pushLog(s, 'alert', `Cargo SLA breach on ${routeName(routeId)}: late delivery cost ${fmtCompact(slaFee)} and reputation.`, '/cargo')
+      }
+    }
+    if (miss < 20) continue
+    // Failing a signed contract hurts standing in proportion to what was left behind.
+    s.company.reputation = Math.max(0, s.company.reputation - Math.min(2, 0.3 + miss / 2000))
     const partner = s.company.cargoContracts?.find((c) => c.id === id)?.partner ?? 'partner'
     const completed = Object.values(s.trips).filter(
       (t) => t.routeId === routeId && t.day === s.day && t.status === 'completed',

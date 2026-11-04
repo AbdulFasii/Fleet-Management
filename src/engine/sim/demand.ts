@@ -30,17 +30,17 @@ import {
   classHourAppeal,
   corridorProfile,
   departureTimeFit,
-  getDurationCategory,
   haulLayoutAppeal,
   hybridZoneFactors,
   isHomebound,
   ownSubstitutionWeight,
   windowMass,
   wrapDistMin,
-  blendHaul,
-} from './corridor'
-import { marketFare, timeDemandMultiplier, tripWobbleRate } from './pricing'
+  } from './corridor'
+import { marketFare, tripWobbleRate } from './pricing'
 import { busFittingsDemandMult } from '../data/amenitiesCatalog'
+import { isTripFrontRun, getCorridorStance } from './rivalIntelligence'
+import { getLoungeDemandBoost } from './lounge'
 
 export { isHomebound } from './corridor'
 
@@ -163,7 +163,17 @@ export interface DemandFactors {
 }
 
 /** Calendar-driven demand multiplier for a departure day + direction. */
-export function demandFactors(s: GameState, route: RouteDef, direction: 'AB' | 'BA', depDay: number): DemandFactors {
+export function demandFactors(
+  s: GameState,
+  route: RouteDef,
+  direction: 'AB' | 'BA',
+  depDay: number,
+  ctx?: BookingCtx,
+): DemandFactors {
+  const cacheKey = ctx?.demandFactorsCache ? `${route.id}:${direction}:${depDay}` : null
+  if (cacheKey && ctx?.demandFactorsCache?.has(cacheKey)) {
+    return ctx.demandFactorsCache.get(cacheKey)!
+  }
   // Run effect includes the one-day service pad each side of the festival
   // window, so the repositioning departures see the surge they live on.
   const fest = festivalRunEffect(depDay)
@@ -175,7 +185,7 @@ export function demandFactors(s: GameState, route: RouteDef, direction: 'AB' | '
   let structural = diff.demandMult
   const shock = s.world.demandShock[route.id]
   if (shock && shock.untilDay >= depDay) structural *= shock.mult
-  return {
+  const factors: DemandFactors = {
     weekly,
     seasonal,
     structural,
@@ -184,6 +194,10 @@ export function demandFactors(s: GameState, route: RouteDef, direction: 'AB' | '
     season: season.name,
     archetype: corridorArchetype(route.id),
   }
+  if (cacheKey && ctx?.demandFactorsCache) {
+    ctx.demandFactorsCache.set(cacheKey, factors)
+  }
+  return factors
 }
 
 /** How many seats rivals put on the corridor against this day's demand. */
@@ -586,7 +600,7 @@ export function channelWeights(s: GameState, sch: Schedule, ctx?: BookingCtx): R
   const cached = ctx?.weightsBySchedule.get(sch.id)
   if (cached) return cached
   const c = s.company
-  const flags = sch.channels
+  const flags = sch.channels ?? { redbus: true, abhibus: false, ownapp: false, counter: true }
   const w: Record<Channel, number> = {
     redbus: 0, abhibus: 0, ownapp: 0, counter: 0,
   }
@@ -648,6 +662,7 @@ export interface BookingCtx {
   brand: number
   punctuality: number
   weatherByDay: Map<number, number>
+  demandFactorsCache: Map<string, DemandFactors>
   seed: number
 }
 
@@ -737,6 +752,7 @@ export function buildBookingCtx(s: GameState): BookingCtx {
     brand: brandAttr(s.company),
     punctuality: punctualityAttr(s.company),
     weatherByDay: new Map(),
+    demandFactorsCache: new Map(),
     seed: s.seed,
   }
 }
@@ -816,7 +832,7 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
 
   const depMin = trip.depMin ?? 0
   const cap = trip.seatCount || trip.seats.length
-  const f = demandFactors(s, route, trip.direction, trip.day)
+  const f = demandFactors(s, route, trip.direction, trip.day, ctx)
   const profile = corridorProfile(s.seed, route)
   const mass = windowMass(profile, trip.depHour, depMin)
 
@@ -878,7 +894,10 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
 
   // Rivals do not pull buses off the corridor: extra departures pile onto supply
   const ownSeats = Math.max(cap, ctx?.ownSeatsByTripId.get(trip.id) ?? cap)
-  const rivalSeats = Math.max(0, corridorSeats - cap)
+  // A rival capacity flood (or predatory wave) puts real extra seats on the corridor.
+  const rivalAct = s.world.rivalActions?.[route.id]
+  const rivalExtraSeats = rivalAct && rivalAct.untilDay >= s.day && rivalAct.startDay <= s.day ? rivalAct.addedDailySeats : 0
+  const rivalSeats = Math.max(0, corridorSeats - cap) + rivalExtraSeats
 
   // On heavily contested corridors, rival operators field high-tier fleets
   const rivalTier = 1 + M.rivalCompetitivenessScale * Math.max(0, route.competition - M.competitionRef)
@@ -886,7 +905,34 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
     * rivalProductFit(route, trip.depHour, depMin)
     * rivalTier
 
-  const den = ownSeats * attr + rivalSeats * rivalAttr
+  const frontRunInfo = isTripFrontRun(s, route.id, trip.depHour, depMin)
+  let effectiveRivalAttr = rivalAttr
+  let effectiveAttr = attr
+  if (frontRunInfo.frontRun) {
+    const stance = getCorridorStance(s, route.id)
+    if (stance === 'undercut') {
+      // Player matched price, defending passengers: rival front-runner loses appeal advantage
+      effectiveAttr *= 1.15
+    } else if (stance === 'premium_hold') {
+      // Player defends brand with comfort and quality
+      const isHighQuality = (bus.qualityScore >= 4.0) || Boolean(s.company.primo)
+      if (isHighQuality) {
+        effectiveAttr *= 1.08 // Premium passengers stay loyal
+      } else {
+        effectiveRivalAttr *= 1.20 // Lacking quality, rival takes share
+      }
+    } else if (stance === 'cargo_bundle') {
+      effectiveRivalAttr *= 1.10
+    } else {
+      // Neutral / uncountered: rival intercepts shoppers
+      effectiveRivalAttr *= 1.25
+    }
+  }
+
+  // Passenger Boarding Lounges in origin/dest cities provide attractive waiting experience (+1.5% to +5.0%)
+  const loungeBoost = getLoungeDemandBoost(s, route.id)
+  effectiveAttr *= loungeBoost
+
   // Our own timetable is a planned roster, so it shares shoppers far more
   // gently than the market curve (see ownSubstitutionWeight): a twin departure
   // takes half a coach, an hour apart a quarter, two hours a tenth, and by

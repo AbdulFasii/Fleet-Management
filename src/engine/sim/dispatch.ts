@@ -7,7 +7,7 @@ import { BAL, driverBataForKm } from '../data/balance'
 import { BUS_MODELS, layoutKeyForZone, layoutShares, isCargoModel } from '../data/busModels'
 import { ROUTES, routeName } from '../data/routes'
 import { cityName } from '../data/cities'
-import { seasonInfo } from '../core/calendar'
+import { fmtDate, seasonInfo } from '../core/calendar'
 import { fmtCompact, rs } from '../core/money'
 import { tonnesText } from '../core/units'
 import { rngFor, rChance, rInt, rJitter } from '../core/rng'
@@ -18,6 +18,8 @@ import { pushLog } from './log'
 import { coveringSpare, tryCoverBus } from './cover'
 import { driverOnDuty, pickSpareConductor, pickSpareDriver, hrOnDuty, opsOnDuty, isStaffResting, driverRestIllegal, isDriverEligibleForTrip, cmvrDutyHoursForTrip } from './staffing'
 import { recordScheduleOcc } from './schedules'
+import { loungeServiceBonus } from './lounge'
+import { healthBreakdownMult, welfareDelayMult, welfarePssPenalty } from './health'
 import { recordTripGrievanceOrCompliment } from './crm'
 import { allocateCargoForTrip, cargoLaneKey, makeCorridorCargoPool, recordCargoLane, type CargoDepartureRef, type CorridorCargoPool } from './cargo'
 import { ownerPaysService, conductorCleanlinessTarget } from './maintenance'
@@ -170,7 +172,7 @@ function resolveTripCrew(
   return { drivers, conductor, notes }
 }
 
-function applyWear(s: GameState, bus: Bus, km: number): void {
+export function applyWear(s: GameState, bus: Bus, km: number): void {
   const overdue = bus.odometer - bus.lastServiceOdo > BAL.serviceIntervalKm
   let mult = overdue ? BAL.overdueWearMult : BAL.servicedWearMult
   const ecoActive = s.company.ecoIncentiveActive || s.config?.ecoIncentiveActive
@@ -190,7 +192,7 @@ function applyWear(s: GameState, bus: Bus, km: number): void {
   bus.tyreKm = Math.max(bus.frontTyreKm, bus.rearTyreKm)
 }
 
-function breakdownChance(bus: Bus, drivers?: Staff[]): number {
+export function breakdownChance(bus: Bus, drivers?: Staff[]): number {
   let p = BAL.breakdownBase
   const overdueKm = bus.odometer - bus.lastServiceOdo - BAL.serviceIntervalKm
   if (overdueKm > 0) p += (overdueKm / 10_000) * BAL.breakdownOverduePer10kKm
@@ -201,6 +203,7 @@ function breakdownChance(bus: Bus, drivers?: Staff[]): number {
   const frontLife = BAL.tyres[bus.frontBrand ?? 'oem']?.frontLifeKm ?? BAL.tyreLifeKm
   const rearLife = BAL.tyres[bus.rearBrand ?? 'oem']?.rearLifeKm ?? BAL.tyreLifeKm
   if ((bus.frontTyreKm ?? 0) > frontLife || (bus.rearTyreKm ?? 0) > rearLife) p += 0.02
+  if (bus.powertrainOverhaulDay !== undefined) p *= 0.5
   if (drivers?.some((d) => d.drivingStyle === 'aggressive')) p *= 1.15
   return Math.min(0.35, p)
 }
@@ -322,7 +325,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
     if (!bus) { cancelTrip(s, id, 'bus no longer in fleet'); continue }
     if (s.company.cmvrSuspendUntilDay !== undefined && s.company.cmvrSuspendUntilDay > s.day) {
       cancelTrip(s, id, 'operations suspended')
-      pushLog(s, 'alert', `Trip cancelled on ${routeName(route.id)}: Company operations suspended by RTO for CMVR offences until Day ${s.company.cmvrSuspendUntilDay}.`)
+      pushLog(s, 'alert', `Trip cancelled on ${routeName(route.id)}: Company operations suspended by RTO for CMVR offences until ${fmtDate(s.company.cmvrSuspendUntilDay)}.`)
       continue
     }
     const closure = s.world.closures[route.id]
@@ -358,7 +361,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
     if (bus.insuranceExpiryDay < s.day || bus.fitnessExpiryDay < s.day || (bus.pucExpiryDay !== undefined && bus.pucExpiryDay < s.day) || !!bus.fitnessFailed) {
       bus.status = 'grounded'
       cancelTrip(s, id, 'documents expired')
-      pushLog(s, 'alert', `${bus.reg} GROUNDED until documents (${bus.insuranceExpiryDay < s.day ? 'insurance' : bus.fitnessExpiryDay < s.day || bus.fitnessFailed ? 'fitness' : 'PUC'}) renewed/passed.`)
+      pushLog(s, 'alert', `${bus.reg} GROUNDED until documents (${bus.insuranceExpiryDay < s.day ? 'insurance' : bus.fitnessExpiryDay < s.day || bus.fitnessFailed ? 'fitness' : 'PUC'}) renewed/passed.`, `/fleet/${bus.id}`)
       continue
     }
     const attached = bus.ownership === 'attached'
@@ -484,6 +487,10 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       cargoContractRevenue = alloc.contractRevenue
       cargoSpotRevenue = alloc.spotRevenue
       cargoWalkupRevenue = alloc.walkupRevenue
+      if (s.company.corridorStance?.[route.id] === 'cargo_bundle') {
+        cargoRevenue = Math.round(cargoRevenue * 1.30)
+        cargoSpotRevenue = Math.round(cargoSpotRevenue * 1.30)
+      }
       if (s.world.cargoPilferageRouteId === route.id && s.world.cargoPilferageUntilDay && s.world.cargoPilferageUntilDay >= s.day) {
         cargoRevenue = Math.round(cargoRevenue * 0.5)
         cargoContractRevenue = Math.round(cargoContractRevenue * 0.5)
@@ -548,7 +555,8 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
         const skillNudge = 1 + (skill - 5) * fv.skillSoft
         const govFactor = s.config?.speedGovernor === 'eco' ? 1.06 : s.config?.speedGovernor === 'express' ? 0.92 : 1.0
         const ecoKmplMult = ecoActive ? BAL.ecoDriving.mileageBonusMult : 1.0
-        const kmplFactor = rJitter(rng, style * skillNudge * govFactor * ecoKmplMult, fv.jitter)
+        const overhaulKmplMult = bus.powertrainOverhaulDay !== undefined ? (1 + (bus.powertrainKmplBonus ?? 0.10)) : 1.0
+        const kmplFactor = rJitter(rng, style * skillNudge * govFactor * ecoKmplMult * overhaulKmplMult, fv.jitter)
         const loadFactor = isCargo
           ? cargoKg / Math.max(1, model.cargoCapKg || 1)
           : pax / Math.max(1, cap)
@@ -643,6 +651,8 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
     if (route.ghat) delay += rJitter(rng, BAL.delayGhatExtra, 0.8)
     delay += Math.max(0, (60 - bus.condition.engine) * 0.6)
     delay *= 1 - (avgDriverSkill - 5) * 0.03
+    delay *= welfareDelayMult(s)
+    if (s.config?.speedGovernor === 'express') delay *= 0.9
     if (s.world.roadWidened?.includes(route.id)) {
       delay = Math.max(0, delay - 15)
     }
@@ -688,7 +698,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       if (rChance(rng, 0.35)) {
         bus.status = 'grounded'
         spend(s, 'fine', BAL.challanFine, { ...refs, note: 'RTO checkpost impound fine' })
-        pushLog(s, 'alert', `CHECKPOST IMPOUND: ${bus.reg} was SEIZED & IMPOUNDED at the RTO checkpost for unpaid annual road tax! A ₹12,000 challan was issued. Bus is grounded until road tax is paid.`)
+        pushLog(s, 'alert', `CHECKPOST IMPOUND: ${bus.reg} was SEIZED & IMPOUNDED at the RTO checkpost for unpaid annual road tax! A ₹12,000 challan was issued. Bus is grounded until road tax is paid.`, `/fleet/${bus.id}`)
         delay += 360
         checkNote += 'Bus seized & impounded for tax default! '
       } else {
@@ -697,7 +707,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       }
     }
 
-    const breakdown = rChance(rng, breakdownChance(bus, crew.drivers))
+    const breakdown = rChance(rng, Math.min(0.35, breakdownChance(bus, crew.drivers) * healthBreakdownMult(s)))
     let accidentP = BAL.accidentBase
     const night = trip.depHour >= 19 || trip.depHour <= 4
     if (night) accidentP *= BAL.accidentNightMult
@@ -932,6 +942,10 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
         tripAmenityPssBonus(amenities as Record<string, boolean>, trip.depHour)
         + missingBeddingPenalty(amenities as Record<string, boolean>, trip.depHour, !!model.sleeper)
         + busFittingsPssBonus(bus)
+        + (bus.luxuryRetrofitDay !== undefined ? (BAL.refurb.luxuryPssBonus ?? 0.65) : 0)
+      // 10. Lounge at the boarding city: a comfortable wait lifts the whole journey's score
+      amenitiesBonus += loungeServiceBonus(s, trip.direction === 'BA' ? route.to : route.from)
+      amenitiesBonus -= welfarePssPenalty(s)
       if (amenitiesBonus !== 0) tripPss = Math.max(1, Math.min(10, tripPss + amenitiesBonus))
 
       if (breakdown) tripPss = reliefDispatched ? Math.max(1, tripPss - 1.2) : Math.max(1, tripPss - 3.5)

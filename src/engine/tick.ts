@@ -8,7 +8,8 @@ import { dailyWorldPass, dailyEventRoll, accountantDecisionPass } from './sim/ev
 import { dailyCargoPass, settleCargoShortfall } from './sim/cargo'
 import { deliverOrdersPass, refreshMarkets } from './sim/fleet'
 import { permitPass, pruneRetiredRoutes, sanitizeScheduleAssignments } from './sim/schedules'
-import { festivalFleetPass, dailyCharterPass } from './sim/festival'
+import { festivalFleetPass } from './sim/festival'
+import { dailyCharterPass } from './sim/charter'
 import { generateTrips, bookingPass } from './sim/booking'
 import { dispatchPass } from './sim/dispatch'
 import { dailyCheckpostPass } from './sim/checkpost'
@@ -16,18 +17,21 @@ import { dailyDepotPass, settleBusArrivals } from './sim/depot'
 import { dailyMaintenancePass, monthlyFleetCosts } from './sim/maintenance'
 import { dailyClaimsPass } from './sim/insurance'
 import { dailyStaffPass, hrFatiguePass, opsAutoStaffPass, monthlyStaffPass, refreshHiringPool, cmvrResetPass } from './sim/staffing'
+import { dailyLoungePass } from './sim/lounge'
 import { settleReceivables, applyDepreciation, closeMonth, spendNetted, earn } from './sim/finance'
 import { dailyBankingPass, monthlyBankingPass, coverWithOd } from './sim/banking'
 import { monthlyAppPass } from './sim/channels'
 import { dailyTaxPass, monthlyTaxPass } from './sim/tax'
 import { checkSpanWarnings } from './sim/span'
 import { checkPrimo, checkCertifications, checkAchievements } from './sim/reputation'
+import { checkObjectives } from './sim/objectives'
 import { bankruptcyCheck } from './sim/bankruptcy'
 import { snapshotKpis } from './sim/kpi'
 import { pushLog } from './sim/log'
 import { fmtCompact } from './core/money'
 import { retainDay } from './sim/retain'
 import { dailyCrmPass } from './sim/crm'
+import { dailyHealthPass } from './sim/health'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
 
@@ -60,6 +64,7 @@ export function advanceDay(s: GameState): void {
 
   // 5. today's departures
   hrFatiguePass(s)
+  dailyHealthPass(s)
   opsAutoStaffPass(s)
   const dispatched = dispatchPass(s)
   settleCargoShortfall(s)
@@ -71,6 +76,7 @@ export function advanceDay(s: GameState): void {
   dailyClaimsPass(s)
   dailyStaffPass(s)
   dailyCrmPass(s)
+  dailyLoungePass(s)
   // One more crew fill after leave/fatigue — same indexed pass, not a third full scan.
   opsAutoStaffPass(s)
 
@@ -115,6 +121,7 @@ export function advanceDay(s: GameState): void {
   checkPrimo(s)
   checkCertifications(s)
   checkAchievements(s)
+  checkObjectives(s)
   bankruptcyCheck(s)
 
   // 9. bookkeeping & daily retention
@@ -149,7 +156,7 @@ export function needsAttention(s: GameState): string | null {
   // Document expiry / delinquency
   if (s.config?.pauseOnDocExpiry) {
     for (const b of Object.values(s.buses)) {
-      if (b.status === 'delinquent' || b.status === 'grounded') {
+      if (b.status === 'grounded') {
         return `Compliance Alert: Bus ${b.reg} is ${b.status} due to expired documents`
       }
     }
@@ -157,7 +164,7 @@ export function needsAttention(s: GameState): string | null {
 
   // Month-end P&L close
   if (s.config?.pauseOnMonthEnd && s.day > s.startDay && (s.day - s.startDay) % 30 === 1) {
-    return `Month-End Close: Day ${s.day} (review monthly summary)`
+    return `Month-End Close: ${fmtDate(s.day)} (review monthly summary)`
   }
 
   return null

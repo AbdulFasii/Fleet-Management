@@ -3,11 +3,11 @@
  */
 import { BAL } from '../data/balance'
 import { ROUTES, boardingPointsForRoute, routeName, canonicalRouteId } from '../data/routes'
-import { BUS_MODELS, isCargoModel } from '../data/busModels'
+import { BUS_MODELS, isCargoModel, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { nextId } from '../core/ids'
 import { rngFor, rInt, rChance } from '../core/rng'
-import { clockFromMinutes, clockMinutes, festivalEffect, fmtClock, fmtDateShort } from '../core/calendar'
+import { clockFromMinutes, clockMinutes, festivalEffect, fmtClock, fmtDate, fmtDateShort } from '../core/calendar'
 import { fmtCompact } from '../core/money'
 import type { GameState, Schedule, ScheduleDefaults, ID, SeasonId, RouteDef, PassengerAmenities, ServiceTier } from '../types'
 import { canAfford, spend } from './finance'
@@ -202,7 +202,7 @@ export function renewSeasonalPermit(s: GameState, routeId: string): string | nul
   permit.seasonal.status = 'active'
   permit.seasonal.activeFromDay = s.day
   permit.seasonal.expiryDay = s.day + 180
-  pushLog(s, 'good', `Seasonal permit renewed for ${routeName(routeId)} until Day ${permit.seasonal.expiryDay}.`)
+  pushLog(s, 'good', `Seasonal permit renewed for ${routeName(routeId)} until ${fmtDate(permit.seasonal.expiryDay)}.`)
   return null
 }
 
@@ -484,7 +484,7 @@ export function createSchedule(s: GameState, input: ScheduleInput): { id: ID } |
     outboundDuty,
     returnDuty,
     serviceKind: input.serviceKind === 'cargo' ? 'cargo' : 'passenger',
-    serviceTier: input.serviceTier ?? (input.groupId && s.groups?.[input.groupId]?.defaultServiceTier) ?? s.company.defaultServiceTier ?? 'economy',
+    serviceTier: input.serviceTier ?? (input.groupId ? s.groups?.[input.groupId]?.defaultServiceTier : undefined) ?? s.company.defaultServiceTier ?? 'economy',
     ...(festivalOnly ? { festivalOnly: true } : {}),
     ...(paired
       ? {
@@ -868,6 +868,9 @@ export function assignBus(s: GameState, schId: ID, busId: ID): string | null {
   if (bus.coveringBusId) return 'This bus is covering another — wait until it is free.'
   if (bus.status === 'delivery') return 'Bus has not been delivered yet.'
   if (bus.status === 'workshop') return 'Bus is in the workshop — assign it when the job finishes.'
+  if (bus.duty === 'charter' || isCharterModel(bus.modelId)) {
+    return 'Dedicated charter vehicles cannot be assigned to scheduled line services.'
+  }
   const cargoBus = isCargoModel(bus.modelId)
   const freight = sch.serviceKind === 'cargo' || (sch.serviceKind !== 'passenger' && scheduleIsCargo(s, sch))
   if (freight && !cargoBus) return 'This freight service only takes cargo vehicles.'

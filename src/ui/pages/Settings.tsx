@@ -1,4 +1,6 @@
+import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { BAL, CANCELLATION_POLICY_RULES, DIFFICULTIES } from '../../engine/data/balance'
 import { AMENITY_CATALOG, FITTING_CATALOG } from '../../engine/data/amenitiesCatalog'
@@ -11,7 +13,10 @@ import { getLastSaveInfo } from '../../store/saveCodec'
 import { CHANNELS, CHANNEL_META } from '../../engine/data/channels'
 import { fmtCompact, toRupees, rs, L } from '../../engine/core/money'
 import { fmtDate } from '../../engine/core/calendar'
-import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup, BodyDesign } from '../../engine/types'
+import { cityName } from '../../engine/data/cities'
+import { getLoungeTierDef } from '../../engine/data/loungeCatalog'
+import { getLoungeSchedulesHandled } from '../../engine/sim/lounge'
+import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup, BodyDesign, DriverDormitoryTier, FestivalBonusTier } from '../../engine/types'
 import {
   BODY_QUALITY_TIERS,
   DEFAULT_BODY_BUILDERS,
@@ -21,14 +26,18 @@ import {
   bodyPackageLakhs,
   bodyPackagePriceRange,
   COACH_LAYOUT_OPTIONS,
-  coachLayoutLabel,
   type CoachLayoutKind,
 } from '../../engine/data/bodyBuilders'
-import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups } from '../../engine/sim/groups'
-import { KV, Panel, Modal, GroupBadge } from '../bits'
+import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
+import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
+import { BrandHierarchyTree } from '../BrandHierarchyTree'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
+import { BrandGalleryModal } from '../BrandGalleryModal'
+import { LightboxModal } from '../LightboxModal'
+import { CloudSavesPanel } from '../CloudSavesPanel'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
-import { exportSharedDesignsJson, importSharedDesignsJson } from '../../store/sharedBodyDesigns'
+import { getLastCloudSyncTime } from '../../store/sharedBodyDesigns'
+import { isCloudImagesConfigured } from '../../lib/supabase'
 
 const EXPORT_SERIES_KEY = 'busraj_export_series'
 
@@ -101,7 +110,17 @@ function BadgeColorPellets({
 export function SettingsPage() {
   const s = useGame((g) => g.state)!
   const g = useGame()
-  const [activeTab, setActiveTab] = useState<'flow' | 'fleet' | 'commercial' | 'subsidiaries' | 'body_designs' | 'welfare' | 'system'>('flow')
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get('tab') as any
+  const [activeTab, setActiveTab] = useState<'flow' | 'fleet' | 'commercial' | 'policies' | 'subsidiaries' | 'body_designs' | 'welfare' | 'lounges' | 'system'>(
+    ['flow', 'fleet', 'commercial', 'policies', 'subsidiaries', 'body_designs', 'welfare', 'lounges', 'system'].includes(initialTab) ? initialTab : 'flow'
+  )
+  useEffect(() => {
+    const tab = searchParams.get('tab') as any
+    if (tab && ['flow', 'fleet', 'commercial', 'policies', 'subsidiaries', 'body_designs', 'welfare', 'lounges', 'system'].includes(tab) && tab !== activeTab) {
+      setActiveTab(tab)
+    }
+  }, [searchParams])
   const [confirming, setConfirming] = useState(false)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newBrandName, setNewBrandName] = useState('')
@@ -113,6 +132,8 @@ export function SettingsPage() {
   const [retireTarget, setRetireTarget] = useState<BusGroup | null>(null)
   const [retireDestination, setRetireDestination] = useState<string>('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [galleryBrand, setGalleryBrand] = useState<BusGroup | null>(null)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const bodyBuilders = s.bodyBuilders ?? DEFAULT_BODY_BUILDERS
   const [editingDesign, setEditingDesign] = useState<{
@@ -263,31 +284,9 @@ export function SettingsPage() {
     g.toast('Reset coach designs to default catalog across all game saves.', 'good')
   }
 
-  const importDesignsRef = useRef<HTMLInputElement>(null)
-  const handleExportDesigns = () => {
-    const json = exportSharedDesignsJson()
-    const blob = new Blob([json], { type: 'application/json' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = 'shared_coach_designs.json'
-    a.click()
-    URL.revokeObjectURL(a.href)
-    g.toast('Exported coach designs and photos backup.', 'good')
-  }
-
-  const handleImportDesigns = (file: File) => {
-    file.text()
-      .then((text) => {
-        const res = importSharedDesignsJson(text)
-        if (!res.ok) {
-          g.toast(res.error ?? 'Could not import designs file.', 'bad')
-          return
-        }
-        g.initSharedBodyDesigns()
-        g.toast('Imported coach designs and photos successfully!', 'good')
-      })
-      .catch(() => g.toast('Could not read file from disk.', 'bad'))
-  }
+  const [cloudSyncing] = useState(false)
+  const [cloudSyncStatus] = useState<string>('')
+  const [lastSyncTime] = useState<string | null>(() => getLastCloudSyncTime())
   /** Amenities + fittings cards inside a brand — hidden by default. */
   const [amenityCardOpen, setAmenityCardOpen] = useState<Record<string, boolean>>({})
   const fileRef = useRef<HTMLInputElement>(null)
@@ -521,32 +520,19 @@ export function SettingsPage() {
   return (
     <>
       {/* Title & Navigation */}
-      <div className="page-title">
-        <span>Settings & Operations Configuration</span>
-        <span className="sub">
-          {s.company.name} · {diff.label} Difficulty · Day {s.day}
-        </span>
-        <span className="spacer" />
-        <span className="flex" style={{ gap: 6 }}>
-          {([
-            ['flow', '🎮 Gameplay & Auto-Pause'],
-            ['fleet', '🚌 Fleet Policies'],
-            ['commercial', '🏷️ Commercial & Channels'],
-            ['subsidiaries', '🏢 Subsidiaries & Brands'],
-            ['body_designs', '🎨 Body Designs'],
-            ['welfare', '👥 Welfare & Taxes'],
-            ['system', '💾 Save Data & System'],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              className={`small ${activeTab === id ? 'primary' : ''}`}
-              onClick={() => setActiveTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
+      <PageHeader title="Settings" facts={<>{s.company.name} · {diff.label} · {fmtDate(s.day)}</>}>
+        <Tabs inline tabs={[
+            ['flow', 'Gameplay & Auto-Pause'],
+            ['fleet', 'Fleet Policies'],
+            ['commercial', 'Commercial & Channels'],
+            ['policies', 'Policies'],
+            ['subsidiaries', 'Subsidiaries & Brands'],
+            ['body_designs', 'Body Designs'],
+            ['welfare', 'Welfare & Taxes'],
+            ['lounges', 'Passenger Handling & Lounges'],
+            ['system', 'Save Data & System'],
+          ] as const} value={activeTab} onChange={setActiveTab} />
+      </PageHeader>
 
       {/* ========================================================================= */}
       {/* TAB 1: GAMEPLAY & AUTO-PAUSE TRIGGERS                                     */}
@@ -557,7 +543,7 @@ export function SettingsPage() {
             title="Simulation Auto-Pause Triggers"
             info="Automatically stops the day advance when critical events happen so you never fast-forward into bankruptcy, breakdowns, or strikes."
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="stack10">
               <div>
                 <label className="flex" style={{ alignItems: 'flex-start', gap: 8 }}>
                   <input
@@ -567,9 +553,7 @@ export function SettingsPage() {
                   />
                   <div>
                     <b>Pause on Low Cash Emergency</b>
-                    <div className="dim small">
-                      Halts day advance if cash drops below the configured safe floor.
-                    </div>
+                    <Hint text={"Halts day advance if cash drops below the configured safe floor."} />
                   </div>
                 </label>
                 {cfg.pauseOnLowCash !== false && (
@@ -596,9 +580,7 @@ export function SettingsPage() {
                 />
                 <div>
                   <b>Pause on Vehicle Breakdown or Accident</b>
-                  <div className="dim small">
-                    Immediately interrupts time-skips so you can dispatch cover buses or order repairs.
-                  </div>
+                  <Hint text={"Immediately interrupts time-skips so you can dispatch cover buses or order repairs."} />
                 </div>
               </label>
 
@@ -610,9 +592,7 @@ export function SettingsPage() {
                 />
                 <div>
                   <b>Pause on Expired Compliance Papers (RTO Risk)</b>
-                  <div className="dim small">
-                    Stops the clock if fitness, PUC, or commercial tax expires and buses risk checkpost impound.
-                  </div>
+                  <Hint text={"Stops the clock if fitness, PUC, or commercial tax expires and buses risk checkpost impound."} />
                 </div>
               </label>
 
@@ -624,9 +604,7 @@ export function SettingsPage() {
                 />
                 <div>
                   <b>Pause on Staff Strike Danger (Morale &lt; 40%)</b>
-                  <div className="dim small">
-                    Alerts you immediately before crew union action or mass resignations take place.
-                  </div>
+                  <Hint text={"Alerts you immediately before crew union action or mass resignations take place."} />
                 </div>
               </label>
 
@@ -638,17 +616,11 @@ export function SettingsPage() {
                 />
                 <div>
                   <b>Pause at Month-End Financial Close (Day 1)</b>
-                  <div className="dim small">
-                    Stops at the start of each month to review monthly P&L, balance sheet, and tax provisioning.
-                  </div>
+                  <Hint text={"Stops at the start of each month to review monthly P&L, balance sheet, and tax provisioning."} />
                 </div>
               </label>
 
-              <div className="dim small" style={{ marginTop: 4 }}>
-                Inbox decisions never stop a week advance — distress sales, banking alerts and customer
-                disputes keep queueing while the clock runs, and you answer them from the inbox whenever
-                you are ready.
-              </div>
+              <Hint text={"Inbox decisions never stop a week advance — distress sales, banking alerts and customer disputes keep queueing while the clock runs, and you answer them from the inbox whenever you are ready."} />
             </div>
           </Panel>
 
@@ -656,13 +628,11 @@ export function SettingsPage() {
             title="Financial Risk & Safety Guardrails"
             info="Establish financial safety floors to prevent over-leveraging and accidental capital depletion."
           >
-            <div style={{ marginBottom: 12 }}>
+            <div className="mb12">
               <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
                 Emergency Cash Reserve Safety Buffer
               </label>
-              <div className="dim small" style={{ marginBottom: 8 }}>
-                Displays warning badges when your cash balance drops below this reserve floor before buying coaches or taking capex loans.
-              </div>
+              <Hint text={"Displays warning badges when your cash balance drops below this reserve floor before buying coaches or taking capex loans."} />
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {[100_000, 200_000, 500_000, 1_000_000, 2_000_000].map((amt) => (
                   <button
@@ -677,9 +647,9 @@ export function SettingsPage() {
               <div style={{ marginTop: 8 }} className="small">
                 Current safety buffer: <b>{fmtCompact(reserveLimit)}</b>
                 {s.company.cash < reserveLimit ? (
-                  <span className="pill small warn" style={{ marginLeft: 8 }}>⚠️ Cash below safety buffer</span>
+                  <span className="pill small warn ml8">Cash below safety buffer</span>
                 ) : (
-                  <span className="pill small good" style={{ marginLeft: 8 }}>✓ Healthy reserve</span>
+                  <span className="pill small good ml8">Healthy reserve</span>
                 )}
               </div>
             </div>
@@ -687,7 +657,7 @@ export function SettingsPage() {
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>Overdraft Interest Protection</div>
               <div className="dim small">
-                Overdraft credit line carries an annual interest rate of <b>{Math.round(BAL.overdraftAnnualRate * 100)}% p.a.</b>
+                Overdraft credit line carries an annual interest rate of <b>{Math.round(BAL.odRateBps / 100)}% p.a.</b>
                 {' '}Any incoming ticket settlements from RedBus (T+5) or Own App (T+1) automatically clear the overdraft balance before adding to cash.
               </div>
             </div>
@@ -706,9 +676,9 @@ export function SettingsPage() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
               {([
-                ['eco', '🌱 Eco-Cruise (70–75 km/h)', '+6% better diesel mileage · lower tyre wear · +10m trip duration'],
-                ['normal', '⚖️ Standard Highway (80–85 km/h)', 'Factory baseline fuel consumption & timetable punctuality'],
-                ['express', '⚡ Express Fast-Track (90–95 km/h)', '-8% fuel economy · fast arrivals · +0.2★ passenger rating on long routes'],
+                ['eco', 'Eco-Cruise (70–75 km/h)', '+6% better diesel mileage · lower tyre wear · +10m trip duration'],
+                ['normal', 'Standard Highway (80–85 km/h)', 'Factory baseline fuel consumption & timetable punctuality'],
+                ['express', 'Express Fast-Track (90–95 km/h)', '-8% fuel economy · fast arrivals · +0.2★ passenger rating on long routes'],
               ] as const).map(([val, label, tip]) => (
                 <button
                   key={val}
@@ -716,7 +686,7 @@ export function SettingsPage() {
                   style={{ textAlign: 'left', padding: '6px 10px', height: 'auto' }}
                   onClick={() => g.updatePlayerConfig({ speedGovernor: val })}
                 >
-                  <div style={{ fontWeight: 600 }}>{label}</div>
+                  <div className="bold">{label}</div>
                   <div className="dim small">{tip}</div>
                 </button>
               ))}
@@ -727,13 +697,11 @@ export function SettingsPage() {
             title="Fleet Maintenance & Service Triggers"
             info="Operational rules for periodic vehicle servicing and tyre management."
           >
-            <div style={{ marginBottom: 12 }}>
+            <div className="mb12">
               <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
                 Preventative Service Alert Threshold: <b>{prevServicePct}% condition</b>
               </label>
-              <div className="dim small" style={{ marginBottom: 6 }}>
-                Flags a coach and alerts your workshop manager when any subsystem health drops below this point.
-              </div>
+              <Hint text={"Flags a coach and alerts your workshop manager when any subsystem health drops below this point."} />
               <div style={{ display: 'flex', gap: 6 }}>
                 {[70, 75, 80, 85].map((pctVal) => (
                   <button
@@ -751,9 +719,7 @@ export function SettingsPage() {
               <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
                 Tyre Replacement Policy
               </label>
-              <div className="dim small" style={{ marginBottom: 6 }}>
-                Trigger tyre change when remaining tyre lifespan drops below:
-              </div>
+              <div className="muted">Change tyres when remaining life drops below:</div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                 {[10_000, 15_000, 20_000, 25_000].map((kmVal) => (
                   <button
@@ -766,7 +732,7 @@ export function SettingsPage() {
                 ))}
               </div>
 
-              <div className="dim small" style={{ marginBottom: 4 }}>Preferred replacement tyre brand for automated workshop bays:</div>
+              <div className="muted">Replacement tyre brand for automated bays:</div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {([
                   ['oem', 'OEM Premium (Michelin)'],
@@ -776,7 +742,7 @@ export function SettingsPage() {
                   <button
                     key={bVal}
                     className={`small ${prefTyre === bVal ? 'primary' : ''}`}
-                    onClick={() => g.updatePlayerConfig({ preferredTyreBrand: bVal })}
+                    onClick={() => { g.updatePlayerConfig({ preferredTyreBrand: bVal }); g.setWorkshopTyreBrand(bVal === 'retread' ? 'tier2' : bVal) }}
                   >
                     {bLabel}
                   </button>
@@ -808,7 +774,7 @@ export function SettingsPage() {
               </label>
             </div>
             <div className="dim small" style={{ marginTop: 6 }}>
-              Renews commercial fitness ({fmtCompact(BAL.fitnessRenewalCost)}), PUC ({fmtCompact(BAL.pucRenewalCost)}),
+              Renews commercial fitness ({fmtCompact(BAL.fitnessRenewalCost)}), PUC ({fmtCompact(BAL.pucCost)}),
               and AITP/MV tax automatically within {BAL.docRenewLeadDays} days of expiry.
             </div>
           </Panel>
@@ -857,7 +823,7 @@ export function SettingsPage() {
             title="Commercial OMC Fleet Fuel Contract"
             info="Tie up with an Oil Marketing Company (OMC) fleet card for monthly cashback rebates and guaranteed adulteration-free diesel."
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="stack10">
               <div className="form-row">
                 <label>Active Fleet Card Partner</label>
                 <select
@@ -875,16 +841,16 @@ export function SettingsPage() {
                 <div className="flex" style={{ justifyContent: 'space-between', marginBottom: 4 }}>
                   <b>Partner Benefits & Immunity</b>
                   <span className={s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' ? 'good small' : 'dim small'}>
-                    {s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' ? '✓ CONTRACT ACTIVE' : 'NO CONTRACT'}
+                    {s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' ? 'CONTRACT ACTIVE' : 'NO CONTRACT'}
                   </span>
                 </div>
                 <div className="small" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div className="flex" style={{ gap: 6 }}>
-                    <span className="good">✓</span>
+                    <span className="good"></span>
                     <span><b>2.5% Monthly Cashback Rebate:</b> Accrues on every roadside fuel expense and settles in cash on Day 1.</span>
                   </div>
                   <div className="flex" style={{ gap: 6 }}>
-                    <span className="good">✓</span>
+                    <span className="good"></span>
                     <span><b>Adulterated Fuel Immunity:</b> Authorized network bunk guarantee eliminates 40% highway engine degradation risks!</span>
                   </div>
                 </div>
@@ -942,7 +908,7 @@ export function SettingsPage() {
             {(() => {
               const d = getScheduleDefaults(s)
               return (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="stack10">
                   <div className="form-row">
                     <label>Fare Mode</label>
                     <select
@@ -962,9 +928,7 @@ export function SettingsPage() {
                     />
                     <div>
                       <b>Peak Day Yield Surge (+15%)</b>
-                      <div className="dim small">
-                        Automatically surges fares when bus occupancy crosses 75% on peak days (Fri/Sun/Festivals).
-                      </div>
+                      <Hint text={"Automatically surges fares when bus occupancy crosses 75% on peak days (Fri/Sun/Festivals)."} />
                     </div>
                   </label>
 
@@ -976,9 +940,7 @@ export function SettingsPage() {
                     />
                     <div>
                       <b>Last-Minute Seat Clearance (-15%)</b>
-                      <div className="dim small">
-                        Discounts unsold berths within 24 hours of departure if occupancy is below 40%.
-                      </div>
+                      <Hint text={"Discounts unsold berths within 24 hours of departure if occupancy is below 40%."} />
                     </div>
                   </label>
 
@@ -990,7 +952,7 @@ export function SettingsPage() {
                     />
                     <div>
                       <b>RedBus RedDeal Promotion</b>
-                      <div className="dim small">+30% OTA search visibility for +3% commission fee.</div>
+                      <Hint text={"+30% OTA search visibility for +3% commission fee."} />
                     </div>
                   </label>
                 </div>
@@ -1073,7 +1035,7 @@ export function SettingsPage() {
               ['Total Downloads', Math.round(app.installs).toLocaleString('en-IN')],
               ['Monthly Active Users', <span className={app.mau >= BAL.appMauForParity ? 'good' : undefined}>{Math.round(app.mau).toLocaleString('en-IN')}</span>],
               ['Monthly Ad Spend', (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="row gap6">
                   <input
                     type="number"
                     value={mktDraft}
@@ -1109,20 +1071,41 @@ export function SettingsPage() {
           <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 16 }}>Vehicle Brand Groups ("Subsidiaries")</div>
-              <div className="dim small">
-                Separate fleet branding, passenger amenities, cabin fittings, ratings, and Primo standing. One shared balance sheet, payroll, and workshop.
-              </div>
+              <Hint text={"Separate fleet branding, passenger amenities, cabin fittings, ratings, and Primo standing. One shared balance sheet, payroll, and workshop."} />
             </div>
             <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined); setNewBrandParentId('') }}>
               + Create Subsidiary Brand
             </button>
           </div>
 
+          {/* Corporate Brand Hierarchy Tree Diagram */}
+          <Panel
+            title="Corporate Brand Hierarchy & Sub-brand Architecture"
+            info="Visual tree diagram of parent brands and specialized subsidiary sub-brands. Click any brand to inspect its operations or add a sub-brand."
+          >
+            <BrandHierarchyTree
+              s={s}
+              onSelectBrand={(id) => {
+                const el = document.getElementById(`brand-card-${id}`)
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+              }}
+              onAddSubBrand={(pId) => {
+                setShowCreateModal(true)
+                setNewBrandName('')
+                setNewBrandCode('')
+                setNewBrandColor(GROUP_PALETTE[Object.keys(s.groups ?? {}).length % GROUP_PALETTE.length])
+                setNewBrandCargo(false)
+                setNewBrandPic(undefined)
+                setNewBrandParentId(pId ?? '')
+              }}
+            />
+          </Panel>
+
           {/* Active Brands */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="stack14">
             {activeGroups(s).length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', background: 'var(--bg2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-                <div className="dim" style={{ marginBottom: 10 }}>No active subsidiary brands configured. Fleet and schedules operate unassigned.</div>
+                <span className="empty" title="No active subsidiary brands configured. Fleet and schedules operate unassigned.">No brands configured.</span>
                 <button className="primary small" onClick={() => setShowCreateModal(true)}>Create First Brand</button>
               </div>
             ) : (
@@ -1139,103 +1122,153 @@ export function SettingsPage() {
                 const fittingCount = FITTING_CATALOG.filter((f) => fittings[f.id]).length
                 const fittingSpend = FITTING_CATALOG.reduce((sum, f) => sum + (fittings[f.id] ? f.retrofitCost : 0), 0)
                 const parentGroup = group.parentGroupId ? s.groups?.[group.parentGroupId] : undefined
+                const descendants = getDescendantGroupIds(s.groups ?? {}, group.id)
+                const eligibleParents = activeGroups(s).filter((b) => b.id !== group.id && !descendants.has(b.id))
 
                 return (
-                  <Panel
-                    key={group.id}
-                    title={
-                      <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
-                        <GroupBadge group={group} />
-                        <span>{group.name}</span>
-                        {isCargoBrand && <span className="pill warn small">Cargo</span>}
-                        {parentGroup && (
-                          <span className="dim small" style={{ fontWeight: 'normal' }}>
-                            (Owned by {parentGroup.name})
-                          </span>
-                        )}
-                      </div>
-                    }
-                    right={
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <BrandPicActions
-                          value={group.brandingPic}
-                          onChange={(pic) => {
-                            const err = g.updateGroup(group.id, { brandingPic: pic })
-                            if (err) g.toast(err, 'bad')
-                            else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
-                          }}
-                          onError={(msg) => g.toast(msg, 'bad')}
-                        />
-                        <button
-                          className="danger small"
-                          onClick={() => {
-                            setRetireTarget(group)
-                            setRetireDestination('')
-                          }}
-                        >
-                          Close Brand...
-                        </button>
-                      </div>
-                    }
-                  >
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                        {/* Brand identity: brand detail | fleet detail | pic */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(120px, 180px)', gap: 16, alignItems: 'start' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <div className="dim small">Brand detail</div>
-                            <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
-                              <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>
-                              <input
-                                type="text"
-                                style={{ width: '100%', maxWidth: 220 }}
-                                defaultValue={group.name}
-                                onBlur={(e) => {
-                                  const val = e.target.value.trim()
-                                  if (val && val !== group.name) {
-                                    const err = g.updateGroup(group.id, { name: val })
-                                    if (err) g.toast(err, 'bad')
-                                    else g.toast('Brand name updated.', 'good')
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                                }}
-                              />
-                            </div>
-                            <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
-                              <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Code</label>
-                              <input
-                                type="text"
-                                maxLength={5}
-                                style={{ width: 88, textTransform: 'uppercase' }}
-                                defaultValue={group.code}
-                                title="Badge code (2-5 uppercase chars)"
-                                onBlur={(e) => {
-                                  const val = e.target.value.trim().toUpperCase()
-                                  if (val && val !== group.code) {
-                                    const err = g.updateGroup(group.id, { code: val })
-                                    if (err) {
-                                      g.toast(err, 'bad')
-                                      e.target.value = group.code
-                                    } else {
-                                      g.toast('Brand code updated.', 'good')
+                  <div key={group.id} id={`brand-card-${group.id}`}>
+                    <Panel
+                      title={
+                        <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
+                          <GroupBadge group={group} />
+                          <span>{group.name}</span>
+                          {isCargoBrand && <span className="pill warn small">Cargo</span>}
+                          {parentGroup && (
+                            <span className="dim small" style={{ fontWeight: 'normal' }}>
+                              (Sub-brand of <b>{parentGroup.name}</b>)
+                            </span>
+                          )}
+                        </div>
+                      }
+                      right={
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="small"
+                            onClick={() => {
+                              setShowCreateModal(true)
+                              setNewBrandName('')
+                              setNewBrandCode('')
+                              setNewBrandColor(GROUP_PALETTE[Object.keys(s.groups ?? {}).length % GROUP_PALETTE.length])
+                              setNewBrandCargo(false)
+                              setNewBrandPic(undefined)
+                              setNewBrandParentId(group.id)
+                            }}
+                            title={`Create a new sub-brand under ${group.name}`}
+                          >
+                            + Sub-brand
+                          </button>
+                          <button
+                            type="button"
+                            className="small"
+                            onClick={() => setGalleryBrand(group)}
+                            title="View and manage showcase fleet & livery gallery"
+                          >
+                            Gallery {group.gallery?.length ? `(${group.gallery.length})` : ''}
+                          </button>
+                          <BrandPicActions
+                            value={group.brandingPic}
+                            ownerKey={`group:${group.id}`}
+                            kind="branding"
+                            onChange={(pic) => {
+                              const err = g.updateGroup(group.id, { brandingPic: pic })
+                              if (err) g.toast(err, 'bad')
+                              else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
+                            }}
+                            onError={(msg) => g.toast(msg, 'bad')}
+                          />
+                          <button
+                            className="danger small"
+                            onClick={() => {
+                              setRetireTarget(group)
+                              setRetireDestination('')
+                            }}
+                          >
+                            Close Brand...
+                          </button>
+                        </div>
+                      }
+                    >
+                      <div className="stack14">
+                          {/* Brand identity: brand detail | fleet detail | pic */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(120px, 180px)', gap: 16, alignItems: 'start' }}>
+                            <div className="stack10">
+                              <div className="dim small">Brand detail</div>
+                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
+                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>
+                                <input
+                                  type="text"
+                                  style={{ width: '100%', maxWidth: 220 }}
+                                  defaultValue={group.name}
+                                  onBlur={(e) => {
+                                    const val = e.target.value.trim()
+                                    if (val && val !== group.name) {
+                                      const err = g.updateGroup(group.id, { name: val })
+                                      if (err) g.toast(err, 'bad')
+                                      else g.toast('Brand name updated.', 'good')
                                     }
-                                  }
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
-                                }}
-                              />
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                  }}
+                                />
+                              </div>
+                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
+                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Code</label>
+                                <input
+                                  type="text"
+                                  maxLength={5}
+                                  style={{ width: 88, textTransform: 'uppercase' }}
+                                  defaultValue={group.code}
+                                  title="Badge code (2-5 uppercase chars)"
+                                  onBlur={(e) => {
+                                    const val = e.target.value.trim().toUpperCase()
+                                    if (val && val !== group.code) {
+                                      const err = g.updateGroup(group.id, { code: val })
+                                      if (err) {
+                                        g.toast(err, 'bad')
+                                        e.target.value = group.code
+                                      } else {
+                                        g.toast('Brand code updated.', 'good')
+                                      }
+                                    }
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                  }}
+                                />
+                              </div>
+                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap', paddingTop: 4 }}>Badge Color</label>
+                                <BadgeColorPellets
+                                  value={group.color}
+                                  onChange={(color) => g.updateGroup(group.id, { color })}
+                                  size={24}
+                                />
+                              </div>
+
+                              {/* Parent Brand Hierarchy Assignment */}
+                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
+                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Parent Brand</label>
+                                <select
+                                  style={{ width: '100%', maxWidth: 220 }}
+                                  value={group.parentGroupId ?? ''}
+                                  onChange={(e) => {
+                                    const newParent = e.target.value || undefined
+                                    const err = g.updateGroup(group.id, { parentGroupId: newParent })
+                                    if (err) g.toast(err, 'bad')
+                                    else g.toast(newParent ? `Parent brand set to ${s.groups?.[newParent]?.name}.` : 'Set as top-level brand under company holding.', 'good')
+                                  }}
+                                >
+                                  <option value="">{s.company.name || 'Company Holding'} (Direct)</option>
+                                  {eligibleParents.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.code} — {p.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
-                            <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
-                              <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap', paddingTop: 4 }}>Badge Color</label>
-                              <BadgeColorPellets
-                                value={group.color}
-                                onChange={(color) => g.updateGroup(group.id, { color })}
-                                size={24}
-                              />
-                            </div>
-                          </div>
 
                           <div>
                             <div className="dim small" style={{ marginBottom: 6 }}>Fleet detail</div>
@@ -1260,15 +1293,15 @@ export function SettingsPage() {
                                   ...(isCargoBrand ? [] : [[
                                     'Primo Status',
                                     group.primo ? (
-                                      <span className="good" style={{ fontWeight: 600 }}>
-                                        ★ PRIMO CERTIFIED {group.primoSinceDay ? `(Day ${group.primoSinceDay}+)` : ''}
+                                      <span className="good bold">
+                                        ★ PRIMO CERTIFIED {group.primoSinceDay ? `(since ${fmtDate(group.primoSinceDay)})` : ''}
                                       </span>
                                     ) : group.primoOffered ? (
-                                      <span className="warn" style={{ fontWeight: 600 }}>INVITATION OFFERED (Check Inbox)</span>
+                                      <span className="warn bold">INVITATION OFFERED (Check Inbox)</span>
                                     ) : (
                                       <span className="dim">Standard Listing</span>
                                     ),
-                                  ]]),
+                                  ] as [ReactNode, ReactNode]]),
                                   ['Avg Fleet Stars', stars != null ? `${stars.toFixed(1)} / 5.0 Quality Rating` : '— (No active coaches)'],
                                 ]}
                               />
@@ -1279,6 +1312,8 @@ export function SettingsPage() {
                             <BrandPicPicker
                               showActions={false}
                               value={group.brandingPic}
+                              ownerKey={`group:${group.id}`}
+                              kind="branding"
                               onChange={(pic) => {
                                 const err = g.updateGroup(group.id, { brandingPic: pic })
                                 if (err) g.toast(err, 'bad')
@@ -1350,7 +1385,7 @@ export function SettingsPage() {
                                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-dim)' }}>
                                     DEFAULT PASSENGER AMENITIES (NEW SCHEDULES)
                                   </div>
-                                  <div className="small" style={{ fontWeight: 600 }}>
+                                  <div className="small bold">
                                     Selected <span className="good">{fmtCompact(amenityTotal)}/pax</span>
                                   </div>
                                 </div>
@@ -1379,7 +1414,7 @@ export function SettingsPage() {
                                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--fg-dim)' }}>
                                     DEFAULT CABIN FITTINGS (NEW PURCHASES)
                                   </div>
-                                  <div className="small" style={{ fontWeight: 600 }}>
+                                  <div className="small bold">
                                     Selected <span className="good">{fmtCompact(fittingSpend)}</span>
                                     <span className="dim"> on delivery</span>
                                   </div>
@@ -1404,11 +1439,12 @@ export function SettingsPage() {
                             </div>
                           )}
                         </div>
-                        )}
-                      </div>
+                      )}
+                    </div>
                   </Panel>
-                )
-              })
+                </div>
+              )
+            })
             )}
           </div>
 
@@ -1425,7 +1461,7 @@ export function SettingsPage() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div className="flex" style={{ alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
                     <span className="dim small">Per-pax consumables for unassigned trips</span>
-                    <span className="small" style={{ fontWeight: 600 }}>
+                    <span className="small bold">
                       Selected <span className="good">{fmtCompact(amenityTotal)}/pax</span>
                     </span>
                   </div>
@@ -1459,7 +1495,7 @@ export function SettingsPage() {
                 title="Closed / Retired Subsidiaries"
                 info="Brands retired from active service. Historical financial ledgers and trip reports remain intact. Retired brands can be restored or permanently purged once holding no coaches."
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="stack10">
                   {retired.map((grp) => (
                     <div
                       key={grp.id}
@@ -1478,8 +1514,8 @@ export function SettingsPage() {
                         <GroupBadge group={grp} />
                         <div>
                           <b>{grp.name}</b>
-                          {grp.cargoBrand && <span className="pill warn small" style={{ marginLeft: 6 }}>Cargo</span>}
-                          <span className="dim small"> (Closed Day {grp.retiredDay})</span>
+                          {grp.cargoBrand && <span className="pill warn small ml6">Cargo</span>}
+                          <span className="dim small"> (closed {fmtDate(grp.retiredDay ?? 0)})</span>
                           <div className="dim small">
                             Rating: ★ {grp.rating.toFixed(2)} ({grp.ratingCount} reviews)
                             {!grp.cargoBrand && <> · Primo: {grp.primo ? 'Yes' : 'No'}</>}
@@ -1516,80 +1552,272 @@ export function SettingsPage() {
       {/* ========================================================================= */}
       {/* TAB 4: STAFF WELFARE & TAX ACCOUNTING                                     */}
       {/* ========================================================================= */}
+      {/* ---------------- POLICIES ---------------- */}
+      {activeTab === 'policies' && (() => {
+        const pick = <T extends string,>(label: string, tip: string, value: T, options: readonly (readonly [T, string])[], onChange: (v: T) => void) => (
+          <div className="form-row" title={tip}>
+            <label>{label}</label>
+            <Tabs inline tabs={options} value={value} onChange={onChange} />
+          </div>
+        )
+        const num = (label: string, tip: string, value: number, min: number, max: number, step: number, unit: string, onChange: (v: number) => void) => (
+          <div className="form-row" title={tip}>
+            <label>{label}</label>
+            <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: 180 }} />
+            <b>{value}{unit}</b>
+          </div>
+        )
+        return (
+          <div className="grid-2">
+            <Panel title="Fares">
+              {num('Surge cap', 'The most a fare may rise above the base fare on ordinary days. Festival peaks follow their own rules.', cfg.surgeCapPct ?? 275, 100, 275, 5, '%', (v) => g.updatePlayerConfig({ surgeCapPct: v }))}
+              {num('Last-minute fare', 'When the last-minute cut is on, near-empty trips on their final day sell at this share of the normal fare.', cfg.lastMinuteFloorPct ?? 85, 50, 100, 5, '%', (v) => g.updatePlayerConfig({ lastMinuteFloorPct: v }))}
+            </Panel>
+            <Panel title="Fleet">
+              {pick('Cover for breakdowns', 'Who lends a spare coach when a bus breaks down. Needs a workshop manager.', cfg.autoCoverPolicy ?? 'same_brand',
+                [['off', 'None'], ['same_brand', 'Same brand'], ['any', 'Any brand']] as const, (v) => g.updatePlayerConfig({ autoCoverPolicy: v }))}
+              {pick('Insurance', 'Basic costs 30% less and pays claims 15 points lower. Comprehensive costs 30% more and pays 7 points higher.', cfg.insuranceTier ?? 'standard',
+                [['basic', 'Basic'], ['standard', 'Standard'], ['comprehensive', 'Comprehensive']] as const, (v) => g.updatePlayerConfig({ insuranceTier: v }))}
+            </Panel>
+            <Panel title="People">
+              {num('Training budget', 'Each ₹25,000 a month sends one crew member (lowest skill first) on a course: +1 skill and +2 morale.', Math.round((cfg.trainingBudgetPerMonth ?? 0) / 100 / 1000), 0, 200, 25, 'k/mo', (v) => g.updatePlayerConfig({ trainingBudgetPerMonth: rs(v * 1000) }))}
+            </Panel>
+            <Panel title="Cargo">
+              {num('SLA tolerance', 'A freight run later than this, or one that breaks down, costs 10% of its freight and some reputation.', cfg.slaToleranceMin ?? 120, 30, 240, 15, ' min', (v) => g.updatePlayerConfig({ slaToleranceMin: v }))}
+            </Panel>
+          </div>
+        )
+      })()}
+
       {activeTab === 'welfare' && (
-        <div className="grid-2" style={{ gap: 12 }}>
-          <Panel
-            title="Operational Staff Welfare Policies"
-            info="Improves driver retention, reduces fatigue and road accidents, and lowers sick leave."
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div className="form-row">
-                <label>Daily Crew Meal Allowance</label>
-                <label className="flex">
-                  <input
-                    type="checkbox"
-                    checked={!!cfg.mealAllowance}
-                    onChange={(e) => g.setWelfareConfig({ mealAllowance: e.target.checked })}
-                  />
-                  <span className={cfg.mealAllowance ? 'good' : 'dim'}>
-                    {cfg.mealAllowance ? 'Active' : 'Off'}
-                  </span>
-                </label>
-                <span className="dim small">₹150/crew/day flat; replaces per-trip driver bata</span>
-              </div>
+        <div className="stack14">
+          {/* Driver Morale & Union Health Metric Bar */}
+          {(() => {
+            const drivers = Object.values(s.staff).filter((st) => st.role === 'driver' || (st.role as string) === 'co_driver')
+            const avgMorale = drivers.length > 0 ? Math.round(drivers.reduce((a, d) => a + d.morale, 0) / drivers.length) : 100
+            const strikeThreshold = (cfg.driverDormitoryTier === 'ac_canteen' ? 22 : cfg.driverDormitoryTier === 'basic' ? 30 : BAL.strikeMoraleThreshold)
+            const isStrikeRisk = avgMorale < strikeThreshold + 10
+            const onStrike = s.world.strikeUntilDay && s.world.strikeUntilDay >= s.day
 
-              <div className="form-row">
-                <label>Crew Health Insurance</label>
-                <label className="flex">
-                  <input
-                    type="checkbox"
-                    checked={!!cfg.healthCoverage}
-                    onChange={(e) => g.setWelfareConfig({ healthCoverage: e.target.checked })}
-                  />
-                  <span className={cfg.healthCoverage ? 'good' : 'dim'}>
-                    {cfg.healthCoverage ? 'Active' : 'Off'}
-                  </span>
-                </label>
-                <span className="dim small">₹250/staff/mo; lowers sick leave by 40% & accident downtime by 30%</span>
-              </div>
+            // Monthly welfare spend calculation
+            const crewCount = drivers.length
+            const mealPerMo = cfg.mealAllowance ? crewCount * 150 * 30 : 0
+            const healthPerMo = cfg.healthCoverage ? Object.keys(s.staff).length * 250 : 0
+            const dormDaily = cfg.driverDormitoryTier === 'ac_canteen' ? 25 : cfg.driverDormitoryTier === 'basic' ? 12 : 0
+            const dormPerMo = dormDaily * crewCount * 30
+            const totalWelfareMo = mealPerMo + healthPerMo + dormPerMo
 
-              <div className="form-row">
-                <label>Annual Festival Bonus</label>
-                <label className="flex">
-                  <input
-                    type="checkbox"
-                    checked={cfg.festivalBonus !== false}
-                    onChange={(e) => g.setWelfareConfig({ festivalBonus: e.target.checked })}
-                  />
-                  <span className={cfg.festivalBonus !== false ? 'good' : 'dim'}>
-                    {cfg.festivalBonus !== false ? 'Active' : 'Off'}
-                  </span>
-                </label>
-                <span className="dim small">Annual 1-month festive bonus for crew (+15 morale; auto-paid if HR on duty)</span>
-              </div>
+            return (
+              <StatRow
+                items={[
+                  { label: 'Driver morale', value: `${avgMorale}%`, tone: avgMorale >= 70 ? 'good' : avgMorale >= 50 ? 'warn' : 'bad', title: avgMorale >= 75 ? 'Excellent' : avgMorale >= 55 ? 'Satisfied' : avgMorale >= 35 ? 'Stressed' : 'Burnout' },
+                  { label: 'Strike', value: onStrike ? `on strike ${s.world.strikeUntilDay - s.day + 1}d` : isStrikeRisk ? 'at risk' : 'calm', tone: onStrike || isStrikeRisk ? 'bad' : 'good', title: `Strike risk below ${strikeThreshold}% morale. ${cfg.driverDormitoryTier === 'ac_canteen' ? 'Executive bunks lower it to 22%.' : cfg.driverDormitoryTier === 'basic' ? 'Depot bunks lower it to 30%.' : 'No dorms: 35%.'}` },
+                  { label: 'Drivers', value: crewCount, title: `${Object.keys(s.staff).length} employees in total` },
+                  { label: 'Welfare/mo', value: fmtCompact(totalWelfareMo), title: `Dorms ${fmtCompact(dormPerMo)} · meals ${fmtCompact(mealPerMo)} · health ${fmtCompact(healthPerMo)}` },
+                ]}
+              />
+            )
+          })()}
 
-              <div className="form-row">
-                <label>Driver Eco-Driving Mileage Bonus</label>
-                <label className="flex">
-                  <input
-                    type="checkbox"
-                    checked={!!s.company.ecoIncentiveActive}
-                    onChange={(e) => g.toggleEcoIncentive(e.target.checked)}
-                  />
-                  <span className={s.company.ecoIncentiveActive ? 'good' : 'dim'}>
-                    {s.company.ecoIncentiveActive ? 'Active (₹250/trip)' : 'Off'}
-                  </span>
-                </label>
-                <span className="dim small">Pays ₹250/trip mileage incentive to assigned drivers; delivers +8% fuel mileage and cuts tyre/brake wear by 15%!</span>
+          <div className="grid-2" style={{ gap: 12 }}>
+            <Panel
+              title="Depot Driver Dormitories & Crew Quarters"
+              info="Long 8-hour highway shifts without bunk rest burn out drivers, collapse morale, and trigger union strikes. Providing high-standard dormitories accelerates fatigue recovery and buffers burnout."
+            >
+              <div className="stack10">
+                {[
+                  {
+                    id: 'none' as DriverDormitoryTier,
+                    title: 'No Company Dormitories (Roadside Rest)',
+                    badge: 'Baseline · ₹0',
+                    badgeTone: 'dim',
+                    desc: 'Drivers sleep in bus passenger seats or roadside dhaba cots. High fatigue on continuous shifts (8+ hrs) triggers -3 daily morale burnout. Standard 35% strike threshold.',
+                  },
+                  {
+                    id: 'basic' as DriverDormitoryTier,
+                    title: 'Depot Driver Bunks & Terminal Rest Rooms',
+                    badge: 'Standard · ₹12/day',
+                    badgeTone: 'warn',
+                    desc: 'Clean bunks, wall fans, lockers, and hot water showers at major terminal depots. +10 fatigue recovery overnight, +1 daily morale lift, buffers long-shift burnout to -1.',
+                  },
+                  {
+                    id: 'ac_canteen' as DriverDormitoryTier,
+                    title: 'Executive AC Sleeping Pods & Hot Canteen',
+                    badge: 'Recommended · ₹25/day',
+                    badgeTone: 'good',
+                    desc: 'Soundproof AC dormitories, fresh laundered linen, clean shower suites, and subsidized hot meals. +25 fatigue recovery overnight, +2 daily morale lift, complete immunity to 8-hour continuous shift burnout, and cuts union strike threat risk by 60% (lowers threshold to 22%).',
+                  },
+                ].map((tier) => {
+                  const selected = (cfg.driverDormitoryTier ?? 'none') === tier.id
+                  return (
+                    <div
+                      key={tier.id}
+                      onClick={() => g.setWelfareConfig({ driverDormitoryTier: tier.id })}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        border: selected ? '2px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                        background: selected ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg3)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+                          <input
+                            type="radio"
+                            name="dormTier"
+                            checked={selected}
+                            onChange={() => g.setWelfareConfig({ driverDormitoryTier: tier.id })}
+                          />
+                          <span>{tier.title}</span>
+                        </label>
+                        <span className={`pill small ${tier.badgeTone}`}>{tier.badge}</span>
+                      </div>
+                      <div className="dim small" style={{ marginLeft: 24 }}>
+                        {tier.desc}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            </div>
-          </Panel>
+            </Panel>
+
+            <Panel
+              title="Annual Festival Bonus Policy (Diwali, Pongal, Eid)"
+              info="In Indian intercity passenger transport, festival bonuses (Diwali / Pongal / Eid) dictate driver loyalty and union peace. Select your company's standing festival policy."
+            >
+              <div className="stack10">
+                {[
+                  {
+                    id: 'full' as FestivalBonusTier,
+                    title: 'Full Festive Bonus (100% Monthly Salary)',
+                    badge: 'Highest Morale · +20 Morale',
+                    badgeTone: 'good',
+                    desc: 'Auto-pays 1 month base salary 7 days before major festivals. Awards +20 morale and +10 driver loyalty. Guarantees zero festival strikes and high driver retention.',
+                  },
+                  {
+                    id: 'half' as FestivalBonusTier,
+                    title: 'Half-Month Bonus (50% Monthly Salary)',
+                    badge: 'Balanced · +10 Morale',
+                    badgeTone: 'good',
+                    desc: 'Auto-pays 50% monthly salary. Awards +10 morale and +5 loyalty. Satisfies workforce expectations while keeping cash outflow controlled.',
+                  },
+                  {
+                    id: 'gift' as FestivalBonusTier,
+                    title: 'Festive Sweet Box & Allowance (₹2,500 Flat)',
+                    badge: 'Frugal · +5 Morale',
+                    badgeTone: 'warn',
+                    desc: 'Distributes festive sweet boxes with ₹2,500 cash allowance per staff. Awards +5 morale and +2 loyalty. Ideal for lean periods.',
+                  },
+                  {
+                    id: 'skip' as FestivalBonusTier,
+                    title: 'Skip Festival Bonus (Save Cash)',
+                    badge: 'High Risk · −15 Morale',
+                    badgeTone: 'bad',
+                    desc: 'Skips payouts to conserve treasury cash. Causes severe discontent: −15 morale, −5 loyalty, and immediately escalates union strike danger.',
+                  },
+                ].map((pol) => {
+                  const selected = (cfg.festivalBonusTier ?? (cfg.festivalBonus === false ? 'skip' : 'full')) === pol.id
+                  return (
+                    <div
+                      key={pol.id}
+                      onClick={() => g.setWelfareConfig({ festivalBonusTier: pol.id, festivalBonus: pol.id !== 'skip' })}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 8,
+                        border: selected ? '2px solid var(--accent, #3b82f6)' : '1px solid var(--border)',
+                        background: selected ? 'rgba(59, 130, 246, 0.08)' : 'var(--bg3)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600 }}>
+                          <input
+                            type="radio"
+                            name="festTier"
+                            checked={selected}
+                            onChange={() => g.setWelfareConfig({ festivalBonusTier: pol.id, festivalBonus: pol.id !== 'skip' })}
+                          />
+                          <span>{pol.title}</span>
+                        </label>
+                        <span className={`pill small ${pol.badgeTone}`}>{pol.badge}</span>
+                      </div>
+                      <div className="dim small" style={{ marginLeft: 24 }}>
+                        {pol.desc}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </Panel>
+          </div>
+
+          <div className="grid-2" style={{ gap: 12 }}>
+            <Panel
+              title="Operational Crew Allowances & Healthcare"
+              info="Statutory benefits and route allowances for road safety and health."
+            >
+              <div className="stack10">
+                <div className="form-row">
+                  <label>Daily Crew Meal Allowance</label>
+                  <label className="flex">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.mealAllowance}
+                      onChange={(e) => g.setWelfareConfig({ mealAllowance: e.target.checked })}
+                    />
+                    <span className={cfg.mealAllowance ? 'good' : 'dim'}>
+                      {cfg.mealAllowance ? 'Active' : 'Off'}
+                    </span>
+                  </label>
+                  <Hint text={"₹150/crew/day flat; replaces per-trip driver bata"} />
+                </div>
+
+                <div className="form-row">
+                  <label>Crew Health Insurance</label>
+                  <label className="flex">
+                    <input
+                      type="checkbox"
+                      checked={!!cfg.healthCoverage}
+                      onChange={(e) => g.setWelfareConfig({ healthCoverage: e.target.checked })}
+                    />
+                    <span className={cfg.healthCoverage ? 'good' : 'dim'}>
+                      {cfg.healthCoverage ? 'Active' : 'Off'}
+                    </span>
+                  </label>
+                  <Hint text={"₹250/staff/mo; lowers sick leave by 40% & accident downtime by 30%"} />
+                </div>
+
+                <div className="form-row">
+                  <label>Driver Eco-Driving Mileage Bonus</label>
+                  <label className="flex">
+                    <input
+                      type="checkbox"
+                      checked={!!s.company.ecoIncentiveActive}
+                      onChange={(e) => g.toggleEcoIncentive(e.target.checked)}
+                    />
+                    <span className={s.company.ecoIncentiveActive ? 'good' : 'dim'}>
+                      {s.company.ecoIncentiveActive ? 'Active (₹250/trip)' : 'Off'}
+                    </span>
+                  </label>
+                  <Hint text={"Pays ₹250/trip mileage incentive to assigned drivers; delivers +8% fuel mileage and cuts tyre/brake wear by 15%!"} />
+                </div>
+              </div>
+            </Panel>
 
           <Panel
             title="Tax & Asset Depreciation Policy"
             info="Set your statutory tax and asset accounting policy. Locked in on bus acquisitions."
           >
-            <div className="form-row" style={{ marginBottom: 8 }}>
+            <div className="form-row mb8">
               <label>Depreciation Method</label>
               <select
                 value={s.company.depreciationDefault ?? 'SLM'}
@@ -1603,7 +1831,7 @@ export function SettingsPage() {
 
             {depMethod !== 'NONE' && (
               <>
-                <div className="form-row" style={{ marginBottom: 8 }}>
+                <div className="form-row mb8">
                   <label>Annual Write-Off Rate</label>
                   <input
                     type="range"
@@ -1624,7 +1852,7 @@ export function SettingsPage() {
                     Standard
                   </button>
                 </div>
-                <div className="dim small" style={{ marginBottom: 8 }}>
+                <div className="dim small mb8">
                   {depMethod === 'SLM'
                     ? `Writes off ${depRate.toFixed(1)}% yearly (~${fmtCompact(monthlyFor)}/mo on a ₹70L coach). Reaches 15% salvage value in ${lifeYears.toFixed(1)} years.`
                     : `Takes ${depRate.toFixed(1)}% of remaining book yearly (~${fmtCompact(monthlyFor)}/mo in yr 1). Reaches 15% salvage floor in ${lifeYears.toFixed(1)} years.`}
@@ -1637,6 +1865,209 @@ export function SettingsPage() {
                 Corporate advance income tax is provided at <b>{Math.round(BAL.incomeTaxRate * 100)}%</b> of net taxable profit on month-end. Loss months incur zero tax liability.
               </div>
             </div>
+          </Panel>
+        </div>
+      </div>
+    )}
+
+      {/* ========================================================================= */}
+      {/* TAB: PASSENGER HANDLING & LOUNGE POLICIES                                 */}
+      {/* ========================================================================= */}
+      {activeTab === 'lounges' && (
+        <div className="stack14">
+          {/* Top Lounge Network Status Bar */}
+          {(() => {
+            const lounges = s.company.lounges ?? []
+            const totalPax = lounges.reduce((a, l) => a + l.yesterdayPax, 0)
+            const totalRev = lounges.reduce((a, l) => a + l.yesterdaySnackRevenue, 0)
+            const totalOpex = lounges.reduce((a, l) => a + l.yesterdayRentExpense + l.yesterdayElectricExpense + l.yesterdayStaffExpense, 0)
+            const netProfit = totalRev - totalOpex
+
+            return (
+              <StatRow
+                items={[
+                  { label: 'Lounges', value: lounges.length, title: `${new Set(lounges.map((l) => l.cityId)).size} cities` },
+                  { label: 'Pax/day', value: totalPax.toLocaleString('en-IN') },
+                  { label: 'Sales/day', value: fmtCompact(totalRev), tone: 'good' },
+                  { label: 'Net/day', value: `${netProfit >= 0 ? '+' : ''}${fmtCompact(netProfit)}`, tone: netProfit >= 0 ? 'good' : 'bad', title: `Opex ${fmtCompact(totalOpex)}/day (rent, power, staff)` },
+                ]}
+              />
+            )
+          })()}
+
+          {/* Policy Panels */}
+          <div className="grid-2" style={{ gap: 12 }}>
+            <Panel
+              title="Passenger Hospitality & Refreshment Policies"
+              info="Set service standards across all company waiting lounges. Influences passenger satisfaction, lounge conversion, and recurring opex."
+            >
+              {(() => {
+                const pCfg = s.config?.passengerConfig ?? {}
+                return (
+                  <div className="stack10">
+                    <div className="form-row">
+                      <label>Complimentary Welcome Tea & Filter Coffee</label>
+                      <label className="flex">
+                        <input
+                          type="checkbox"
+                          checked={!!pCfg.complimentaryTeaCoffee}
+                          onChange={(e) => g.updatePassengerConfig({ complimentaryTeaCoffee: e.target.checked })}
+                        />
+                        <span className={pCfg.complimentaryTeaCoffee ? 'good' : 'dim'}>
+                          {pCfg.complimentaryTeaCoffee ? 'Active (₹4/pax)' : 'Off (Paid only)'}
+                        </span>
+                      </label>
+                      <Hint text={"Offers free hot filter coffee, tea & mineral water. Draws +12% more passengers into the lounge, increasing passenger review ratings!"} />
+                    </div>
+
+                    <div className="form-row">
+                      <label>Free High-Speed Optical Wi-Fi</label>
+                      <label className="flex">
+                        <input
+                          type="checkbox"
+                          checked={!!pCfg.freeHighSpeedWifi}
+                          onChange={(e) => g.updatePassengerConfig({ freeHighSpeedWifi: e.target.checked })}
+                        />
+                        <span className={pCfg.freeHighSpeedWifi ? 'good' : 'dim'}>
+                          {pCfg.freeHighSpeedWifi ? 'Active (₹50/lounge/day)' : 'Off'}
+                        </span>
+                      </label>
+                      <Hint text={"Provides unlimited optical fiber Wi-Fi and universal USB-C fast-charging ports for waiting travelers."} />
+                    </div>
+
+                    <div className="form-row">
+                      <label>Lounge Admission Access Tier</label>
+                      <select
+                        value={pCfg.accessPolicy ?? 'all_passengers'}
+                        onChange={(e) => g.updatePassengerConfig({ accessPolicy: e.target.value as any })}
+                        style={{ minWidth: 200 }}
+                      >
+                        <option value="all_passengers">Open to All Scheduled Passengers</option>
+                        <option value="ac_only">Exclusive to AC & Sleeper Ticket Holders</option>
+                      </select>
+                      <span className="dim small">
+                        {pCfg.accessPolicy === 'ac_only'
+                          ? 'Restricts lounge access to premium AC & Sleeper passengers to maintain quiet executive exclusivity.'
+                          : 'Welcomes all passengers holding a confirmed ticket on your departures.'}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })()}
+            </Panel>
+
+            <Panel
+              title="Passenger Safety, Security & Boarding Alerts"
+              info="Safeguard passenger luggage, prevent gate confusion, and elevate operational safety."
+            >
+              {(() => {
+                const pCfg = s.config?.passengerConfig ?? {}
+                return (
+                  <div className="stack10">
+                    <div className="form-row">
+                      <label>24/7 CCTV & Luggage Tag Tracking</label>
+                      <label className="flex">
+                        <input
+                          type="checkbox"
+                          checked={!!pCfg.cctvLuggageSecurity}
+                          onChange={(e) => g.updatePassengerConfig({ cctvLuggageSecurity: e.target.checked })}
+                        />
+                        <span className={pCfg.cctvLuggageSecurity ? 'good' : 'dim'}>
+                          {pCfg.cctvLuggageSecurity ? 'Active (₹40/lounge/day)' : 'Off'}
+                        </span>
+                      </label>
+                      <Hint text={"Digital barcode luggage tagging and high-def CCTV monitoring. Eliminates baggage loss disputes and theft concerns."} />
+                    </div>
+
+                    <div className="form-row">
+                      <label>Live Bus Tracking & WhatsApp Boarding Alerts</label>
+                      <label className="flex">
+                        <input
+                          type="checkbox"
+                          checked={!!pCfg.boardingAssistanceAlerts}
+                          onChange={(e) => g.updatePassengerConfig({ boardingAssistanceAlerts: e.target.checked })}
+                        />
+                        <span className={pCfg.boardingAssistanceAlerts ? 'good' : 'dim'}>
+                          {pCfg.boardingAssistanceAlerts ? 'Active (₹30/lounge/day)' : 'Off'}
+                        </span>
+                      </label>
+                      <Hint text={"Sends live GPS bus ETA SMS & WhatsApp messages to waiting passengers, followed by staff-assisted boarding calls."} />
+                    </div>
+                  </div>
+                )
+              })()}
+            </Panel>
+          </div>
+
+          {/* Active Lounges Summary & Link */}
+          <Panel
+            title="City Waiting Rooms & Schedules Handled"
+            info="Detailed operational breakdown of passenger lounges operating across your route network."
+            right={
+              <Link to="/lounges" className="button small primary">
+                Open / Manage Lounges Page →
+              </Link>
+            }
+          >
+            {(() => {
+              const lounges = s.company.lounges ?? []
+              if (lounges.length === 0) {
+                return (
+                  <span className="empty" title="No passenger lounges opened yet. Click the button above to establish your first lounge.">No lounges yet.</span>
+                )
+              }
+
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {lounges.map((l) => {
+                    const tierDef = getLoungeTierDef(l.tier)
+                    const schedules = getLoungeSchedulesHandled(s, l.cityId)
+                    return (
+                      <div
+                        key={l.id}
+                        style={{
+                          padding: '10px 12px',
+                          background: 'var(--bg3)',
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 10,
+                        }}
+                      >
+                        <div>
+                          <div className="bold">
+                            {l.locationName} <span className="dim">({cityName(l.cityId)})</span>
+                          </div>
+                          <div className="dim small mt2">
+                            {tierDef.label} · {schedules.total} departures/arrivals handled · {l.yesterdayPax} pax/day
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div className="good small bold">
+                              +{fmtCompact(l.yesterdaySnackRevenue)} snacks/day
+                            </div>
+                            <div className="dim small">
+                              −{fmtCompact(l.yesterdayRentExpense + l.yesterdayElectricExpense + l.yesterdayStaffExpense)} fixed opex
+                            </div>
+                          </div>
+                          <span
+                            className={`pill small ${l.yesterdayNetProfit >= 0 ? 'good' : 'warn'}`}
+                            style={{ minWidth: 70, textAlign: 'center' }}
+                          >
+                            {l.yesterdayNetProfit >= 0 ? '+' : ''}{fmtCompact(l.yesterdayNetProfit)}/d
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
           </Panel>
         </div>
       )}
@@ -1698,14 +2129,14 @@ export function SettingsPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div>
                   <b className="bad">Create New Game (Empty All Data)</b>
-                  <div className="dim small">Clears all active saves, deletes company records, and returns to setup to start Day 1 fresh.</div>
+                  <Hint text={"Clears all active saves, deletes company records, and returns to setup to start Day 1 fresh."} />
                 </div>
                 {!confirming ? (
                   <button className="small danger" onClick={() => setConfirming(true)}>
                     + Create New Game…
                   </button>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="row gap">
                     <span className="bad small">Empty all data and start new game?</span>
                     <button
                       className="small danger"
@@ -1739,14 +2170,14 @@ export function SettingsPage() {
                     disabled={saveLoading}
                     title="Rescan gameSave directory"
                   >
-                    {saveLoading ? 'Scanning…' : '🔄 Refresh'}
+                    {saveLoading ? 'Scanning…' : 'Refresh'}
                   </button>
                   <button
                     className="small"
                     onClick={openSaveDir}
                     title="Open gameSave folder in File Explorer"
                   >
-                    📂 Open Folder
+                    Open Folder
                   </button>
                 </div>
               ) : undefined
@@ -1754,7 +2185,7 @@ export function SettingsPage() {
           >
             {saveFolderMode === 'hosted' ? (
               <div style={{ padding: '20px 16px' }}>
-                <div className="dim small" style={{ marginBottom: 10 }}>
+                <div className="dim small mb10">
                   The live hosted build cannot open your PC’s <code>Downloads/gameSave</code> folder
                   (that only works with local <code>npm run dev</code>). Progress is kept in this browser;
                   use files to move saves between devices.
@@ -1784,20 +2215,20 @@ export function SettingsPage() {
               </div>
             ) : saveError && saveFiles.length === 0 ? (
               <div style={{ padding: '20px 16px', textAlign: 'center' }}>
-                <div className="bad small" style={{ marginBottom: 8 }}>
-                  ⚠️ Directory service offline or not reachable ({saveError}).
+                <div className="bad small mb8">
+                  Directory service offline or not reachable ({saveError}).
                 </div>
-                <div className="dim small" style={{ marginBottom: 12 }}>
+                <div className="dim small mb12">
                   You can still save and load using the <b>Export Save File</b> and <b>Import Save File</b> buttons on the left.
                 </div>
                 <button className="small" onClick={loadSaveList}>Try Again</button>
               </div>
             ) : saveFiles.length === 0 ? (
               <div style={{ padding: '24px 16px', textAlign: 'center' }}>
-                <div className="dim small" style={{ marginBottom: 10 }}>
+                <div className="dim small mb10">
                   No <code>.json</code> save files found in <code>{saveDir || 'gameSave'}</code>.
                 </div>
-                <div className="dim small" style={{ marginBottom: 14 }}>
+                <div className="dim small mb14">
                   Click <b>Export Save File</b> on the left to write your current game directly into this folder, or click <b>Refresh</b> once you place save files there.
                 </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
@@ -1856,6 +2287,10 @@ export function SettingsPage() {
           </Panel>
 
           <div style={{ gridColumn: '1 / -1' }}>
+            <CloudSavesPanel />
+          </div>
+
+          <div style={{ gridColumn: '1 / -1' }}>
             <Panel title="Keyboard Shortcuts Reference" flat>
               <div style={{ padding: 10 }}>
                 <div className="grid-2" style={{ gap: 10 }}>
@@ -1897,7 +2332,7 @@ export function SettingsPage() {
       {/* TAB: BODY DESIGNS                                                         */}
       {/* ========================================================================= */}
       {activeTab === 'body_designs' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="stack14">
           <Panel
             title={
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -1912,50 +2347,65 @@ export function SettingsPage() {
                     fontWeight: 500,
                   }}
                 >
-                  ✓ Shared Across All Saves
+                  Shared Across All Saves
                 </span>
               </div>
             }
             flat
             info="Custom body designs and coach images are saved globally and automatically shared across all your game saves and new games. You configure them once, and they remain across all saves."
-            action={
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button
-                  className="small"
-                  onClick={handleExportDesigns}
-                  title="Export custom coach designs and photos to a JSON file"
-                >
-                  📥 Export
-                </button>
-                <button
-                  className="small"
-                  onClick={() => importDesignsRef.current?.click()}
-                  title="Import coach designs and photos from a JSON file"
-                >
-                  📤 Import
-                </button>
-                <button
-                  className="small dim"
-                  onClick={() => setConfirmResetDesigns(true)}
-                  title="Reset designs and images back to default factory catalog"
-                >
-                  Reset Defaults…
-                </button>
-                <input
-                  ref={importDesignsRef}
-                  type="file"
-                  accept=".json"
-                  style={{ display: 'none' }}
-                  onChange={(e) => {
-                    const f = e.target.files?.[0]
-                    e.target.value = ''
-                    if (f) handleImportDesigns(f)
-                  }}
-                />
-              </div>
+            right={
+              <button
+                className="small dim"
+                onClick={() => setConfirmResetDesigns(true)}
+                title="Reset designs and images back to default factory catalog"
+              >
+                Reset Defaults…
+              </button>
             }
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Cloud Catalog Status bar */}
+              <div
+                style={{
+                  padding: '8px 12px',
+                  background: 'var(--bg3)',
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  fontSize: '0.82rem',
+                }}
+              >
+                <div className="row gap wrap">
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: isCloudImagesConfigured() ? '#22c55e' : '#eab308',
+                      display: 'inline-block',
+                    }}
+                  />
+                  <span>
+                    <b>Supabase Cloud Catalog:</b>{' '}
+                    {isCloudImagesConfigured() ? 'Auto-synced with Supabase' : 'Offline / Local only'}
+                  </span>
+                  {lastSyncTime ? (
+                    <span className="dim">
+                      · Last synced: {new Date(lastSyncTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({new Date(lastSyncTime).toLocaleDateString()})
+                    </span>
+                  ) : null}
+                  {cloudSyncing && (
+                    <span className="dim" style={{ fontStyle: 'italic', marginLeft: 6 }}>
+                      ({cloudSyncStatus || 'Syncing…'})
+                    </span>
+                  )}
+                </div>
+              </div>
+
               {Object.values(bodyBuilders).map((builder) => {
                 const count = builder.designs.length
                 return (
@@ -2010,6 +2460,8 @@ export function SettingsPage() {
                                 <img
                                   src={d.image}
                                   alt={d.name}
+                                  onClick={() => setLightboxUrl(d.image || null)}
+                                  title="Click to view full photo"
                                   style={{
                                     width: 100,
                                     height: 65,
@@ -2017,6 +2469,7 @@ export function SettingsPage() {
                                     borderRadius: 4,
                                     border: '1px solid var(--border)',
                                     flexShrink: 0,
+                                    cursor: 'pointer',
                                   }}
                                 />
                               ) : (
@@ -2124,7 +2577,7 @@ export function SettingsPage() {
             </>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="stack12">
             <div className="form-row">
               <label>Brand Name</label>
               <input
@@ -2168,7 +2621,13 @@ export function SettingsPage() {
             )}
             <div className="form-row">
               <label>Branding pic (optional)</label>
-              <BrandPicPicker value={newBrandPic} onChange={setNewBrandPic} onError={(msg) => g.toast(msg, 'bad')} />
+              <BrandPicPicker
+                value={newBrandPic}
+                ownerKey="group:new"
+                kind="branding"
+                onChange={setNewBrandPic}
+                onError={(msg) => g.toast(msg, 'bad')}
+              />
             </div>
             <div className="form-row">
               <label>Brand Type</label>
@@ -2179,7 +2638,7 @@ export function SettingsPage() {
                   onChange={(e) => setNewBrandCargo(e.target.checked)}
                 />
                 <span>Cargo brand</span>
-                <span className="dim small">Hides amenities, fittings, tier & refund policy</span>
+                <Hint text={"Hides amenities, fittings, tier & refund policy"} />
               </label>
             </div>
           </div>
@@ -2210,10 +2669,9 @@ export function SettingsPage() {
             </>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="stack12">
             <p>
-              Retiring <b>{retireTarget.name}</b> will remove it from active pickers and scheduling.
-              Historical ledger entries and trip reports remain intact.
+              Retire <b>{retireTarget.name}</b>? It leaves pickers and scheduling; ledger and trip history stay.
             </p>
             {(() => {
               const bCount = Object.values(s.buses).filter((b) => b.groupId === retireTarget.id).length
@@ -2271,9 +2729,7 @@ export function SettingsPage() {
           }
         >
           <p>
-            Are you sure you want to permanently delete this brand record?
-            This will purge the brand and rewrite past coach history entries to Unassigned.
-            This action cannot be undone.
+            Delete this brand permanently? Past coach history moves to Unassigned. This cannot be undone.
           </p>
         </Modal>
       )}
@@ -2291,7 +2747,7 @@ export function SettingsPage() {
             </>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="stack12">
             <div className="form-row">
               <label>Design Name</label>
               <input
@@ -2304,7 +2760,7 @@ export function SettingsPage() {
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 6 }}>Seating Layout</label>
-              <div style={{ flex: 1 }}>
+              <div className="grow">
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {COACH_LAYOUT_OPTIONS.map((opt) => {
                     const selected = designForm.layoutKinds.includes(opt.id)
@@ -2334,7 +2790,7 @@ export function SettingsPage() {
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 4 }}>Chassis lengths</label>
-              <div style={{ flex: 1 }}>
+              <div className="grow">
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                   {chassisNameOptions(bodyBuilders[editingDesign.builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']).map((name) => {
                     const checked = designForm.chassisNames.includes(name)
@@ -2362,7 +2818,7 @@ export function SettingsPage() {
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 6 }}>Coach grade</label>
-              <div style={{ flex: 1 }}>
+              <div className="grow">
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {BODY_QUALITY_TIERS.map((tier) => {
                     const selected =
@@ -2395,7 +2851,7 @@ export function SettingsPage() {
 
             <div className="form-row" style={{ alignItems: 'flex-start' }}>
               <label style={{ paddingTop: 4 }}>Body package</label>
-              <div style={{ flex: 1 }}>
+              <div className="grow">
                 {(() => {
                   const builderId = editingDesign.builderId
                   const makers = bodyBuilders[builderId]?.makers ?? ['Ashok Leyland', 'BharatBenz']
@@ -2431,6 +2887,8 @@ export function SettingsPage() {
               <div style={{ flex: 1, maxWidth: 360 }}>
                 <BrandPicPicker
                   value={designForm.image}
+                  ownerKey={`design:${designForm.id || 'new'}`}
+                  kind="body_design"
                   onChange={(img) => setDesignForm((f) => ({ ...f, image: img }))}
                   onError={(err) => g.toast(err, 'bad')}
                 />
@@ -2477,15 +2935,27 @@ export function SettingsPage() {
             </div>
           }
         >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="stack10">
             <p>
-              This will reset all coach builders and designs back to the initial default catalog (Prakesh, REC, MG Group, ARVEX) and remove any custom designs or uploaded photos across all game saves.
-            </p>
-            <p className="dim small">
-              This action updates global storage immediately.
+              Reset coach builders and designs to the default catalog. Custom designs and photos are removed from all saves.
             </p>
           </div>
         </Modal>
+      )}
+
+      <BrandGalleryModal
+        group={galleryBrand}
+        isOpen={Boolean(galleryBrand)}
+        onClose={() => setGalleryBrand(null)}
+        onUpdateGroup={(id, patch) => g.updateGroup(id, patch)}
+        onToast={(msg, kind) => g.toast(msg, kind)}
+      />
+
+      {lightboxUrl && (
+        <LightboxModal
+          url={lightboxUrl}
+          onClose={() => setLightboxUrl(null)}
+        />
       )}
     </>
   )

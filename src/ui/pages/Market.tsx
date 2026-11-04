@@ -11,6 +11,7 @@ import {
   coachSpec,
   dealerCatalogRows,
   isCargoModel,
+  isCharterModel,
   modelTitle,
 } from '../../engine/data/busModels'
 import { BAL } from '../../engine/data/balance'
@@ -20,10 +21,8 @@ import { activeGroups } from '../../engine/sim/groups'
 import { fmtCompact, type Money } from '../../engine/core/money'
 import {
   designsForModel,
-  getDesign,
   modelSupportsBodyDesigns,
   composeLeadTime,
-  coachTitle,
   fleetModelLabel,
   bodyPackagePrice,
   coachLayoutLabel,
@@ -31,7 +30,7 @@ import {
   type CoachLayoutKind,
   resolveModelForChassisAndDesign,
 } from '../../engine/data/bodyBuilders'
-import { Bar, KV, M, Modal, Panel } from '../bits'
+import { Bar, KV, M, Modal, Panel, PageHeader } from '../bits'
 
 export function FinanceModal({ price: initialPrice, title, isNew, modelId, onConfirm, onClose }: {
   price: Money
@@ -91,7 +90,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
         <>
           {orderedCount > 0 && (
             <span className="good small" style={{ marginRight: 'auto' }}>
-              ✓ {orderedCount} {isNew ? 'ordered' : 'purchased'}
+              {orderedCount} {isNew ? 'ordered' : 'purchased'}
             </span>
           )}
           <button onClick={onClose}>Close</button>
@@ -126,7 +125,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
         <div style={{ marginBottom: 14, padding: 12, background: 'var(--panel-alt, #151a21)', borderRadius: 6, border: '1px solid var(--border)' }}>
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: '0.9rem' }}>Coach Body Configuration</div>
           {designOptions.length > 0 && (
-            <div className="form-row" style={{ marginBottom: 8 }}>
+            <div className="form-row mb8">
               <label style={{ minWidth: 100 }}>Body Design</label>
               <select
                 value={selectedDesignId}
@@ -145,7 +144,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
             </div>
           )}
           {allowedLayouts.length > 1 && (
-            <div className="form-row" style={{ marginBottom: 8 }}>
+            <div className="form-row mb8">
               <label style={{ minWidth: 100 }}>Layout</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
                 {allowedLayouts.map((k) => (
@@ -182,9 +181,9 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
                 </div>
               )}
               <div style={{ flex: 1, fontSize: '0.8rem', lineHeight: 1.4 }}>
-                <div style={{ fontWeight: 600 }}>{selectedBuilder?.name} · {selectedDesign.name}</div>
+                <div className="bold">{selectedBuilder?.name} · {selectedDesign.name}</div>
                 <div className="dim mt4">
-                  <span>Layout: <b className={coachKindClass(model)}>{coachLayoutLabel(model.layout.kind as any)}</b></span>
+                  <span>Layout: <b className={coachKindClass(model)}>{coachLayoutLabel((model?.layout.kind ?? 'semi') as any)}</b></span>
                   {' · '}
                   <span>Body: <b>+{fmtCompact(bodyPackagePrice(selectedBuilder?.id, selectedDesign, seedModel?.name ?? ''))}</b></span>
                   {' · '}
@@ -237,14 +236,8 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
         </p>
       )}
       <div className="mt12 pt12" style={{ borderTop: '1px solid var(--border)' }}>
-        <p className="small dim" style={{ margin: 0 }}>
-          Asset depreciation:{' '}
-          <b>
-            {depDefault === 'NONE'
-              ? 'This coach books no depreciation and stays at cost'
-              : `This coach will use ${depDefault} at ${depRate.toFixed(1)}% a year`}
-          </b>{' '}
-          (locked by company tax policy).
+        <p className="muted" style={{ margin: 0 }} title="Locked by company tax policy">
+          Depreciation: {depDefault === 'NONE' ? 'none (stays at cost)' : `${depDefault} · ${depRate.toFixed(1)}%/yr`}
         </p>
       </div>
     </Modal>
@@ -274,9 +267,7 @@ export function MarketPage() {
 
   return (
     <>
-      <div className="page-title">
-        Market <span className="sub">refreshes in {s.marketRefreshDay - s.day} day(s) · four ways to put a bus on the road</span>
-        <span className="spacer" />
+      <PageHeader title="Market" facts={<>refresh in {s.marketRefreshDay - s.day}d</>} factsTip="New, used, lease or attach">
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 'normal' }}>
           Assign to Brand:
           <select
@@ -292,7 +283,7 @@ export function MarketPage() {
             <option value="">Unassigned</option>
           </select>
         </label>
-      </div>
+      </PageHeader>
 
       <Panel
         title="Buy new — dealer catalog"
@@ -305,7 +296,7 @@ export function MarketPage() {
                 className={`small ${maker === brand ? 'primary' : ''}`}
                 onClick={() => setMaker(brand)}
               >
-                {brand}
+                {brand === 'Force Motors' ? 'Force' : brand}
               </button>
             ))}
           </span>
@@ -328,20 +319,21 @@ export function MarketPage() {
           </thead>
           <tbody>
             {catalog.map((m) => {
-              const variants = chassisStyleCatalog && !isCargoModel(m) ? chassisLayoutVariants(m) : [m]
+              const isCustomChassis = chassisStyleCatalog && !isCargoModel(m) && !isCharterModel(m)
+              const variants = isCustomChassis ? chassisLayoutVariants(m) : [m]
               const price = m.priceNew
               const subsidised = effectiveNewPrice(s, m.id) < m.priceNew
               const seatLo = Math.min(...variants.map((v) => v.seats))
               const seatHi = Math.max(...variants.map((v) => v.seats))
               return (
-                <tr key={chassisStyleCatalog && !isCargoModel(m) ? `${m.maker}::${m.name}` : m.id}>
+                <tr key={isCustomChassis ? `${m.maker}::${m.name}` : m.id}>
                   <td>
                     <span className="accent">{modelTitle(m)}</span>
-                    {!chassisStyleCatalog && (
+                    {!isCustomChassis && (
                       <div className="small faint">{coachSpec(m)}</div>
                     )}
                   </td>
-                  {!chassisStyleCatalog && (
+                  {!isCustomChassis && (
                     <td>
                       <span className={coachKindClass(m)}>{coachKind(m)}</span>
                       <span className="dim small"> {m.layout.cols}</span>
@@ -350,15 +342,15 @@ export function MarketPage() {
                   <td className="num">
                     {m.isCargoOnly
                       ? `${((m.cargoCapKg || 0) / 1000).toFixed(0)}T cargo`
-                      : chassisStyleCatalog && seatLo !== seatHi
+                      : isCustomChassis && seatLo !== seatHi
                         ? `${seatLo}–${seatHi}`
                         : m.seats}
                   </td>
                   <td className="dim">
-                    {chassisStyleCatalog && !isCargoModel(m) ? 'Custom body' : CLASS_LABEL[m.cls]}
+                    {isCustomChassis ? 'Custom body' : CLASS_LABEL[m.cls]}
                   </td>
                   <td className="num" title={m.electric ? 'Electric, billed per km' : 'Loaded highway km/l with AC on, cautious driver. Aggressive driving is about 3.0 km/l where this reads 3.5.'}>{m.electric ? `${fmtCompact(BAL.electricCostPerKm)}/km` : `${m.mileage} km/l`}</td>
-                  <td className="num">{m.isCargoOnly ? '—' : chassisStyleCatalog ? 'via body' : `${m.comfort}/10`}</td>
+                  <td className="num">{m.isCargoOnly ? '—' : isCustomChassis ? 'via body' : `${m.comfort}/10`}</td>
                   <td className="num">{m.leadTimeDays}d+</td>
                   <td className="num">
                     <M v={price} />{subsidised && <span className="good"> EV-subsidy!</span>}

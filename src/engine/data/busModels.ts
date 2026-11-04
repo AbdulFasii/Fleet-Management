@@ -283,10 +283,148 @@ export const BUS_MODELS: Record<string, BusModel> = {
     launchedYear: 2020, cargoCapKg: 26000, cargoVolumeCbm: 110.0,
     isCargoOnly: true,
   },
+
+  /* ---------- Dedicated Charter & Group Vehicles ---------- */
+  // 1. Force Urbania (Luxury van variants)
+  urbania10: {
+    id: 'urbania10', name: 'Urbania 10S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(32), seats: 10,
+    layout: { kind: 'semi', cols: '2+1', rows: 4 },
+    mileage: 9.5, electric: false, ac: true, sleeper: false,
+    comfort: 8.5, leadTimeDays: 14, fareIndex: 0.65, maintCostIndex: 0.70,
+    launchedYear: 2022, cargoCapKg: 500, cargoVolumeCbm: 3.5,
+    isCharterOnly: true,
+  },
+  urbania13: {
+    id: 'urbania13', name: 'Urbania 13S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(35), seats: 13,
+    layout: { kind: 'semi', cols: '2+1', rows: 5 },
+    mileage: 9.0, electric: false, ac: true, sleeper: false,
+    comfort: 8.5, leadTimeDays: 14, fareIndex: 0.65, maintCostIndex: 0.72,
+    launchedYear: 2022, cargoCapKg: 600, cargoVolumeCbm: 4.2,
+    isCharterOnly: true,
+  },
+  urbania17: {
+    id: 'urbania17', name: 'Urbania 17S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(38), seats: 17,
+    layout: { kind: 'semi', cols: '2+1', rows: 6 },
+    mileage: 8.5, electric: false, ac: true, sleeper: false,
+    comfort: 8.0, leadTimeDays: 16, fareIndex: 0.62, maintCostIndex: 0.75,
+    launchedYear: 2022, cargoCapKg: 700, cargoVolumeCbm: 5.0,
+    isCharterOnly: true,
+  },
+
+  // 2. Tata Winger (Maxi-cab variants)
+  winger9: {
+    id: 'winger9', name: 'Winger 9S', maker: 'Tata Motors',
+    cls: 'CHARTER', priceNew: L(18), seats: 9,
+    layout: { kind: 'semi', cols: '2+1', rows: 3 },
+    mileage: 11.0, electric: false, ac: true, sleeper: false,
+    comfort: 6.2, leadTimeDays: 10, fareIndex: 0.50, maintCostIndex: 0.60,
+    launchedYear: 2018, cargoCapKg: 400, cargoVolumeCbm: 2.8,
+    isCharterOnly: true,
+  },
+  winger12: {
+    id: 'winger12', name: 'Winger 12S', maker: 'Tata Motors',
+    cls: 'CHARTER', priceNew: L(20), seats: 12,
+    layout: { kind: 'semi', cols: '2+1', rows: 4 },
+    mileage: 10.5, electric: false, ac: true, sleeper: false,
+    comfort: 6.0, leadTimeDays: 10, fareIndex: 0.50, maintCostIndex: 0.62,
+    launchedYear: 2018, cargoCapKg: 450, cargoVolumeCbm: 3.2,
+    isCharterOnly: true,
+  },
+  winger15: {
+    id: 'winger15', name: 'Winger 15S', maker: 'Tata Motors',
+    cls: 'CHARTER', priceNew: L(22), seats: 15,
+    layout: { kind: 'semi', cols: '2+1', rows: 5 },
+    mileage: 10.0, electric: false, ac: true, sleeper: false,
+    comfort: 6.0, leadTimeDays: 12, fareIndex: 0.50, maintCostIndex: 0.65,
+    launchedYear: 2018, cargoCapKg: 500, cargoVolumeCbm: 3.8,
+    isCharterOnly: true,
+  },
+
+  // 3. Tempo Traveller (Force Motors)
+  traveller12: {
+    id: 'traveller12', name: 'Traveller 12S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(19), seats: 12,
+    layout: { kind: 'semi', cols: '2+1', rows: 4 },
+    mileage: 10.0, electric: false, ac: true, sleeper: false,
+    comfort: 6.5, leadTimeDays: 12, fareIndex: 0.52, maintCostIndex: 0.65,
+    launchedYear: 2015, cargoCapKg: 500, cargoVolumeCbm: 3.5,
+    isCharterOnly: true,
+  },
+  traveller17: {
+    id: 'traveller17', name: 'Traveller 17S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(23), seats: 17,
+    layout: { kind: 'semi', cols: '2+1', rows: 6 },
+    mileage: 9.0, electric: false, ac: true, sleeper: false,
+    comfort: 6.5, leadTimeDays: 12, fareIndex: 0.52, maintCostIndex: 0.68,
+    launchedYear: 2015, cargoCapKg: 650, cargoVolumeCbm: 4.5,
+    isCharterOnly: true,
+  },
+  traveller26: {
+    id: 'traveller26', name: 'Traveller 26S', maker: 'Force Motors',
+    cls: 'CHARTER', priceNew: L(28), seats: 26,
+    layout: { kind: 'semi', cols: '2+2', rows: 7 },
+    mileage: 7.5, electric: false, ac: true, sleeper: false,
+    comfort: 6.2, leadTimeDays: 14, fareIndex: 0.50, maintCostIndex: 0.72,
+    launchedYear: 2016, cargoCapKg: 800, cargoVolumeCbm: 5.5,
+    isCharterOnly: true,
+  },
+
+  // 4. Eicher Mini Bus (Midi coach variants)
+  eicher24: {
+    id: 'eicher24', name: 'Skyline Pro 24S', maker: 'Eicher',
+    cls: 'CHARTER', priceNew: L(27), seats: 24,
+    layout: { kind: 'semi', cols: '2+2', rows: 6 },
+    mileage: 6.5, electric: false, ac: true, sleeper: false,
+    comfort: 6.8, leadTimeDays: 15, fareIndex: 0.52, maintCostIndex: 0.75,
+    launchedYear: 2017, cargoCapKg: 900, cargoVolumeCbm: 6.0,
+    isCharterOnly: true,
+  },
+  eicher32: {
+    id: 'eicher32', name: 'Starline 32S Midi', maker: 'Eicher',
+    cls: 'CHARTER', priceNew: L(32), seats: 32,
+    layout: { kind: 'semi', cols: '2+2', rows: 8 },
+    mileage: 5.8, electric: false, ac: true, sleeper: false,
+    comfort: 6.8, leadTimeDays: 18, fareIndex: 0.52, maintCostIndex: 0.80,
+    launchedYear: 2017, cargoCapKg: 1100, cargoVolumeCbm: 7.5,
+    isCharterOnly: true,
+  },
+
+  // 5. BharatBenz 1017 (Midi coach variants)
+  bb1017_33: {
+    id: 'bb1017_33', name: '1017 33S Semi-Sleeper', maker: 'BharatBenz',
+    cls: 'CHARTER', priceNew: L(38), seats: 33,
+    layout: { kind: 'semi', cols: '2+2', rows: 8 },
+    mileage: 4.8, electric: false, ac: true, sleeper: false,
+    comfort: 7.2, leadTimeDays: 20, fareIndex: 0.55, maintCostIndex: 0.88,
+    launchedYear: 2018, cargoCapKg: 1200, cargoVolumeCbm: 8.0,
+    isCharterOnly: true,
+  },
+  bb1017_39: {
+    id: 'bb1017_39', name: '1017 39S High-Cap', maker: 'BharatBenz',
+    cls: 'CHARTER', priceNew: L(39), seats: 39,
+    layout: { kind: 'semi', cols: '2+2', rows: 10 },
+    mileage: 4.6, electric: false, ac: true, sleeper: false,
+    comfort: 6.8, leadTimeDays: 20, fareIndex: 0.54, maintCostIndex: 0.90,
+    launchedYear: 2018, cargoCapKg: 1300, cargoVolumeCbm: 8.5,
+    isCharterOnly: true,
+  },
+  bb1017_24slp: {
+    id: 'bb1017_24slp', name: '1017 24-Berth Sleeper', maker: 'BharatBenz',
+    cls: 'CHARTER', priceNew: L(43), seats: 24,
+    layout: { kind: 'sleeper', cols: '2+1', rows: 8 },
+    mileage: 4.5, electric: false, ac: true, sleeper: true,
+    comfort: 7.6, leadTimeDays: 22, fareIndex: 0.65, maintCostIndex: 0.95,
+    launchedYear: 2019, cargoCapKg: 1000, cargoVolumeCbm: 7.0,
+    isCharterOnly: true,
+  },
 }
 
 const CLASS_ORDER: Record<BusClassId, number> = {
   CARGO: 1,
+  CHARTER: 2,
   E_AC_SEMI: 3,
   AC_SEMI: 4,
   AC_SEMI_PREM: 5,
@@ -295,7 +433,7 @@ const CLASS_ORDER: Record<BusClassId, number> = {
   AC_SLEEPER_PREM: 8,
 }
 
-const HIDDEN_MAKERS = new Set(['Tata Motors', 'Force Motors'])
+const HIDDEN_MAKERS = new Set<string>()
 
 export const MODEL_LIST = Object.values(BUS_MODELS)
   .filter((m) => !HIDDEN_MAKERS.has(m.maker))
@@ -329,6 +467,7 @@ export const NEW_MODEL_LIST = MODEL_LIST.filter((m) => !NO_NEW_ORDER_IDS.has(m.i
 
 export const CLASS_LABEL: Record<string, string> = {
   CARGO: 'Dedicated Cargo Carrier',
+  CHARTER: 'Charter & Special Hire',
   AC_SEMI: 'AC Semi-Sleeper',
   AC_SEMI_PREM: 'Premium AC Semi-Sleeper',
   AC_HYBRID: 'AC Hybrid (Sleeper + Semi)',
@@ -341,6 +480,12 @@ export function isCargoModel(modelOrId: BusModel | string | undefined): boolean 
   if (!modelOrId) return false
   const m = typeof modelOrId === 'string' ? BUS_MODELS[modelOrId] : modelOrId
   return Boolean(m && (m.cls === 'CARGO' || m.layout?.kind === 'cargo' || m.isCargoOnly))
+}
+
+export function isCharterModel(modelOrId: BusModel | string | undefined): boolean {
+  if (!modelOrId) return false
+  const m = typeof modelOrId === 'string' ? BUS_MODELS[modelOrId] : modelOrId
+  return Boolean(m && (m.cls === 'CHARTER' || m.isCharterOnly))
 }
 
 export function coachKind(m: BusModel): 'Semi-sleeper' | 'Sleeper' | 'Seater' | 'Hybrid' | 'Cargo' {
@@ -481,8 +626,12 @@ export function layoutOptionLabel(m: BusModel): string {
   return `${kind} ${m.layout.cols} · ${m.seats} ${unit}`
 }
 
-/** Display title without layout words, e.g. "Volvo 9600". */
+/** Display title without layout words, e.g. "Volvo 9600", "Traveller 26S", "Winger 12S". */
 export function modelTitle(m: BusModel): string {
+  if (m.maker === 'Force Motors' || m.id.startsWith('winger') || m.name.startsWith('Winger')) {
+    return m.name
+  }
+  if (m.name.startsWith(m.maker)) return m.name
   return `${m.maker} ${m.name}`
 }
 
@@ -582,7 +731,7 @@ export const RETIRED_MODEL_MAP: Record<string, string> = {
   skyline: 'bb917',
 }
 
-const MAKER_ORDER = ['Ashok Leyland', 'BharatBenz', 'Volvo', 'Scania', 'Olectra']
+const MAKER_ORDER = ['Ashok Leyland', 'BharatBenz', 'Volvo', 'Scania', 'Force Motors', 'Tata Motors', 'Eicher', 'Olectra', 'Mahindra']
 
 function sortMakers(makers: string[]): string[] {
   return [...makers].sort(

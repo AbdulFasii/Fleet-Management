@@ -24,7 +24,7 @@ import {
 import { rs, toRupees, fmtCompact } from '../../engine/core/money'
 import type { Bus, GameState, Schedule, Trip } from '../../engine/types'
 import { activeGroups, groupForTrip } from '../../engine/sim/groups'
-import { Bar, M, Panel, KV, ratingTone, GroupBadge } from '../bits'
+import { Bar, M, Panel, KV, ratingTone, GroupBadge, Hint, StatRow, BusLink, Tabs, PageHeader } from '../bits'
 import { tonnes } from '../format'
 import { hybridClassStats } from '../../engine/sim/seatmap'
 import { spareDriverBench, isDriverEligibleForTrip } from '../../engine/sim/staffing'
@@ -120,7 +120,7 @@ function DirOccFare({
           className="pill small"
           style={{ background: 'rgba(234, 179, 8, 0.15)', color: 'var(--accent)', fontWeight: 600 }}
         >
-          📦 {tonnes(cargoCapKg)} t Freight
+          {tonnes(cargoCapKg)} t Freight
         </span>
         {showCmvr && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -424,7 +424,7 @@ export function TripBoardPage() {
   }, [s, routeFilter, showCargoBookingWindow, uiPrefs.fleetGroupId])
 
   const filteredGroups = useMemo(() => {
-    if (statusFilter === 'all') return groups
+    if (statusFilter === 'all') return groups as (ScheduleGroup & { visibleDays?: DayPair[] })[]
 
     const result: (ScheduleGroup & { visibleDays: DayPair[] })[] = []
     for (const grp of groups) {
@@ -638,84 +638,29 @@ export function TripBoardPage() {
   return (
     <>
       {/* Page Title & Navigation Bar */}
-      <div className="page-title">
-        <span>Trip Board & Dispatch Control</span>
-        <span className="sub">
-          {groups.length} Active Services · {totalOpen} Trips on Sale (Next {SHOW_DAYS} Days)
-        </span>
-        <span className="spacer" />
-        <span className="flex" style={{ gap: 6 }}>
-          {([
-            ['timetable', `📅 Timetable Grid (${groups.length})`],
-            ['daily', `📋 Daily Departures (${dayTrips.length})`],
+      <PageHeader title="Trips" facts={<>{groups.length} services · {totalOpen} on sale</>} factsTip={`Trips on sale for the next ${SHOW_DAYS} days`}>
+        <Tabs inline tabs={[
+            ['timetable', `Timetable Grid (${groups.length})`],
+            ['daily', `Daily Departures (${dayTrips.length})`],
             ['timeline', '⏱️ 24h Timeline'],
-            ['history', `📜 Run History (${recent.length})`],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              className={`small ${activeTab === id ? 'primary' : ''}`}
-              onClick={() => setActiveTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
+            ['history', `Run History (${recent.length})`],
+          ] as const} value={activeTab} onChange={setActiveTab} />
+      </PageHeader>
 
-      {/* Dispatch Health Strip */}
-      <div className="grid-4" style={{ gap: 12, marginBottom: 16 }}>
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Network Passenger Occupancy</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className={occTone(overallAvgLf)}>{Math.round(overallAvgLf * 100)}% Average LF</span>
-          </div>
-          <div className="small dim">
-            {totalOpen} active trips in booking window
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Today's Scheduled Departures</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className="good">{dayTrips.length} Runs Today</span>
-          </div>
-          <div className="small dim">
-            {conflictTripIds.size > 0 ? (
-              <span className="bad">⚠️ {conflictTripIds.size} overlap conflict(s)</span>
-            ) : (
-              <span className="good">✓ Zero platform conflicts</span>
-            )}
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">CMVR & Regulatory Compliance</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            {cmvrBlockedCount > 0 ? (
-              <span className="bad">⚠️ {cmvrBlockedCount} CMVR Blocked</span>
-            ) : (
-              <span className="good">✓ 100% CMVR Compliant</span>
-            )}
-          </div>
-          <div className="small dim">
-            {cmvrBlockedCount > 0 ? 'Relief crew or force dispatch required' : 'All duty hours within limits'}
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '10px 14px' }}>
-          <div className="dim small">Dedicated Freight Runs</div>
-          <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>
-            <span className="accent">{cargoScheduleCount} Freight Schedules</span>
-          </div>
-          <div className="small dim">
-            <button
-              className="linkish small"
-              onClick={() => setShowCargoBookingWindow(!showCargoBookingWindow)}
-            >
-              {showCargoBookingWindow ? 'Hide Cargo in PSS' : 'Show Cargo in PSS'}
-            </button>
-          </div>
-        </div>
+      <StatRow
+        items={[
+          { label: 'Occupancy', value: `${Math.round(overallAvgLf * 100)}%`, tone: occTone(overallAvgLf) as 'good' | 'warn' | 'bad', title: `${totalOpen} trips in the booking window` },
+          { label: 'Today', value: `${dayTrips.length} runs`, tone: conflictTripIds.size > 0 ? 'bad' : 'good', title: conflictTripIds.size > 0 ? `${conflictTripIds.size} overlap conflict(s)` : 'No platform conflicts' },
+          { label: 'CMVR', value: cmvrBlockedCount > 0 ? `${cmvrBlockedCount} blocked` : 'ok', tone: cmvrBlockedCount > 0 ? 'bad' : 'good', title: cmvrBlockedCount > 0 ? 'Relief crew or force dispatch required' : 'All duty hours within limits' },
+          { label: 'Freight runs', value: cargoScheduleCount, tone: 'accent' },
+          { label: 'Charters', value: (s.charterContracts ?? []).filter((c) => c.status === 'active' || c.status === 'booked').length, title: 'Active or booked' },
+        ]}
+      />
+      <div className="row gap mb12">
+        <button className="linkish small" onClick={() => setShowCargoBookingWindow(!showCargoBookingWindow)}>
+          {showCargoBookingWindow ? 'Hide cargo in PSS' : 'Show cargo in PSS'}
+        </button>
+        <Link to="/charters" className="linkish small">Charters ›</Link>
       </div>
 
       {/* Global Filter Bar */}
@@ -812,6 +757,79 @@ export function TripBoardPage() {
         </div>
       </div>
 
+      {/* Active Dedicated Charters & Tour Operations */}
+      {(() => {
+        const activeChtrs = (s.charterContracts ?? []).filter((c) => c.status === 'active' || c.status === 'booked')
+        if (activeChtrs.length === 0) return null
+        return (
+          <Panel
+            title={
+              <div className="row gap">
+                <span>Active Dedicated Charters & Special Hire Runs ({activeChtrs.length} Active)</span>
+                <span className="pill info small">Highway Operations</span>
+              </div>
+            }
+            flat
+            style={{ marginBottom: 14 }}
+            right={<Link to="/charters" className="small">Open Charters Desk →</Link>}
+          >
+            <div className="xscroll">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Tour Title & Client</th>
+                    <th>Assigned Coach</th>
+                    <th>Destination & Distance</th>
+                    <th>Tour Timeline</th>
+                    <th className="num">Contract Payout</th>
+                    <th className="num">Est Net Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeChtrs.map((c) => {
+                    const bus = c.busId ? s.buses[c.busId] : undefined
+                    const isRunning = c.status === 'active'
+                    return (
+                      <tr key={c.id}>
+                        <td>
+                          <span className={`pill small ${isRunning ? 'accent' : 'info'}`} style={{ fontWeight: 600 }}>
+                            {isRunning ? '● En Route' : '⏳ Booked'}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="bold">{c.title}</div>
+                          <div className="small dim">Client: <b>{c.clientName}</b></div>
+                        </td>
+                        <td>
+                          {bus ? (
+                            <Link to={`/fleet/${bus.id}`} className="accent" style={{ fontWeight: 500 }}>
+                              {bus.reg} ({modelTitle(BUS_MODELS[bus.modelId])})
+                            </Link>
+                          ) : (
+                            <span className="warn">—</span>
+                          )}
+                        </td>
+                        <td className="small">
+                          <div><b>{c.destinationName}</b></div>
+                          <div className="dim">{c.roundTripKm} km round-trip</div>
+                        </td>
+                        <td className="small">
+                          <div><b>Day {c.currentDayProgress}</b> of {c.durationDays}</div>
+                          <div className="dim">{fmtDateShort(c.startDay)} – {fmtDateShort(c.endDay)}</div>
+                        </td>
+                        <td className="num good font-semibold"><M v={c.payout} /></td>
+                        <td className="num good font-bold"><M v={c.netProfitEst} /></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )
+      })()}
+
       {/* ========================================================================= */}
       {/* TAB 1: MASTER TIMETABLE GRID (BY SCHEDULE)                                */}
       {/* ========================================================================= */}
@@ -819,7 +837,7 @@ export function TripBoardPage() {
         <>
           {filteredGroups.length === 0 ? (
             <Panel>
-              <div style={{ padding: 24, textAlign: 'center' }} className="dim">
+              <div className="dim pad24c">
                 {statusFilter !== 'all'
                   ? `No departures match the "${statusFilter === 'festival' ? 'Festival Run' : statusFilter === 'low' ? 'Low Load (<40%)' : statusFilter === 'high' ? 'Selling Fast (>75%)' : statusFilter === 'cmvr' ? 'CMVR Alert' : 'Cargo'}" filter. Try selecting "All".`
                   : 'No departures currently scheduled. Assign coaches to schedules to open booking windows.'}
@@ -837,12 +855,12 @@ export function TripBoardPage() {
                 <Panel
                   key={grp.sch.id}
                   title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div className="row gap">
                       <GroupBadge group={grp.sch.groupId && s.groups ? s.groups[grp.sch.groupId] : undefined} />
                       <span><b>{routeName(grp.sch.routeId)}</b> · {fmtClock(grp.sch)}</span>
                       {isCargo ? (
                         <span className="pill small" style={{ background: 'rgba(234, 179, 8, 0.15)', color: 'var(--accent)', fontWeight: 600 }}>
-                          📦 Dedicated Freight
+                          Dedicated Freight
                         </span>
                       ) : (
                         <span className={`pill small ${occTone(grp.avgLf)}`}>
@@ -855,13 +873,13 @@ export function TripBoardPage() {
                   right={
                     <div className="dim small" style={{ textAlign: 'right' }}>
                       {buses.length === 0 ? (
-                        <span className="bad small">⚠️ No coach assigned</span>
+                        <span className="bad small">No coach assigned</span>
                       ) : (
                         buses.map((b) => {
                           const m = BUS_MODELS[b.modelId]
                           return (
                             <span key={b.id} style={{ display: 'block' }}>
-                              <Link to={`/fleet/${b.id}`}><b>{b.reg}</b></Link>
+                              <BusLink id={b.id} reg={b.reg} />
                               {m && (
                                 <>
                                   {' · '}{modelTitle(m)}
@@ -904,7 +922,7 @@ export function TripBoardPage() {
                               <div className="dim small">
                                 {isToday ? <span className="good">Today</span> : `T-${row.day - s.day}d`}
                                 {festName && (
-                                  <span className="pill warn small" style={{ marginLeft: 6 }}>
+                                  <span className="pill warn small ml6">
                                     {festName.split(' / ')[0]}
                                     {runSlot === 'pre_pad' ? ' · pre' : runSlot === 'post_pad' ? ' · ret' : ''}
                                   </span>
@@ -979,17 +997,15 @@ export function TripBoardPage() {
           title={`Daily Departures: ${fmtDateShort(activeTimelineDay)} (${filteredDayTrips.length} Runs)`}
           flat
           right={
-            <span className="dim small">
-              Click fare to reprice in-line · Use ± buttons to nudge fare by ₹50
-            </span>
+            <Hint text={"Click fare to reprice in-line · Use ± buttons to nudge fare by ₹50"} />
           }
         >
           {filteredDayTrips.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center' }} className="dim">
+            <div className="dim pad24c">
               No matching departures on this date for the active filters.
             </div>
           ) : (
-            <div style={{ overflowX: 'auto' }}>
+            <div className="xscroll">
               <table className="data">
                 <thead>
                   <tr>
@@ -1037,15 +1053,15 @@ export function TripBoardPage() {
                           </div>
                         </td>
                         <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div className="row gap6">
                             <GroupBadge group={groupForTrip(s, t)} />
                             {bus ? (
                               <div>
-                                <Link to={`/fleet/${bus.id}`}><b>{bus.reg}</b></Link>
+                                <BusLink id={bus.id} reg={bus.reg} />
                                 <div className="dim small">{model ? modelTitle(model) : ''}</div>
                               </div>
                             ) : (
-                              <span className="bad small">⚠️ No Bus Assigned</span>
+                              <span className="bad small">No Bus Assigned</span>
                             )}
                           </div>
                         </td>
@@ -1062,7 +1078,7 @@ export function TripBoardPage() {
                         <td className="num">
                           {isCargo ? (
                             <span className="pill info small">
-                              📦 {tonnes(model?.cargoCapKg ?? 0)} t Freight
+                              {tonnes(model?.cargoCapKg ?? 0)} t Freight
                             </span>
                           ) : (
                             <div>
@@ -1127,14 +1143,14 @@ export function TripBoardPage() {
                         <td>
                           {cmvr.isBlocked ? (
                             <span className="bad small">
-                              ⚠️ CMVR Blocked {cmvr.needsHp ? '(HP req)' : '(Crew rest/hours)'}
+                              CMVR Blocked {cmvr.needsHp ? '(HP req)' : '(Crew rest/hours)'}
                             </span>
                           ) : cmvr.needsHp ? (
-                            <span className="warn small">⚠️ Needs HMV_HP Licence</span>
+                            <span className="warn small">Needs HMV_HP Licence</span>
                           ) : t.cmvrRunAnyway ? (
                             <span className="warn small">Forced Dispatch</span>
                           ) : (
-                            <span className="good small">✓ Clean</span>
+                            <span className="good small">Clean</span>
                           )}
                         </td>
                         <td className="num">
@@ -1190,11 +1206,9 @@ export function TripBoardPage() {
           </div>
 
           {timelineSchedules.length === 0 ? (
-            <div className="dim" style={{ padding: '24px', textAlign: 'center' }}>
-              No active schedules or departures on this date.
-            </div>
+            <span className="empty" title="No active schedules or departures on this date.">No departures on this date.</span>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="stack10">
               {/* Hour scale ruler */}
               <div
                 style={{
@@ -1328,7 +1342,7 @@ export function TripBoardPage() {
                             }}
                           >
                             {isCargo
-                              ? `📦 ${(cargoCap / 1000).toFixed(1)}T`
+                              ? `${(cargoCap / 1000).toFixed(1)}T`
                               : `${t.direction === 'AB' ? 'Out' : 'Ret'} (${Math.round(lf * 100)}%)`}
                           </div>
                         )
@@ -1358,7 +1372,7 @@ export function TripBoardPage() {
             ) : undefined
           }
         >
-          <div style={{ overflowX: 'auto' }}>
+          <div className="xscroll">
             <table className="data">
               <thead>
                 <tr>
@@ -1427,12 +1441,12 @@ export function TripBoardPage() {
                               <span className="accent"><b>{fromCity}</b></span>
                               <span className="dim"> → </span>
                               <b>{toCity}</b>
-                              {isCargo && <span className="pill small purple" style={{ marginLeft: 6 }}>Freight</span>}
+                              {isCargo && <span className="pill small purple ml6">Freight</span>}
                             </div>
                             <div className="dim small">{t.direction === 'AB' ? '↑ Outbound' : '↓ Return'}</div>
                           </td>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div className="row gap6">
                               <GroupBadge group={groupForTrip(s, t)} />
                               <div>
                                 <div className="font-mono"><b>{bus?.reg ?? '—'}</b></div>
@@ -1481,7 +1495,7 @@ export function TripBoardPage() {
                             ) : isDelayed ? (
                               <span className={`pill small ${delay > 30 ? 'bad' : 'warn'}`}>+{delay}m late</span>
                             ) : (
-                              <span className="pill good small">✓ On Time</span>
+                              <span className="pill good small">On Time</span>
                             )}
                           </td>
                           <td className="num">
@@ -1545,8 +1559,8 @@ export function TripBoardPage() {
                                     ['Driver(s) on Duty', drivers.length > 0 ? drivers.map((d) => `${d.name} (${d.skill}★)`).join(', ') : 'Depot driver'],
                                     ['Conductor', conductor ? `${conductor.name} (${conductor.skill}★)` : 'None required'],
                                     ['Mechanical Status', t.outcome?.breakdown ? <span className="bad">Breakdown reported</span> : <span className="good">Healthy / No issues</span>],
-                                    ...(t.outcome?.reliefDispatched ? [['Relief Bus Dispatched', <span className="good">✓ Spare bus rescued passengers</span>] as [React.ReactNode, React.ReactNode]] : []),
-                                    ...(t.outcome?.ecoBonusPaid ? [['Eco-Driving Bonus', <span className="good">✓ ₹250/driver eco bonus paid</span>] as [React.ReactNode, React.ReactNode]] : []),
+                                    ...(t.outcome?.reliefDispatched ? [['Relief Bus Dispatched', <span className="good">Spare bus rescued passengers</span>] as [React.ReactNode, React.ReactNode]] : []),
+                                    ...(t.outcome?.ecoBonusPaid ? [['Eco-Driving Bonus', <span className="good">₹250/driver eco bonus paid</span>] as [React.ReactNode, React.ReactNode]] : []),
                                     ['Safety Audit', t.outcome?.accident ? <span className="bad">Incident reported</span> : <span className="good">Zero accidents</span>],
                                   ]} />
                                 </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
-import { BAL } from '../../engine/data/balance'
+import {  } from '../../engine/data/balance'
 import { ROUTES, routeName, cityName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
 import { BUS_MODELS, coachKind, coachKindClass, isCargoModel, modelTitleById } from '../../engine/data/busModels'
 import { enabledChannelLabels } from '../../engine/data/channels'
@@ -14,7 +14,7 @@ import { toRupees, rs } from '../../engine/core/money'
 import type { Bus, GameState, ID, RouteDef, Schedule, ServiceTier } from '../../engine/types'
 import { activeGroups, resolvedAmenities, sortedGroups } from '../../engine/sim/groups'
 import { AMENITY_CATALOG, FITTING_CATALOG } from '../../engine/data/amenitiesCatalog'
-import { Modal, Panel, GroupBadge } from '../bits'
+import { Modal, Panel, GroupBadge, PageHeader } from '../bits'
 
 const ROUTE_PREF_KEY = 'busraj_schedules_route'
 
@@ -297,7 +297,7 @@ function RotationTooltip({
               <span className="bad small">No coaches assigned — schedule will not run.</span>
             ) : busCount >= rec ? (
               <span className="good small">
-                ✓ With {busCount} coaches this runs <b>every day</b>.
+                With {busCount} coaches this runs <b>every day</b>.
               </span>
             ) : (
               <span className="warn small">
@@ -433,7 +433,7 @@ function CreateModal({ onClose, defaultRouteId }: {
       autoPrice: defaults.autoPrice,
       returnAutoPrice: defaults.autoPrice,
       returnBaseFare: rs(tierFare),
-      cancellation: (groupId && s.groups?.[groupId]?.defaultCancellation) ?? defaults.cancellation,
+      cancellation: (groupId ? s.groups?.[groupId]?.defaultCancellation : undefined) ?? defaults.cancellation,
       channels: { ...defaults.channels },
       redDeal: defaults.redDeal,
       paired,
@@ -469,7 +469,7 @@ function CreateModal({ onClose, defaultRouteId }: {
             const targetBuses = schs.reduce((acc, sch) => acc + recommendedFleetSize(ROUTES[sch.routeId] ?? ROUTES[canonicalRouteId(sch.routeId)], Boolean(sch.paired) && !scheduleIsCargo(s, sch), s), 0)
             const isShort = schs.length > 0 && busCount < targetBuses
             const busText = isShort
-              ? `⚠️ ${busCount}/${targetBuses} buses`
+              ? `${busCount}/${targetBuses} buses`
               : `${busCount} bus${busCount === 1 ? '' : 'es'}`
             const detail = n > 0 ? ` (${n} svc · ${busText})` : ' (new)'
             return (
@@ -655,18 +655,15 @@ function CreateModal({ onClose, defaultRouteId }: {
             </select>
           </div>
 
-          <p className="dim small" style={{ margin: '8px 0 0' }}>
+          <p className="muted" style={{ margin: '8px 0 0' }} title={isAllFest
+            ? 'Festival service: runs the festival window plus a day either side so the coach repositions with a load. Booking opens 3 days out.'
+            : (outboundDuty === 'festival' || returnDuty === 'festival')
+              ? 'Mixed service: 2 buses run up and down at once.'
+              : paired
+                ? 'If the 1st trip runs late the 2nd slips up to 90 min, or leaves empty.'
+                : route.hours > 6 ? 'Long haul: a 2nd bus is needed for daily both ways.' : undefined}>
             Sell-on: <Link to="/settings">Settings → Channels</Link>
-            {' · '}{enabledChannelLabels(defaults.channels)}.
-            {isAllFest
-              ? ' Seasonal festival service — runs the festival window plus one day either side (homebound before, return after) so the coach repositions with a load. Booking opens 3 days out.'
-              : (outboundDuty === 'festival' || returnDuty === 'festival')
-                ? ' Mixed service — 2 buses run up and down simultaneously.'
-                : paired
-                  ? ' If the 1st trip runs late, the 2nd trip slips up to 90 min (or leaves empty).'
-                  : route.hours > 6
-                    ? ' Long haul: 2nd bus for daily both ways.'
-                    : ''}
+            {' · '}{enabledChannelLabels(defaults.channels)}
           </p>
         </>
       )}
@@ -1196,7 +1193,7 @@ function ServiceCard({ sch, s, g, freeBuses, autoEdit, onAutoEditHandled }: {
             </select>
           )}
           {isAllFest && (
-            <span className="dim small" style={{ marginLeft: 6 }}>
+            <span className="dim small ml6">
               {s.company.scheduleManagerId
                 ? <span className="good">Schedule mgr on</span>
                 : <Link to="/staff">appoint Schedule manager</Link>}
@@ -1487,14 +1484,9 @@ export function SchedulesPage() {
 
   return (
     <>
-      <div className="page-title">
-        Schedules
-        <span className="sub">
-          {selected
+      <PageHeader title="Schedules" facts={<>{selected
             ? `${schedules.length} service${schedules.length === 1 ? '' : 's'} · ${freeBuses.length} free`
-            : 'pick a route'}
-        </span>
-      </div>
+            : 'pick a route'}</>} />
 
       {routeOptions.length === 0 ? (
         <Panel>
@@ -1526,9 +1518,7 @@ export function SchedulesPage() {
               onChange={(e) => setRailSearch(e.target.value)}
             />
             {filteredRoutes.length === 0 && (
-              <span className="dim small" style={{ padding: '8px 6px' }}>
-                No routes match this brand filter.
-              </span>
+              <span className="empty" title="No routes match this brand filter.">No routes match this brand.</span>
             )}
             {filteredRoutes.map((rid) => {
               const sm = summaries[rid]
@@ -1543,7 +1533,7 @@ export function SchedulesPage() {
                   onClick={() => selectRoute(rid)}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
-                    <span style={{ fontWeight: 600 }}>{routeName(rid)}</span>
+                    <span className="bold">{routeName(rid)}</span>
                     {sm && !sm.permitActive && <span className="pill bad small">expired</span>}
                     {sm && sm.cargoOnly && <span className="pill warn small">Cargo</span>}
                   </div>
@@ -1606,7 +1596,7 @@ export function SchedulesPage() {
                         className="pill warn small"
                         title={`Route needs ${selectedTargetBuses} buses for all scheduled trips, but only ${selectedBusCount} assigned.`}
                       >
-                        ⚠️ {selectedBusCount}/{selectedTargetBuses} buses
+                        {selectedBusCount}/{selectedTargetBuses} buses
                       </span>
                       {route && schedules[0] && (
                         <RotationTooltip sch={schedules[0]} route={route} s={s} />

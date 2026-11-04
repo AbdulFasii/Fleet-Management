@@ -5,7 +5,7 @@ import { BUS_MODELS, coachKind, coachKindClass, modelTitleById, isCargoModel } f
 import { coachTitle, fleetModelLabel } from '../../engine/data/bodyBuilders'
 import { ROUTES, routeName } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
-import { fmtClock, festivalEffect } from '../../engine/core/calendar'
+import { festivalEffect, fmtClock, fmtDate } from '../../engine/core/calendar'
 import { worstSubsystem, busAgeYears, busStatusDetail } from '../../engine/sim/fleet'
 import { isBusInTransit } from '../../engine/sim/depot'
 import { ownerPaysService, serviceDueKm, axleTyresDue } from '../../engine/sim/maintenance'
@@ -13,7 +13,7 @@ import { activeGroups } from '../../engine/sim/groups'
 import { BAL } from '../../engine/data/balance'
 import type { Bus } from '../../engine/types'
 import { canCrewBus, crewLimit, crewOnBus, crewShort } from '../crew'
-import { Bar, DataTable, M, Panel, ratingTone, GroupBadge, type Col } from '../bits'
+import { Bar, DataTable, M, Panel, ratingTone, GroupBadge, type Col, PageHeader } from '../bits'
 
 export { ratingTone } from '../bits'
 
@@ -23,6 +23,7 @@ export function FleetPage() {
   const setFleetGroupFilter = useGame((g) => g.setFleetGroupFilter)
   const nav = useNavigate()
   const [busFilter, setBusFilter] = useState('')
+  const [dutyFilter, setDutyFilter] = useState<'all' | 'line' | 'charter' | 'workshop'>('all')
   const allBuses = Object.values(s.buses)
   const activeBrandList = useMemo(() => activeGroups(s), [s.groups])
 
@@ -32,6 +33,14 @@ export function FleetPage() {
       list = list.filter((b) => !b.groupId)
     } else if (uiPrefs.fleetGroupId !== 'all') {
       list = list.filter((b) => b.groupId === uiPrefs.fleetGroupId)
+    }
+
+    if (dutyFilter === 'line') {
+      list = list.filter((b) => b.duty !== 'charter')
+    } else if (dutyFilter === 'charter') {
+      list = list.filter((b) => b.duty === 'charter')
+    } else if (dutyFilter === 'workshop') {
+      list = list.filter((b) => b.status === 'workshop')
     }
 
     const q = busFilter.trim().toLowerCase().replace(/\s+/g, '')
@@ -152,7 +161,7 @@ export function FleetPage() {
               style={{ fontWeight: 500 }}
               title={`En route ${from} → ${to}`}
             >
-              🚌 {to} <span className="small dim">(In transit)</span>
+              {to} <span className="small dim">(In transit)</span>
             </span>
           )
         }
@@ -165,7 +174,7 @@ export function FleetPage() {
             style={{ fontWeight: 500 }}
             title={isHome ? `Halted at Home Depot (${cityName(city)})` : hasYard ? `Halted at Leased Yard (${cityName(city)})` : `Halted at Outstation / Public Bay (${cityName(city)})`}
           >
-            📍 {cityName(city)} <span className="small dim">{isHome ? '(Home)' : hasYard ? '(Yard)' : '(Outstation)'}</span>
+            {cityName(city)} <span className="small dim">{isHome ? '(Home)' : hasYard ? '(Yard)' : '(Outstation)'}</span>
           </span>
         )
       },
@@ -278,7 +287,7 @@ export function FleetPage() {
         const isFitnessFailed = !!b.fitnessFailed
         const isImpounded = b.impoundUntilDay !== undefined && b.impoundUntilDay > s.day
         const worst = Math.min(b.insuranceExpiryDay, b.fitnessExpiryDay, puc, roadDue) - s.day
-        if (isImpounded) return <span className="bad" title={`Impounded until day ${b.impoundUntilDay}`}>IMPOUNDED</span>
+        if (isImpounded) return <span className="bad" title={`Impounded until ${fmtDate(b.impoundUntilDay ?? 0)}`}>IMPOUNDED</span>
         if (isFitnessFailed) return <span className="bad" title="Failed RTO fitness inspection">FIT FAILED</span>
         if (worst < 0) return <span className="bad" title="Expired papers">EXPIRED</span>
         if (worst <= 7) return <span className="bad" title="Expiring soon - immediate renewal required">{worst}d left</span>
@@ -299,10 +308,33 @@ export function FleetPage() {
               {sch ? (
                 <span className="dim">
                   {' · '}
-                  {isFest && <span title="Festival schedule" style={{ marginRight: 3 }}>🎉</span>}
+                  {isFest && <span title="Festival schedule" style={{ marginRight: 3 }}></span>}
                   {fmtClock(sch)} · {routeName(sch.routeId)}
                 </span>
               ) : null}
+            </span>
+          )
+        }
+        if (b.duty === 'charter') {
+          const activeChtr = (s.charterContracts ?? []).find(
+            (c) => c.busId === b.id && (c.status === 'active' || c.status === 'booked'),
+          )
+          if (activeChtr) {
+            const isRunning = activeChtr.status === 'active'
+            return (
+              <span title={`${activeChtr.title} (${activeChtr.clientName}) · ${activeChtr.destinationName} (${activeChtr.roundTripKm} km)`}>
+                <span className={`pill small ${isRunning ? 'accent' : 'info'}`} style={{ fontWeight: 600, marginRight: 4 }}>
+                  {isRunning ? 'On Tour' : 'Booked'}
+                </span>
+                <span className="small">
+                  {activeChtr.title} (Day {activeChtr.currentDayProgress}/{activeChtr.durationDays})
+                </span>
+              </span>
+            )
+          }
+          return (
+            <span className="pill small info bold" title="Dedicated Charter Bus — available for hire contracts">
+              Charter (Ready)
             </span>
           )
         }
@@ -326,7 +358,7 @@ export function FleetPage() {
           : 'Festival schedule'
         return (
           <span title={isFest ? festTitle : undefined}>
-            {isFest && <span style={{ marginRight: 4 }} title={festTitle}>🎉</span>}
+            {isFest && <span style={{ marginRight: 4 }} title={festTitle}></span>}
             {fmtClock(sch)} · {displayName}
           </span>
         )
@@ -353,7 +385,7 @@ export function FleetPage() {
                 className={drvMismatch ? 'bad' : 'warn'}
                 title={drvMismatch ? 'Driver assignment differs from required' : 'Conductor assignment differs from required'}
                 aria-label="crew mismatch"
-              > ⚠</span>
+              > </span>
             )}
           </span>
         )
@@ -383,13 +415,7 @@ export function FleetPage() {
 
   return (
     <>
-      <div className="page-title">
-        Fleet
-        <span className="sub">
-          click a row to inspect, repair, and assign crew
-        </span>
-        <span className="spacer" />
-
+      <PageHeader title="Fleet">
         {/* Bus Count & Detailed Summary Tooltip on the right */}
         <span
           className="fleet-count-tip"
@@ -408,7 +434,7 @@ export function FleetPage() {
           }}
           aria-label={`Fleet stats: ${tableStats.total} buses. Owned ${tableStats.owned}, leased ${tableStats.leased}, attached ${tableStats.attached}`}
         >
-          <span style={{ fontWeight: 600 }}>{tableStats.total}</span>
+          <span className="bold">{tableStats.total}</span>
           <span className="dim">
             {busFilter.trim()
               ? `of ${allBuses.length} buses`
@@ -517,9 +543,20 @@ export function FleetPage() {
         </span>
 
         <select
+          value={dutyFilter}
+          onChange={(e) => setDutyFilter(e.target.value as any)}
+          style={{ width: 160, marginRight: 8 }}
+          aria-label="Filter by operations duty"
+        >
+          <option value="all">All Operations ({allBuses.length})</option>
+          <option value="line">Line Services ({allBuses.filter((b) => b.duty !== 'charter').length})</option>
+          <option value="charter">Charter Fleet ({allBuses.filter((b) => b.duty === 'charter').length})</option>
+          <option value="workshop">In Workshop ({allBuses.filter((b) => b.status === 'workshop').length})</option>
+        </select>
+        <select
           value={uiPrefs.fleetGroupId}
           onChange={(e) => setFleetGroupFilter(e.target.value as any)}
-          style={{ width: 220, minWidth: 200, marginRight: 8 }}
+          style={{ width: 200, minWidth: 180, marginRight: 8 }}
           aria-label="Filter by brand"
         >
           <option value="all">All Brands</option>
@@ -541,7 +578,7 @@ export function FleetPage() {
         {busFilter.trim() && (
           <button className="small" onClick={() => setBusFilter('')}>clear</button>
         )}
-      </div>
+      </PageHeader>
       <Panel flat>
         <DataTable
           cols={cols}

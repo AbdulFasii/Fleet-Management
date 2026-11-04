@@ -1,5 +1,11 @@
-import type { BodyBuilder, BodyDesign } from '../engine/types'
+import type { BodyBuilder } from '../engine/types'
 import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS } from '../engine/data/bodyBuilders'
+import { isCloudImagesConfigured } from '../lib/supabase'
+import {
+  fetchBodyCatalog,
+  publishBodyCatalog,
+  type PublishCatalogResult,
+} from './cloudBodyDesigns'
 
 // Safe keys protected from clearSaveStores()
 export const LOCAL_KEY_DESIGNS = 'busgame_global_coach_designs'
@@ -13,44 +19,63 @@ const IDB_KEY_IMAGES = 'coach_images'
 // In-memory caches for instant synchronous availability
 let memoryCacheDesigns: Record<string, BodyBuilder> | null = null
 let memoryCacheImages: Record<string, string> = {}
+let lastCloudSync: string | null = null
 
-// ---------------------------------------------------------------------------
-// Synchronous Startup Hydration (from LocalStorage)
-// ---------------------------------------------------------------------------
-try {
-  if (typeof localStorage !== 'undefined') {
-    const rawImgs = localStorage.getItem(LOCAL_KEY_IMAGES)
-    if (rawImgs) {
-      const parsedImgs = JSON.parse(rawImgs)
-      if (parsedImgs && typeof parsedImgs === 'object') {
-        memoryCacheImages = parsedImgs
-      }
+export function getLastCloudSyncTime(): string | null {
+  return lastCloudSync
+}
+
+/** Removes local storage keys so design data is never stored locally. */
+export function clearLocalBodyDesignsStorage(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(LOCAL_KEY_DESIGNS)
+      localStorage.removeItem(LOCAL_KEY_IMAGES)
     }
+  } catch {}
+}
 
-    const rawDesigns = localStorage.getItem(LOCAL_KEY_DESIGNS)
-    if (rawDesigns) {
-      const parsed = JSON.parse(rawDesigns)
-      if (parsed && typeof parsed === 'object') {
-        memoryCacheDesigns = parsed
-        // Backfill any images
-        for (const b of Object.values(memoryCacheDesigns)) {
-          for (const d of b.designs) {
-            if (d.chassisNames && d.chassisNames.includes('1017')) {
-        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
-        sharedUpdated = true
+// ---------------------------------------------------------------------------
+// Synchronous Startup Hydration
+// ---------------------------------------------------------------------------
+// When Supabase cloud is configured, clear local storage and always load fresh from cloud.
+// Only fall back to local storage if cloud is not configured (offline / dev).
+if (isCloudImagesConfigured()) {
+  clearLocalBodyDesignsStorage()
+} else {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const rawImgs = localStorage.getItem(LOCAL_KEY_IMAGES)
+      if (rawImgs) {
+        const parsedImgs = JSON.parse(rawImgs)
+        if (parsedImgs && typeof parsedImgs === 'object') {
+          memoryCacheImages = parsedImgs
+        }
       }
-      if (d.image) {
-              memoryCacheImages[d.id] = d.image
-            } else if (memoryCacheImages[d.id]) {
-              d.image = memoryCacheImages[d.id]
+
+      const rawDesigns = localStorage.getItem(LOCAL_KEY_DESIGNS)
+      if (rawDesigns) {
+        const parsed = JSON.parse(rawDesigns)
+        if (parsed && typeof parsed === 'object') {
+          memoryCacheDesigns = parsed
+          for (const b of Object.values(memoryCacheDesigns as Record<string, BodyBuilder>)) {
+            for (const d of b.designs) {
+              if (d.chassisNames && d.chassisNames.includes('1017')) {
+                d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
+              }
+              if (d.image) {
+                memoryCacheImages[d.id] = d.image
+              } else if (memoryCacheImages[d.id]) {
+                d.image = memoryCacheImages[d.id]
+              }
             }
           }
         }
       }
     }
+  } catch {
+    // Storage unavailable
   }
-} catch {
-  // Storage unavailable or disabled
 }
 
 // ---------------------------------------------------------------------------
@@ -132,10 +157,6 @@ export function attachSharedImages(builders: Record<string, BodyBuilder>): Recor
       if (!d.layoutKind) {
         d.layoutKind = d.layoutKinds[0]
       }
-      if (d.chassisNames && d.chassisNames.includes('1017')) {
-        d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
-        sharedUpdated = true
-      }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
       } else if (memoryCacheImages[d.id]) {
@@ -182,7 +203,6 @@ export function applySharedToState(
       }
       if (d.chassisNames && d.chassisNames.includes('1017')) {
         d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
-        sharedUpdated = true
       }
       if (d.image) {
         if (!memoryCacheImages[d.id]) {
@@ -283,15 +303,14 @@ export function syncStateBodyBuildersWithShared(
  * 3. Saves designs & images to IndexedDB
  * 4. Saves to backend disk (/api/shared-body-designs) if local server is active
  */
-export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBuilder>): Promise<void> {
+export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBuilder>): Promise<{ ok: boolean; error?: string }> {
   const clone = JSON.parse(JSON.stringify(bodyBuilders))
 
-  // Update images cache
+  // Update in-memory images cache
   for (const b of Object.values(clone as Record<string, BodyBuilder>)) {
     for (const d of b.designs) {
       if (d.chassisNames && d.chassisNames.includes('1017')) {
         d.chassisNames = d.chassisNames.filter((n) => n !== '1017')
-        sharedUpdated = true
       }
       if (d.image) {
         memoryCacheImages[d.id] = d.image
@@ -302,27 +321,47 @@ export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBui
   }
   memoryCacheDesigns = clone
 
-  // 1. LocalStorage
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(clone))
-      localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
-    }
-  } catch {
-    // Quota fallback to IDB
-  }
-
-  // 2. IndexedDB
+  // Save to IndexedDB as resilient local fallback in case cloud is unreachable or table not yet created
   try {
     await Promise.all([
       idbSet(IDB_KEY_DESIGNS, clone),
       idbSet(IDB_KEY_IMAGES, memoryCacheImages),
     ])
-  } catch {
-    // IndexedDB failure fallback
+  } catch {}
+
+  // When cloud is configured, sync directly to Supabase
+  if (isCloudImagesConfigured()) {
+    try {
+      const res = await publishBodyCatalog(clone)
+      if (res.ok) {
+        lastCloudSync = res.updatedAt || new Date().toISOString()
+        clearLocalBodyDesignsStorage()
+        return { ok: true }
+      } else {
+        console.warn('Sync to Supabase cloud body_catalog failed:', res.error)
+        // Store in localStorage as fallback so designs are not lost
+        try {
+          if (typeof localStorage !== 'undefined') {
+            localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(clone))
+            localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
+          }
+        } catch {}
+        return { ok: false, error: res.error }
+      }
+    } catch (err: any) {
+      console.warn('Sync to Supabase cloud body_catalog failed:', err)
+      return { ok: false, error: err?.message || 'Sync failed' }
+    }
   }
 
-  // 3. Local Vite server disk persistence
+  // Offline / local fallback (only used when cloud is not configured)
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(clone))
+      localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
+    }
+  } catch {}
+
   if (typeof window !== 'undefined') {
     try {
       fetch('/api/shared-body-designs', {
@@ -330,17 +369,35 @@ export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBui
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bodyBuilders: clone, images: memoryCacheImages }),
       }).catch(() => {})
-    } catch {
-      // Hosted / offline
-    }
+    } catch {}
   }
+  return { ok: true }
 }
 
 /**
- * Load shared body designs and images from persistent storage (IndexedDB -> Backend -> LocalStorage).
+ * Load shared body designs and images.
+ * When Supabase is configured: ALWAYS fetch directly from Supabase.
+ * When offline / unconfigured: fallback to local storage / IndexedDB / defaults.
  */
 export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilder> | null> {
-  // 1. Try IndexedDB first (most reliable for binary/image data in browsers)
+  // 1. Supabase Cloud Catalog: ALWAYS fetch fresh from cloud when configured
+  if (isCloudImagesConfigured()) {
+    try {
+      const cloud = await fetchBodyCatalog()
+      if (cloud && cloud.bodyBuilders && typeof cloud.bodyBuilders === 'object') {
+        const attached = attachSharedImages(cloud.bodyBuilders)
+        memoryCacheDesigns = attached
+        lastCloudSync = cloud.updatedAt || new Date().toISOString()
+        // Cease storing design data in local storage
+        clearLocalBodyDesignsStorage()
+        return memoryCacheDesigns
+      }
+    } catch (cErr) {
+      console.warn('Failed to load body catalog from Supabase:', cErr)
+    }
+  }
+
+  // 2. Offline fallback (IndexedDB / LocalStorage) only if cloud is unconfigured or failed
   try {
     const [idbDesigns, idbImgs] = await Promise.all([
       idbGet<Record<string, BodyBuilder>>(IDB_KEY_DESIGNS),
@@ -351,51 +408,10 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
     }
     if (idbDesigns && typeof idbDesigns === 'object') {
       memoryCacheDesigns = attachSharedImages(idbDesigns)
-      // Mirror to localStorage
-      try {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(memoryCacheDesigns))
-          localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
-        }
-      } catch {}
       return memoryCacheDesigns
     }
-  } catch {
-    // IndexedDB not ready
-  }
+  } catch {}
 
-  // 2. Try backend (local Vite server)
-  if (typeof window !== 'undefined') {
-    try {
-      const res = await fetch('/api/shared-body-designs')
-      if (res.ok) {
-        const text = await res.text()
-        const looksHtml = /^\s*</.test(text) || (res.headers.get('content-type') || '').includes('text/html')
-        if (!looksHtml) {
-          const data = JSON.parse(text)
-          if (data.ok && data.bodyBuilders && typeof data.bodyBuilders === 'object') {
-            if (data.images && typeof data.images === 'object') {
-              memoryCacheImages = { ...memoryCacheImages, ...data.images }
-            }
-            memoryCacheDesigns = attachSharedImages(data.bodyBuilders)
-            try {
-              if (typeof localStorage !== 'undefined') {
-                localStorage.setItem(LOCAL_KEY_DESIGNS, JSON.stringify(memoryCacheDesigns))
-                localStorage.setItem(LOCAL_KEY_IMAGES, JSON.stringify(memoryCacheImages))
-              }
-            } catch {}
-            idbSet(IDB_KEY_DESIGNS, memoryCacheDesigns).catch(() => {})
-            idbSet(IDB_KEY_IMAGES, memoryCacheImages).catch(() => {})
-            return memoryCacheDesigns
-          }
-        }
-      }
-    } catch {
-      // Backend offline / static host
-    }
-  }
-
-  // 3. Try LocalStorage
   try {
     if (typeof localStorage !== 'undefined') {
       const rawImgs = localStorage.getItem(LOCAL_KEY_IMAGES)
@@ -418,6 +434,47 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
   } catch {}
 
   return memoryCacheDesigns ? attachSharedImages(memoryCacheDesigns) : null
+}
+
+/**
+ * Pull latest body catalog from Supabase cloud.
+ */
+export async function pullSharedBodyDesignsFromCloud(): Promise<{
+  ok: boolean
+  error?: string
+  bodyBuilders?: Record<string, BodyBuilder>
+}> {
+  if (!isCloudImagesConfigured()) {
+    return { ok: false, error: 'Cloud storage is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.' }
+  }
+  const cloud = await fetchBodyCatalog()
+  if (!cloud || !cloud.bodyBuilders) {
+    return { ok: false, error: 'No body catalog found in Supabase. Click "Publish to cloud" first.' }
+  }
+
+  const attached = attachSharedImages(cloud.bodyBuilders)
+  memoryCacheDesigns = attached
+  lastCloudSync = cloud.updatedAt || new Date().toISOString()
+  clearLocalBodyDesignsStorage()
+
+  return { ok: true, bodyBuilders: attached }
+}
+
+/**
+ * Publish current shared body catalog to Supabase cloud.
+ */
+export async function publishSharedBodyDesignsToCloud(
+  onProgress?: (status: string) => void,
+): Promise<PublishCatalogResult> {
+  const current = memoryCacheDesigns ?? cloneDefaultBodyBuilders()
+  const attached = attachSharedImages(current)
+  const res = await publishBodyCatalog(attached, onProgress)
+  if (res.ok) {
+    memoryCacheDesigns = res.bodyBuilders
+    lastCloudSync = res.updatedAt || new Date().toISOString()
+    clearLocalBodyDesignsStorage()
+  }
+  return res
 }
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ import { BAL } from '../data/balance'
 import { MONTH_SHORT, toCivil } from '../core/calendar'
 import { fmtCompact, rs, toRupees, type Money } from '../core/money'
 import type { GameState } from '../types'
-import { spend, pushTxn } from './finance'
+import { spend, capitalOut } from './finance'
 import { pushLog } from './log'
 import { accountantOnDuty } from './staffing'
 import { deskCoverage } from './span'
@@ -49,8 +49,8 @@ export function fileTds(s: GameState, isAccountant = false): string | null {
   }
   // The 1% was already expensed to P&L via spendNetted('tds') when withheld from the owner payout.
   // Cash leaves today on filing:
-  s.company.cash -= tds
-  pushTxn(s, { day: s.day, head: 'tds', kind: 'expense', amount: tds, note: 'TDS quarterly remittance' })
+  // Settling a liability, not a new cost: capital_out keeps P&L and the ledger from counting TDS twice.
+  capitalOut(s, 'tds', tds, { note: 'TDS quarterly remittance' })
   s.company.tdsPayable = 0
   s.company.tdsDueDay = undefined
   s.company.tdsFiledThroughDay = s.day

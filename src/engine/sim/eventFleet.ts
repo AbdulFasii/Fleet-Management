@@ -184,7 +184,7 @@ export function buyLot(s: GameState, lot: LotSpec, finance?: LotFinance): string
       rearTyreKm: rInt(rng, 10_000, 70_000),
       frontBrand: 'oem',
       rearBrand: 'retread',
-      tyreCount: (model.cls === 'sleeper' || model.sleeper || model.layout?.kind === 'sleeper' || model.layout?.kind === 'hybrid' || model.cls === 'AC_HYBRID' || model.cls === 'AC_SLEEPER') ? 10 : 6,
+      tyreCount: (model.sleeper || model.layout?.kind === 'sleeper' || model.layout?.kind === 'hybrid' || model.cls === 'AC_HYBRID' || model.cls === 'AC_SLEEPER') ? 10 : 6,
       lastServiceOdo: r.odometer - rInt(rng, 5_000, 24_000),
       lastMajorServiceOdo: r.odometer - rInt(rng, 20_000, 80_000),
       lastOverhaulDay: s.day - rInt(rng, 30, 250),

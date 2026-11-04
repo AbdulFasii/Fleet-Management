@@ -10,7 +10,7 @@ import { nextId } from '../core/ids'
 import { fmtCompact, rs, type Money } from '../core/money'
 import { fromCivil, toCivil, FESTIVALS } from '../core/calendar'
 import { rngFor, rInt, rPick, rChance, rJitter } from '../core/rng'
-import type { GameState, HrAutoHire, HrAutoFire, Staff, StaffRole, ID, DeskPost } from '../types'
+import type { GameState, HrAutoHire, HrAutoFire, Staff, StaffRole, ID, DeskPost, DriverDormitoryTier, FestivalBonusTier } from '../types'
 import { spend, canAfford } from './finance'
 import { pushLog, pushDecision } from './log'
 import { ALL_SPAN_DESKS, assistantsToCover, deskCapacity, deskCoverage, officeStaffingStats } from './span'
@@ -38,6 +38,7 @@ export const DESK_LABEL: Record<DeskPost, string> = {
   documents: 'Documents',
   crm: 'CRM',
   accountant: 'Accounts Manager',
+  charter: 'Charters Manager',
 }
 
 /** Desks take any manager. */
@@ -99,6 +100,7 @@ export function deskHead(s: GameState, desk: DeskPost): Staff | undefined {
     case 'documents': id = s.company.docsManagerId; break
     case 'crm': id = s.company.crmId; break
     case 'accountant': id = s.company.accountantId; break
+    case 'charter': id = s.company.charterManagerId; break
   }
   return id ? s.staff[id] : undefined
 }
@@ -123,6 +125,7 @@ export function deskOf(s: GameState, staffId: ID): DeskPost | undefined {
   if (s.company.docsManagerId === staffId) return 'documents'
   if (s.company.crmId === staffId) return 'crm'
   if (s.company.accountantId === staffId) return 'accountant'
+  if (s.company.charterManagerId === staffId) return 'charter'
   if (s.company.deskAssistants) {
     for (const [desk, list] of Object.entries(s.company.deskAssistants)) {
       if (list && list.includes(staffId)) return desk as DeskPost
@@ -164,7 +167,7 @@ export function appointDeskAssistant(s: GameState, desk: DeskPost, staffId: ID |
 export function unappointDeskAssistant(s: GameState, desk: DeskPost, staffId: ID): string | null {
   const list = s.company.deskAssistants?.[desk]
   if (!list || !list.includes(staffId)) return 'Not an assistant on this desk.'
-  s.company.deskAssistants[desk] = list.filter((id: ID) => id !== staffId)
+  s.company.deskAssistants![desk] = list.filter((id: ID) => id !== staffId)
   const st = s.staff[staffId]
   if (st) pushLog(s, 'info', `${st.name} is no longer an assistant on ${DESK_LABEL[desk]}.`)
   return null
@@ -207,6 +210,7 @@ function clearDesk(s: GameState, staffId: ID, keep?: DeskPost): void {
   if (keep !== 'documents' && s.company.docsManagerId === staffId) s.company.docsManagerId = undefined
   if (keep !== 'crm' && s.company.crmId === staffId) s.company.crmId = undefined
   if (keep !== 'accountant' && s.company.accountantId === staffId) s.company.accountantId = undefined
+  if (keep !== 'charter' && s.company.charterManagerId === staffId) s.company.charterManagerId = undefined
   if (s.company.deskAssistants) {
     for (const [desk, list] of Object.entries(s.company.deskAssistants)) {
       if (desk !== keep && list && list.includes(staffId)) {
@@ -226,6 +230,7 @@ function setDeskHeadId(s: GameState, desk: DeskPost, staffId: ID | undefined): v
     case 'documents': s.company.docsManagerId = staffId; break
     case 'crm': s.company.crmId = staffId; break
     case 'accountant': s.company.accountantId = staffId; break
+    case 'charter': s.company.charterManagerId = staffId; break
   }
 }
 
@@ -522,6 +527,32 @@ export function appointAccountant(s: GameState, staffId: ID | undefined): string
     s,
     'good',
     `${st!.name} appointed Accounts Manager — files statutory GST/TDS returns, handles insurance claims and clears bounced receivables automatically.`,
+  )
+  return null
+}
+
+export function charterManagerOnDuty(s: GameState): Staff | undefined {
+  return managerOnDesk(s, s.company.charterManagerId)
+}
+
+export function appointCharterManager(s: GameState, staffId: ID | undefined): string | null {
+  if (!staffId) {
+    const prev = s.company.charterManagerId ? s.staff[s.company.charterManagerId] : undefined
+    s.company.charterManagerId = undefined
+    if (prev) pushLog(s, 'info', `${prev.name} is no longer Charter Operations manager.`)
+    afterDeskHeadRelieved(s, 'charter')
+    return null
+  }
+  const st = s.staff[staffId]
+  const err = requireManager(s, st)
+  if (err) return err
+  clearDesk(s, staffId, 'charter')
+  st!.busId = undefined
+  s.company.charterManagerId = st!.id
+  pushLog(
+    s,
+    'good',
+    `${st!.name} appointed Charter Operations Manager — negotiates pilgrimage, wedding & block contracts and auto-dispatches dedicated charter fleet.`,
   )
   return null
 }
@@ -1779,15 +1810,44 @@ export function dailyStaffPass(s: GameState): void {
     pushLog(s, 'finance', 'Game Updated: Driver salary scales have been rebalanced to industry baseline. Review payroll in Staff tab. 7-day attrition immunity is active.')
   }
 
+  const dormTier: DriverDormitoryTier = s.config?.driverDormitoryTier ?? 'none'
+  const festTier: FestivalBonusTier | undefined = s.config?.festivalBonusTier
+
   for (const st of Object.values(s.staff)) {
+    const isCrew = st.role === 'driver' || (st.role as string) === 'co_driver'
     const fat = Number(st.fatigue) || 0
     // Rest only if they did not drive today — otherwise the bar never moves
     // and HR/spare swaps never see high fatigue.
+    // Depot dormitories provide terminal layover rest relief even on duty days.
     if (st.role === 'driver' && st.lastTripDay === s.day) {
-      st.fatigue = fat
+      const layoverRelief = dormTier === 'ac_canteen' ? 15 : dormTier === 'basic' ? 8 : 0
+      st.fatigue = Math.max(0, fat - layoverRelief)
+      // Continuous long shift fatigue exhaustion check
+      if (st.fatigue >= 80) {
+        if (dormTier === 'ac_canteen') {
+          // Executive AC bunks & hot canteen: soundproof sleep & nourishment provide total burnout immunity
+        } else if (dormTier === 'basic') {
+          // Basic depot bunks: buffers long shift burnout
+          st.morale = Math.max(0, st.morale - 1)
+        } else {
+          // Roadside sleep / cramped cabin causes -3 morale burnout
+          st.morale = Math.max(0, st.morale - 3)
+        }
+      }
     } else {
-      st.fatigue = Math.max(0, fat - BAL.fatigueRestRecovery)
+      // Overnight rest & recovery (dormitory tiers provide accelerated fatigue discharge)
+      const dormRecovery = dormTier === 'ac_canteen' ? 25 : dormTier === 'basic' ? 10 : 0
+      st.fatigue = Math.max(0, fat - (BAL.fatigueRestRecovery + dormRecovery))
       st.consecutiveDutyDays = 0
+
+      // Daily morale boost from good quarters
+      if (isCrew) {
+        if (dormTier === 'ac_canteen' && st.morale < 90) {
+          st.morale = Math.min(90, st.morale + 2)
+        } else if (dormTier === 'basic' && st.morale < 80) {
+          st.morale = Math.min(80, st.morale + 1)
+        }
+      }
     }
     if (st.onLeaveUntilDay && st.onLeaveUntilDay < s.day) st.onLeaveUntilDay = undefined
 
@@ -1826,6 +1886,22 @@ export function dailyStaffPass(s: GameState): void {
     }
   }
 
+  // Driver dormitories & crew quarters operational upkeep
+  if (dormTier !== 'none') {
+    const crewMembers = Object.values(s.staff).filter(
+      (st) => (st.role === 'driver' || (st.role as string) === 'co_driver') &&
+              !(st.onLeaveUntilDay && st.onLeaveUntilDay >= s.day),
+    )
+    if (crewMembers.length > 0) {
+      const dailyPerCrew = dormTier === 'ac_canteen' ? 25 : 12
+      spend(s, 'staff_welfare', rs(crewMembers.length * dailyPerCrew), {
+        note: dormTier === 'ac_canteen'
+          ? `executive AC driver bunks & hot canteen (${crewMembers.length} crew × ₹25)`
+          : `depot driver bunks & quarters (${crewMembers.length} crew × ₹12)`,
+      })
+    }
+  }
+
   // Meal allowance welfare toggle: replaces per-trip driver/conductor bata
   if (s.config?.mealAllowance) {
     const eligible = Object.values(s.staff).filter(
@@ -1839,29 +1915,60 @@ export function dailyStaffPass(s: GameState): void {
     }
   }
 
-  // Festival bonus welfare toggle: 7 days before Diwali, Christmas, or Eid
+  // Festival bonus welfare: 7 days before major festivals (Diwali, Christmas, Eid, Pongal, Dussehra)
   const civ = toCivil(s.day)
   for (const f of FESTIVALS) {
-    if (f.name === 'Diwali' || f.name.includes('Christmas') || f.name.includes('Eid')) {
+    const fName = f.name.toLowerCase()
+    const isMajorFest = fName.includes('diwali') || fName.includes('christmas') || fName.includes('eid') || fName.includes('pongal') || fName.includes('dussehra') || fName.includes('pooja')
+    if (isMajorFest) {
       const fDay = fromCivil(civ.y, f.month, f.day)
-      if (s.day === fDay - 7 && s.config?.festivalBonus !== false) {
+      if (s.day === fDay - 7) {
         if (s.company.festivalBonusDecidedYear !== civ.y) {
-          const totalSal = Object.values(s.staff).reduce((a, st) => a + st.salary, 0)
-          if (hr) {
+          const totalSal = Object.values(s.staff).reduce((a, st) => a + (st.salary || 0), 0)
+          const staffCount = Object.keys(s.staff).length
+          if (festTier === 'full' || (festTier === undefined && s.config?.festivalBonus !== false && hr)) {
             s.company.festivalBonusDecidedYear = civ.y
-            spend(s, 'staff_welfare', totalSal, { note: `festival bonus: ${f.name}` })
+            spend(s, 'staff_welfare', totalSal, { note: `festival bonus (full 100%): ${f.name}` })
             for (const st of Object.values(s.staff)) {
-              st.morale = Math.min(100, st.morale + 15)
+              st.morale = Math.min(100, st.morale + 20)
+              st.loyalty = Math.min(100, st.loyalty + 10)
             }
-            pushLog(s, 'good', `HR auto-paid festival bonus for ${f.name} (${fmtCompact(totalSal)} to ${Object.keys(s.staff).length} staff). Morale +15.`)
-          } else if (!s.decisions.some((d) => d.title.includes(`Festival Bonus: ${f.name}`))) {
+            pushLog(s, 'good', `Festival bonus (100% monthly salary) auto-paid for ${f.name} (${fmtCompact(totalSal)} to ${staffCount} staff). Morale +20, Loyalty +10.`)
+          } else if (festTier === 'half') {
+            s.company.festivalBonusDecidedYear = civ.y
+            const halfSal = Math.round(totalSal * 0.5)
+            spend(s, 'staff_welfare', halfSal, { note: `festival bonus (50%): ${f.name}` })
+            for (const st of Object.values(s.staff)) {
+              st.morale = Math.min(100, st.morale + 10)
+              st.loyalty = Math.min(100, st.loyalty + 5)
+            }
+            pushLog(s, 'good', `Festival bonus (50% monthly salary) auto-paid for ${f.name} (${fmtCompact(halfSal)} to ${staffCount} staff). Morale +10, Loyalty +5.`)
+          } else if (festTier === 'gift') {
+            s.company.festivalBonusDecidedYear = civ.y
+            const giftTotal = rs(staffCount * 2500)
+            spend(s, 'staff_welfare', giftTotal, { note: `festival gift box & allowance: ${f.name}` })
+            for (const st of Object.values(s.staff)) {
+              st.morale = Math.min(100, st.morale + 5)
+              st.loyalty = Math.min(100, st.loyalty + 2)
+            }
+            pushLog(s, 'good', `Festival sweet box & gift bonus auto-paid for ${f.name} (${fmtCompact(giftTotal)} to ${staffCount} staff). Morale +5.`)
+          } else if (festTier === 'skip') {
+            s.company.festivalBonusDecidedYear = civ.y
+            for (const st of Object.values(s.staff)) {
+              st.morale = Math.max(0, st.morale - 15)
+              st.loyalty = Math.max(0, st.loyalty - 5)
+            }
+            pushLog(s, 'alert', `Festival bonus skipped for ${f.name}. Staff morale dropped by 15 points.`)
+          } else if (s.config?.festivalBonus !== false && !s.decisions.some((d) => d.title.includes(`Festival Bonus: ${f.name}`))) {
             pushDecision(s, {
               kind: 'crew',
               title: `Festival Bonus: ${f.name}`,
-              body: `${f.name} is in 7 days. Pay one month bonus salary (${fmtCompact(totalSal)}) to all staff (+15 morale) or skip (−20 morale)?`,
+              body: `${f.name} is in 7 days. Choose your festive bonus payout policy for ${staffCount} staff:`,
               options: [
-                { id: `pay_fest_bonus:${civ.y}`, label: `Pay Bonus (${fmtCompact(totalSal)})` },
-                { id: `skip_fest_bonus:${civ.y}`, label: 'Skip Bonus (−20 morale)' },
+                { id: `pay_fest_bonus:${civ.y}`, label: `Full Bonus (${fmtCompact(totalSal)}) · +20 Morale` },
+                { id: `pay_fest_half:${civ.y}`, label: `Half Bonus (${fmtCompact(Math.round(totalSal * 0.5))}) · +10 Morale` },
+                { id: `pay_fest_gift:${civ.y}`, label: `Gift Allowance (${fmtCompact(staffCount * 2500)}) · +5 Morale` },
+                { id: `skip_fest_bonus:${civ.y}`, label: 'Skip Bonus (−15 Morale)' },
               ],
             })
           }
@@ -1883,6 +1990,20 @@ export function monthlyStaffPass(s: GameState): void {
   hrDevelopSkills(s)
   const hr = hrOnDuty(s)
   const ops = opsOnDuty(s)
+
+  // Training budget: each ₹25,000 sends one crew member on a course
+  const budget = s.config?.trainingBudgetPerMonth ?? 0
+  if (budget > 0) {
+    const seats = Math.max(1, Math.floor(budget / rs(25_000)))
+    spend(s, 'staff_welfare', budget, { note: `crew training (${seats} course${seats === 1 ? '' : 's'})` })
+    const crew = staff
+      .filter((st) => (st.role === 'driver' || st.role === 'co_driver' || st.role === 'conductor') && st.skill < 9)
+      .sort((a, b) => a.skill - b.skill)
+    for (const st of crew.slice(0, seats)) {
+      st.skill = Math.min(10, st.skill + 1)
+      st.morale = Math.min(100, st.morale + 2)
+    }
+  }
 
   // Health coverage policy: ₹250/staff/month
   if (s.config?.healthCoverage && staff.length > 0) {
@@ -1987,18 +2108,23 @@ export function monthlyStaffPass(s: GameState): void {
     }
   }
 
-  // Strike risk — HR steps in to negotiate settlements
+  // Strike risk — HR & Depot Dormitory Committee step in to negotiate settlements
   const drivers = Object.values(s.staff).filter((x) => x.role === 'driver')
   if (drivers.length >= 2) {
     const avgMorale = drivers.reduce((a, d) => a + d.morale, 0) / drivers.length
-    if (avgMorale < BAL.strikeMoraleThreshold && s.world.strikeUntilDay < s.day) {
-      if (hr && rChance(rng, Math.min(0.85, (0.4 + hr.skill * 0.06) * hrCoverage))) {
+    const dormTier = s.config?.driverDormitoryTier ?? 'none'
+    // AC Canteen dormitories and dignified quarters lower the strike threshold from 35 to 22
+    const effectiveThreshold = dormTier === 'ac_canteen' ? 22 : dormTier === 'basic' ? 30 : BAL.strikeMoraleThreshold
+    if (avgMorale < effectiveThreshold && s.world.strikeUntilDay < s.day) {
+      const dormAvertBonus = dormTier === 'ac_canteen' ? 0.35 : dormTier === 'basic' ? 0.15 : 0
+      const hrAvertChance = Math.min(0.95, ((0.4 + (hr ? hr.skill * 0.06 : 0)) * (hr ? hrCoverage : 0.5)) + dormAvertBonus)
+      if (rChance(rng, hrAvertChance)) {
         pushLog(
           s,
           'good',
-          `STRIKE AVERTED: HR ${hr.name} held emergency talks with drivers and negotiated a settlement before departures were affected.`,
+          `STRIKE AVERTED: ${hr ? `HR ${hr.name}` : 'Depot Committee'} held emergency talks with drivers and negotiated a settlement before departures were affected${dormTier === 'ac_canteen' ? ' (supported by clean dormitory quarters)' : ''}.`,
         )
-        for (const d of drivers) d.morale = Math.min(100, d.morale + 8)
+        for (const d of drivers) d.morale = Math.min(100, d.morale + 10)
       } else {
         const days = rInt(rng, 2, 4)
         s.world.strikeUntilDay = s.day + days

@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
-import type { BusDuty, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, BodyBuilder } from '../engine/types'
+import { setAutoFreeze } from 'immer'
+
+// Disable Immer auto-freeze so retained simulation drafts can be directly mutated across ticks
+setAutoFreeze(false)
+import type { BusDuty, CharterPricingStrategy, CorridorStance, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, LoungeTier, LoungeSeating, LoungeAmenityId, PassengerHandlingConfig } from '../engine/types'
 import { type Money, fmtCompact } from '../engine/core/money'
 import { advanceDay, needsAttention } from '../engine/tick'
 import { newGame, SAVE_VERSION, initialBrandCode } from '../engine/newGame'
@@ -10,6 +14,7 @@ import * as fleet from '../engine/sim/fleet'
 import * as banking from '../engine/sim/banking'
 import * as staffing from '../engine/sim/staffing'
 import * as schedules from '../engine/sim/schedules'
+import * as loungeSim from '../engine/sim/lounge'
 import * as maintenance from '../engine/sim/maintenance'
 import * as channels from '../engine/sim/channels'
 import * as cover from '../engine/sim/cover'
@@ -19,6 +24,8 @@ import * as depot from '../engine/sim/depot'
 import * as crm from '../engine/sim/crm'
 import * as tax from '../engine/sim/tax'
 import * as festival from '../engine/sim/festival'
+import * as charterSim from '../engine/sim/charter'
+import { setCorridorStance as applyCorridorStance } from '../engine/sim/rivalIntelligence'
 import { pushLog } from '../engine/sim/log'
 import { retainDay } from '../engine/sim/retain'
 import { BUS_MODELS, RETIRED_MODEL_MAP, canonicalizeLayoutKey, layoutKey, isCargoModel } from '../engine/data/busModels'
@@ -32,7 +39,7 @@ import { applyDecision } from '../engine/sim/events'
 import { generateTrips, pruneInvalidSeasonalTrips } from '../engine/sim/booking'
 import { departureTimeFit, haulLayoutAppeal } from '../engine/sim/corridor'
 import { roundFare, isReturnTrip, resolveTripFare } from '../engine/sim/pricing'
-import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS, getDesign } from '../engine/data/bodyBuilders'
+import { cloneDefaultBodyBuilders, DEFAULT_BODY_BUILDERS, getDesign, type CoachLayoutKind } from '../engine/data/bodyBuilders'
 import {
   getSharedBodyBuildersSync,
   loadSharedBodyDesigns,
@@ -46,16 +53,25 @@ import {
   clearSaveStores,
   decodeSaveString,
   encodeSaveString,
+  toSaveDto,
   hasSaveBlob,
   hydratePackedState,
   readSave,
   writeSave,
 } from './saveCodec'
+import { encodeSaveDtoAsync } from './saveWorkerClient'
+import {
+  getActiveCloudSaveId,
+  setActiveCloudSaveId,
+  appendCloudSave,
+  createCloudSave,
+  loadCloudSave,
+} from './cloudGameSave'
 
 export interface Toast {
   id: number
   text: string
-  kind: 'info' | 'good' | 'bad'
+  kind: 'info' | 'good' | 'bad' | 'warn'
 }
 
 export interface UiPrefs {
@@ -138,6 +154,11 @@ interface GameStore {
   abandon: () => void
   /** Clears all stored save data from browser storage and returns to company setup screen. */
   resetToNewGame: () => void
+  loadCloudSaveById: (id: string) => Promise<{ ok: boolean; label?: string; error?: string }>
+  saveToNewCloudSlot: (customLabel?: string) => Promise<{ ok: boolean; id?: string; error?: string }>
+  updateActiveCloudSlot: () => Promise<{ ok: boolean; compacted?: boolean; noop?: boolean; error?: string }>
+  unlinkActiveCloudSlot: () => void
+  getActiveCloudSlotId: () => string | null
 
   advance: (days: number, stopOnAttention?: boolean) => void
 
@@ -171,6 +192,7 @@ interface GameStore {
   renewCargoPermit: (routeId: string) => void
   closeCargoPermit: (routeId: string) => void
   discontinueRoute: (routeId: string) => void
+  setCorridorStance: (routeId: string, stance: CorridorStance) => void
   createSchedule: (input: schedules.ScheduleInput, busId?: ID) => boolean
   updateSchedule: (schId: ID, patch: Partial<schedules.ScheduleInput> & { active?: boolean }) => void
   assignBus: (schId: ID, busId: ID) => void
@@ -184,7 +206,9 @@ interface GameStore {
   repairSubsystem: (busId: ID, sub: SubsystemId) => void
   replaceTyres: (busId: ID, axleOrRetread?: TyreAxle | boolean, brand?: TyreBrand, opts?: { outside?: boolean }) => void
   setWorkshopTyreBrand: (brand: 'oem' | 'tier2') => void
-  rebodyBus: (busId: ID, bodyDesignId?: string) => void
+  rebodyBus: (busId: ID, bodyDesignId?: string, desiredLayoutKind?: CoachLayoutKind) => void
+  overhaulPowertrain: (busId: ID) => void
+  retrofitLuxuryAmenities: (busId: ID) => void
   refurbishSeats: (busId: ID) => void
   addBodyDesign: (builderId: string, design: BodyDesign) => { ok: boolean; error?: string }
   updateBodyDesign: (builderId: string, designId: string, patch: Partial<BodyDesign>) => { ok: boolean; error?: string }
@@ -215,6 +239,8 @@ interface GameStore {
   setMarketingBudget: (monthly: number) => void
   decide: (decisionId: ID, optionId: string) => void
   markInboxRead: (id: ID) => void
+  /** Dismiss the victory scorecard and keep playing. */
+  acknowledgeVictory: () => void
   markAllInboxRead: () => void
   repriceTrip: (tripId: ID, fare: number) => void
   setOdoHighlightKm: (km: number) => void
@@ -242,13 +268,23 @@ interface GameStore {
   setCrmPolicy: (policy: 'ask' | 'refund' | 'dispute' | 'suggest_refund') => void
   resolveGrievance: (grievanceId: ID, action: 'refund' | 'dispute') => void
   appointAccountant: (staffId: ID | undefined) => void
+  appointCharterManager: (staffId: ID | undefined) => void
+  setCharterPricingStrategy: (strategy: CharterPricingStrategy) => void
+  setCharterOperatingBase: (cityId: string) => void
+  setCharterAutoAccept: (enabled: boolean) => void
+  setCharterMinCondition: (minCondition: number) => void
+  setCharterMinMargin: (pct: number) => void
+  setCharterDeposit: (pct: number) => void
+  acceptCharterInquiry: (inquiryId: ID, busId: ID) => void
+  rejectCharterInquiry: (inquiryId: ID) => void
+  autoAssignCharters: () => void
   appointDeskAssistant: (desk: DeskPost, staffId: ID) => void
   unappointDeskAssistant: (desk: DeskPost, staffId: ID) => void
   retrainDriver: (staffId: ID) => void
   upgradeLicence: (staffId: ID) => void
   runTripAnyway: (tripId: ID) => void
   updatePlayerConfig: (patch: Partial<PlayerConfig>) => void
-  setWelfareConfig: (patch: Partial<Pick<PlayerConfig, 'mealAllowance' | 'healthCoverage' | 'festivalBonus'>>) => void
+  setWelfareConfig: (patch: Partial<Pick<PlayerConfig, 'mealAllowance' | 'healthCoverage' | 'festivalBonus' | 'driverDormitoryTier' | 'festivalBonusTier'>>) => void
   renewInsurance: (busId: ID) => void
   renewFitness: (busId: ID) => void
   setDepreciationDefault: (method: DepreciationMethod) => void
@@ -267,6 +303,11 @@ interface GameStore {
   toggleEcoIncentive: (enabled?: boolean) => void
   triggerFlashDeal: (tripId: ID) => void
   triggerSurgeDeal: (tripId: ID) => void
+  openPassengerLounge: (cityId: string, locationName: string, tier: LoungeTier, seating?: LoungeSeating, amenities?: LoungeAmenityId[]) => void
+  refitPassengerLounge: (loungeId: string, seating: LoungeSeating, amenities: LoungeAmenityId[]) => void
+  upgradePassengerLounge: (loungeId: string, newTier: LoungeTier) => void
+  closePassengerLounge: (loungeId: string) => void
+  updatePassengerConfig: (patch: Partial<PassengerHandlingConfig>) => void
 }
 
 let pendingSave: GameState | null = null
@@ -281,7 +322,7 @@ function dropPendingSave(): void {
   pendingSave = null
 }
 
-/** Write a deferred autosave now (page hide, explicit save, load/import). */
+/** Write a deferred autosave now synchronously (page hide, explicit save, load/import). */
 export function flushPendingSave(): boolean {
   if (saveTimer) {
     clearTimeout(saveTimer)
@@ -294,18 +335,41 @@ export function flushPendingSave(): boolean {
   return persist(s, { alreadyMutable: mutable })
 }
 
+/** Asynchronously encodes and writes the autosave using the background Web Worker. */
+async function flushPendingSaveAsync(): Promise<void> {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  const s = pendingSave
+  pendingSave = null
+  if (!s) return
+
+  // Single toSaveDto call shared by both Web Worker encoding and cloud auto-append
+  const dto = toSaveDto(s)
+  triggerCloudAutoAppend(s, dto)
+
+  try {
+    const payload = await encodeSaveDtoAsync(dto, s.version, s.day)
+    writeSave(payload, s.day)
+  } catch (err) {
+    console.warn('Async worker save encode failed, falling back to sync:', err)
+    persist(s)
+  }
+}
+
 /**
- * Defer the autosave that follows a clock advance by a beat. Encoding a save
- * (zlib + base64 over a multi-MB state) is one of the most expensive things a
- * click does, and clicking through days would otherwise pay it every day. The
- * newest state wins, and any immediate save / page hide flushes it.
+ * Defer the autosave that follows a clock advance by a beat. Offloads JSON + zlib
+ * compression to a Web Worker so the main UI thread never stutters after day ticks.
  */
 function persistSoon(s: GameState | null, opts?: { alreadyMutable?: boolean }): void {
   if (!s) return
   pendingSave = s
   pendingSaveMutable = opts?.alreadyMutable ?? false
   if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => { flushPendingSave() }, 500)
+  saveTimer = setTimeout(() => {
+    flushPendingSaveAsync().catch(() => {})
+  }, 500)
 }
 
 if (typeof window !== 'undefined') {
@@ -314,6 +378,26 @@ if (typeof window !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushPendingSave()
   })
+}
+
+let cloudAppendTimer: any = null
+
+function triggerCloudAutoAppend(s: GameState, precomputedDto?: Record<string, any>): void {
+  const activeId = getActiveCloudSaveId()
+  if (!activeId) return
+
+  const dtoToUse = precomputedDto ?? toSaveDto(s)
+
+  // Debounce (1200ms) to batch back-to-back mutations or ticks smoothly
+  if (cloudAppendTimer) clearTimeout(cloudAppendTimer)
+  cloudAppendTimer = setTimeout(() => {
+    cloudAppendTimer = null
+    const currentActiveId = getActiveCloudSaveId()
+    if (!currentActiveId) return
+    appendCloudSave(currentActiveId, s, dtoToUse).catch((err) => {
+      console.warn('Background cloud append failed:', err)
+    })
+  }, 1200)
 }
 
 function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): boolean {
@@ -331,18 +415,33 @@ function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): bool
       return false
     }
   }
-  if (tryWrite(s)) return true
 
-  // Storage refused the payload: make a private copy to trim, never mutating
-  // the live state the UI is rendering from.
-  const draft = opts?.alreadyMutable ? s : structuredClone(s) as GameState
-  compactTrips(draft)
-  draft.txns = draft.txns.slice(-400)
-  if (tryWrite(draft)) return true
-  shrinkForStorage(draft, 'medium')
-  if (tryWrite(draft)) return true
-  shrinkForStorage(draft, 'hard')
-  return tryWrite(draft)
+  let ok = false
+  if (tryWrite(s)) {
+    ok = true
+  } else {
+    // Storage refused the payload: make a private copy to trim, never mutating
+    // the live state the UI is rendering from.
+    const draft = opts?.alreadyMutable ? s : structuredClone(s) as GameState
+    compactTrips(draft)
+    draft.txns = draft.txns.slice(-400)
+    if (tryWrite(draft)) {
+      ok = true
+    } else {
+      shrinkForStorage(draft, 'medium')
+      if (tryWrite(draft)) {
+        ok = true
+      } else {
+        shrinkForStorage(draft, 'hard')
+        ok = tryWrite(draft)
+      }
+    }
+  }
+
+  if (ok) {
+    triggerCloudAutoAppend(s)
+  }
+  return ok
 }
 
 
@@ -555,7 +654,7 @@ function migrate(raw: unknown): GameState | null {
     if (b.pucExpiryDay === undefined) b.pucExpiryDay = s.day + 180
     if (b.fitnessFailed === undefined) b.fitnessFailed = false
     const m = BUS_MODELS[b.modelId]
-    const isSleeper = m?.cls === 'sleeper' || m?.sleeper || m?.layout?.kind === 'sleeper' || m?.layout?.kind === 'hybrid' || m?.cls === 'AC_HYBRID' || m?.cls === 'AC_SLEEPER'
+    const isSleeper = m?.sleeper || m?.layout?.kind === 'sleeper' || m?.layout?.kind === 'hybrid' || m?.cls === 'AC_HYBRID' || m?.cls === 'AC_SLEEPER'
     if (b.tyreCount === undefined) b.tyreCount = isSleeper ? 10 : 6
     if (b.frontTyreKm === undefined) b.frontTyreKm = b.tyreKm ?? 0
     if (b.rearTyreKm === undefined) b.rearTyreKm = b.tyreKm ?? 0
@@ -1049,7 +1148,7 @@ function migrate(raw: unknown): GameState | null {
     // (e.g. 13h long haul semi-sleeper dropped from 90% down to ~28-34%)
     for (const sch of Object.values(s.schedules ?? {})) {
       const route = ROUTES[sch.routeId]
-      const bus = s.buses[sch.busId]
+      const bus = s.buses[sch.busIds?.[0] ?? '']
       const model = bus ? BUS_MODELS[bus.modelId] : undefined
       if (!route || !model) continue
       const layoutMult = haulLayoutAppeal(model.cls, route.hours)
@@ -1074,7 +1173,7 @@ function migrate(raw: unknown): GameState | null {
     // (normal weekdays vs weekends vs festivals)
     for (const sch of Object.values(s.schedules ?? {})) {
       const route = ROUTES[sch.routeId]
-      const bus = s.buses[sch.busId]
+      const bus = s.buses[sch.busIds?.[0] ?? '']
       const model = bus ? BUS_MODELS[bus.modelId] : undefined
       if (!route || !model) continue
       const qScore = bus.qualityScore ?? 3.5
@@ -1338,6 +1437,7 @@ function migrate(raw: unknown): GameState | null {
     }
   }
 
+  charterSim.sanitizeCharterData(s)
   s.version = SAVE_VERSION
   return s
 }
@@ -1351,6 +1451,7 @@ export const useGame = create<GameStore>()(
     uiPrefs: loadUiPrefs(),
 
     startNew: (name, difficulty, homeRouteId) => {
+      setActiveCloudSaveId(null)
       const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0
       const shared = getSharedBodyBuildersSync()
       const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed, shared ?? undefined)
@@ -1417,6 +1518,7 @@ export const useGame = create<GameStore>()(
         set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
         // Free the old save slot before writing — storage was often already full
         clearSaveStores()
+        setActiveCloudSaveId(null)
         const persisted = persist(s)
         return { ok: true, persisted }
       } catch (e) {
@@ -1449,23 +1551,80 @@ export const useGame = create<GameStore>()(
 
     abandon: () => {
       clearSaveStores()
+      setActiveCloudSaveId(null)
       set({ state: null, skipStopReason: null })
     },
 
     resetToNewGame: () => {
       skipInFlight = false
       clearSaveStores()
+      setActiveCloudSaveId(null)
       set({ state: null, skipStopReason: null })
     },
+
+    loadCloudSaveById: async (id: string) => {
+      try {
+        skipInFlight = false
+        const res = await loadCloudSave(id)
+        if (!res.ok || !res.dto) {
+          return { ok: false, error: res.error ?? 'Could not load cloud save.' }
+        }
+        const s = migrate(res.dto)
+        if (!s) return { ok: false, error: 'That cloud save has an invalid state format.' }
+        const { bodyBuilders, changed } = syncStateBodyBuildersWithShared(s.bodyBuilders)
+        s.bodyBuilders = bodyBuilders
+        if (changed) {
+          saveSharedBodyDesigns(bodyBuilders).catch(() => {})
+        }
+        schedules.pruneRetiredRoutes(s)
+        retainDay(s)
+        const notice = s.pendingMigrationNotice
+        if (notice) {
+          s.pendingMigrationNotice = undefined
+          setTimeout(() => get().toast(notice, 'warn'), 300)
+        }
+        const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
+        dropPendingSave()
+        set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
+        clearSaveStores()
+        persist(s)
+        setActiveCloudSaveId(id)
+        return { ok: true, label: res.label }
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'Failed to load cloud save.' }
+      }
+    },
+
+    saveToNewCloudSlot: async (customLabel?: string) => {
+      const live = get().state
+      if (!live) return { ok: false, error: 'No active game state to save.' }
+      const res = await createCloudSave(live, customLabel)
+      return res
+    },
+
+    updateActiveCloudSlot: async () => {
+      const live = get().state
+      const activeId = getActiveCloudSaveId()
+      if (!live) return { ok: false, error: 'No active game to save.' }
+      if (!activeId) return { ok: false, error: 'No cloud save slot is currently connected.' }
+      const res = await appendCloudSave(activeId, live)
+      return res
+    },
+
+    unlinkActiveCloudSlot: () => {
+      setActiveCloudSaveId(null)
+    },
+
+    getActiveCloudSlotId: () => getActiveCloudSaveId(),
 
     advance: (days, stopOnAttention = false) => {
       const prev = get().state
       if (!prev || prev.gameOver) return
       if (skipInFlight) return
-      // Pending inbox decisions never block the clock — the player answers
-      // them whenever they are ready (see needsAttention).
-      // Tick on a plain clone — immer proxies make 30+ bus booking passes crawl.
-      const draft = structuredClone(prev) as GameState
+      // For single-day advance, mutate in-place rather than deep-cloning multi-MB state trees.
+      // Shallow container update in commit() lets React detect the new state reference in <0.01ms.
+      // For multi-day background skips, clone up front so asynchronous chunking is isolated.
+      const draft = days === 1 ? prev : (structuredClone(prev) as GameState)
       let stop: string | null = null
       let advanced = 0
       skipInFlight = true
@@ -1473,13 +1632,24 @@ export const useGame = create<GameStore>()(
       const commit = (): void => {
         skipInFlight = false
         // A save import / reset while the skip was yielding: drop the stale draft.
-        if (get().state !== prev) {
+        if (days > 1 && get().state !== prev) {
           set({ busy: false })
           return
         }
         if (advanced > 0) {
-          set({ state: draft, skipStopReason: stop, busy: false })
-          persistSoon(draft, { alreadyMutable: true })
+          const nextState = days === 1 ? { ...draft } : draft
+          set({ state: nextState, skipStopReason: stop, busy: false })
+          persistSoon(nextState, { alreadyMutable: true })
+          if (days > 1 && advanced >= 2) {
+            // One-line recap of what a multi-day skip did, so nothing passes unseen.
+            const cashDelta = draft.company.cash - prev.company.cash
+            const ratingDelta = draft.company.rating - prev.company.rating
+            const alerts = (draft.inbox ?? []).filter((m) => m.day > prev.day && m.cat === 'alert').length
+            get().toast(
+              `${advanced} days: cash ${cashDelta >= 0 ? '+' : '-'}${fmtCompact(Math.abs(cashDelta))} · rating ${draft.company.rating.toFixed(2)}★ (${ratingDelta >= 0 ? '+' : ''}${ratingDelta.toFixed(2)}) · ${alerts} alert${alerts === 1 ? '' : 's'}`,
+              cashDelta >= 0 && alerts === 0 ? 'good' : cashDelta < 0 ? 'bad' : 'warn',
+            )
+          }
           return
         }
         set({ busy: false, skipStopReason: stop })
@@ -1657,6 +1827,10 @@ export const useGame = create<GameStore>()(
     renewCargoPermit: (routeId) => get().intent((s) => cargoSim.renewCargoPermit(s, routeId)),
     closeCargoPermit: (routeId) => get().intent((s) => cargoSim.closeCargoPermit(s, routeId)),
     discontinueRoute: (routeId) => get().intent((s) => schedules.discontinueRoute(s, routeId)),
+    setCorridorStance: (routeId, stance) => get().intent((s) => {
+      applyCorridorStance(s, routeId, stance)
+      return null
+    }),
     createSchedule: (input, busId) => get().intent((s) => schedules.launchSchedule(s, input, busId)),
     updateSchedule: (schId, patch) => get().intent((s) => schedules.updateSchedule(s, schId, patch)),
     assignBus: (schId, busId) => get().intent((s) => schedules.assignBus(s, schId, busId)),
@@ -1673,7 +1847,9 @@ export const useGame = create<GameStore>()(
     repairSubsystem: (busId, sub) => get().intent((s) => maintenance.repairSubsystem(s, busId, sub)),
     replaceTyres: (busId, axleOrRetread, brand, opts) => get().intent((s) => maintenance.replaceTyres(s, busId, axleOrRetread, brand, opts)),
     setWorkshopTyreBrand: (brand) => get().intent((s) => { maintenance.setWorkshopTyreBrand(s, brand); return null }),
-    rebodyBus: (busId, bodyDesignId) => get().intent((s) => maintenance.rebodyBus(s, busId, bodyDesignId)),
+    rebodyBus: (busId, bodyDesignId, desiredLayoutKind) => get().intent((s) => maintenance.rebodyBus(s, busId, bodyDesignId, desiredLayoutKind)),
+    overhaulPowertrain: (busId) => get().intent((s) => maintenance.overhaulPowertrain(s, busId)),
+    retrofitLuxuryAmenities: (busId) => get().intent((s) => maintenance.retrofitLuxuryAmenities(s, busId)),
     refurbishSeats: (busId) => get().intent((s) => maintenance.refurbishSeats(s, busId)),
     addBodyDesign: (builderId, design) => {
       let err: string | undefined
@@ -1807,6 +1983,10 @@ export const useGame = create<GameStore>()(
       return null
     }),
     decide: (decisionId, optionId) => get().intent((s) => applyDecision(s, decisionId, optionId)),
+    acknowledgeVictory: () => get().intent((s) => {
+      if (s.victory) s.victory.acknowledged = true
+      return null
+    }),
     markInboxRead: (id) => get().intent((s) => {
       const m = (s.inbox ?? []).find((item) => item.id === id)
       if (m) m.read = true
@@ -1933,6 +2113,45 @@ export const useGame = create<GameStore>()(
     }),
     resolveGrievance: (grievanceId, action) => get().intent((s) => crm.resolveGrievance(s, grievanceId, action)),
     appointAccountant: (staffId) => get().intent((s) => staffing.appointAccountant(s, staffId)),
+    appointCharterManager: (staffId) => get().intent((s) => staffing.appointCharterManager(s, staffId)),
+    setCharterPricingStrategy: (strategy) => get().intent((s) => {
+      const cfg = charterSim.getCharterConfig(s)
+      cfg.pricingStrategy = strategy
+      return null
+    }),
+    setCharterOperatingBase: (cityId) => get().intent((s) => {
+      const cfg = charterSim.getCharterConfig(s)
+      cfg.operatingBaseCityId = cityId
+      return null
+    }),
+    setCharterAutoAccept: (enabled) => get().intent((s) => {
+      const cfg = charterSim.getCharterConfig(s)
+      cfg.autoAccept = enabled
+      return null
+    }),
+    setCharterMinCondition: (minCondition) => get().intent((s) => {
+      const cfg = charterSim.getCharterConfig(s)
+      cfg.minConditionScore = minCondition
+      return null
+    }),
+    setCharterMinMargin: (pct) => get().intent((s) => {
+      charterSim.getCharterConfig(s).minMarginPct = pct
+      return null
+    }),
+    setCharterDeposit: (pct) => get().intent((s) => {
+      charterSim.getCharterConfig(s).depositPct = pct
+      return null
+    }),
+    acceptCharterInquiry: (inquiryId, busId) => get().intent((s) => charterSim.acceptCharterInquiry(s, inquiryId, busId)),
+    rejectCharterInquiry: (inquiryId) => get().intent((s) => charterSim.rejectCharterInquiry(s, inquiryId)),
+    autoAssignCharters: () => get().intent((s) => {
+      const assigned = charterSim.autoAssignBestCharters(s)
+      if (assigned > 0) {
+        get().toast(`Assigned ${assigned} charter inquiry${assigned > 1 ? 's' : ''} to best matching vehicles.`, 'good')
+        return null
+      }
+      return 'No eligible available charter coaches currently match open inquiries.'
+    }),
     appointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.appointDeskAssistant(s, desk, staffId)),
     unappointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.unappointDeskAssistant(s, desk, staffId)),
     retrainDriver: (staffId) => get().intent((s) => staffing.retrainDriver(s, staffId)),
@@ -2033,6 +2252,15 @@ export const useGame = create<GameStore>()(
       if (sch && b) {
         t.fare = resolveTripFare(s, t, sch, b, t.day - s.day)
       }
+      return null
+    }),
+    openPassengerLounge: (cityId, locationName, tier, seating, amenities) => get().intent((s) => loungeSim.openLounge(s, cityId, locationName, tier, seating, amenities)),
+    refitPassengerLounge: (loungeId, seating, amenities) => get().intent((s) => loungeSim.refitLounge(s, loungeId, seating, amenities)),
+    upgradePassengerLounge: (loungeId, newTier) => get().intent((s) => loungeSim.upgradeLounge(s, loungeId, newTier)),
+    closePassengerLounge: (loungeId) => get().intent((s) => loungeSim.closeLounge(s, loungeId)),
+    updatePassengerConfig: (patch) => get().intent((s) => {
+      if (!s.config) s.config = { odoHighlightKm: BAL.odoHighlightDefaultKm, autoRenewDocs: true, cargoBaseRateRs: BAL.cargoBaseRateDefaultRs }
+      s.config.passengerConfig = { ...s.config.passengerConfig, ...patch }
       return null
     }),
   })),

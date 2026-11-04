@@ -6,12 +6,12 @@
 import { BAL } from '../data/balance'
 import { ROUTE_LIST, ROUTES, routeName, RIVALS } from '../data/routes'
 import { BUS_MODELS, modelTitle } from '../data/busModels'
-import { seasonInfo } from '../core/calendar'
+import { fmtDate, seasonInfo } from '../core/calendar'
 import { fmtCompact, rs } from '../core/money'
 import { nextId } from '../core/ids'
 import { rngFor, rChance, rInt, rPick, rJitter, type Rng } from '../core/rng'
 import type { GameState, ID } from '../types'
-import { spend, earn, canAfford } from './finance'
+import { spend, canAfford } from './finance'
 import { dailyCheckpostPass } from './checkpost'
 import { buyLot } from './eventFleet'
 import { DISTRESS_EVENTS, applyDistressDecision } from './eventsDistress'
@@ -23,6 +23,7 @@ import { createCharterInquiry, calculateCharterQuote, executeCharterContract } f
 
 /** Daily drift of the outside world. */
 import { dailyRivalPass } from './rivals'
+import { weeklyRivalIntelligencePass } from './rivalIntelligence'
 
 export function dailyWorldPass(s: GameState): void {
   const rng = rngFor(s.seed, 'world', s.day)
@@ -44,6 +45,7 @@ export function dailyWorldPass(s: GameState): void {
 
   // Daily rival share drift & exit event roll
   dailyRivalPass(s, rng)
+  weeklyRivalIntelligencePass(s)
 
   // cleanup expired effects
   for (const [rid, shock] of Object.entries(w.demandShock)) {
@@ -122,7 +124,11 @@ export const EVENTS: EventDef[] = [
       const rid = rPick(rng, myActiveRoutes(s))
       const depth = rInt(rng, 20, 35) / 100
       const days = rInt(rng, 15, 30)
-      s.world.priceWars[rid] = { untilDay: s.day + days, depth }
+      const existing = s.world.priceWars[rid]
+      // Never weaken a live rival-intelligence war: keep the deeper cut and the later end.
+      s.world.priceWars[rid] = existing && existing.untilDay >= s.day
+        ? { untilDay: Math.max(existing.untilDay, s.day + days), depth: Math.max(existing.depth, depth) }
+        : { untilDay: s.day + days, depth }
       const rival = rPick(rng, RIVALS[rid] ?? ['A rival'])
       pushLog(s, 'event', `PRICE WAR: ${rival} slashes fares ${Math.round(depth * 100)}% on ${routeName(rid)} for ~${days} days. Match and bleed, or hold fares and lose share.`)
     },
@@ -328,7 +334,7 @@ export const EVENTS: EventDef[] = [
         expiresDay: s.day + 4,
         kind: 'cheque_bounce',
         title: `Receivable Default / Cheque Bounce (${fmtCompact(rcv.amount)})`,
-        body: `An offline booking agent's settlement cheque of ${fmtCompact(rcv.amount)} due on Day ${rcv.settleDay} has bounced with insufficient funds. You can write off the bad debt or hire a collection agent for ₹2,000 (70% recovery chance in 10 days). An appointed Accounts Manager clears this decision for you.`,
+        body: `An offline booking agent's settlement cheque of ${fmtCompact(rcv.amount)} due on ${fmtDate(rcv.settleDay)} has bounced with insufficient funds. You can write off the bad debt or hire a collection agent for ₹2,000 (70% recovery chance in 10 days). An appointed Accounts Manager clears this decision for you.`,
         options: [
           { id: 'collector', key: 'collector', label: 'Send recovery agent (Fee ₹2,000 — 70% chance of recovery)' },
           { id: 'cancel', key: 'cancel', label: `Write off receivable (Lose ${fmtCompact(rcv.amount)})` },
@@ -347,7 +353,7 @@ export const EVENTS: EventDef[] = [
       const r = rPick(rng, candidates)
       if (!s.world.expresswayProposals) s.world.expresswayProposals = {}
       s.world.expresswayProposals[r.id] = s.day + 60
-      pushLog(s, 'event', `EXPRESSWAY GAZETTE: NHAI announced greenfield expressway on ${routeName(r.id)}. Slated to open in 60 days (Day ${s.day + 60}). AIS-140 GPS will be mandatory on opening.`)
+      pushLog(s, 'event', `EXPRESSWAY GAZETTE: NHAI announced greenfield expressway on ${routeName(r.id)}. Slated to open in 60 days (${fmtDate(s.day + 60)}). AIS-140 GPS will be mandatory on opening.`)
     },
   },
   {
@@ -367,7 +373,6 @@ export const EVENTS: EventDef[] = [
     fire: (s) => {
       s.world.lastUnionDemandDay = s.day
       const drivers = Object.values(s.staff).filter((st) => st.role === 'driver' || st.role === 'co_driver')
-      const avgMorale = drivers.length > 0 ? drivers.reduce((a, d) => a + d.morale, 0) / drivers.length : 100
       if (s.config?.hrAutoRaise && hrOnDuty(s)) {
         for (const st of drivers) {
           st.salary = Math.round(st.salary * 1.10)
@@ -394,7 +399,7 @@ export const EVENTS: EventDef[] = [
   {
     id: 'flood_disruption',
     weight: 5,
-    canFire: (s) => ROUTE_LIST.some((r) => r.ghat),
+    canFire: () => ROUTE_LIST.some((r) => r.ghat),
     fire: (s, rng) => {
       const ghats = ROUTE_LIST.filter((r) => r.ghat)
       const count = rInt(rng, 2, Math.min(4, ghats.length))
@@ -653,18 +658,42 @@ export function applyDecision(s: GameState, decisionId: ID, optionId: string): s
         const year = Number(optionId.split(':')[1]) || 0
         s.company.festivalBonusDecidedYear = year
         const totalSal = Object.values(s.staff).reduce((a, st) => a + (st.salary || (st as any).wagePaise || 0), 0)
-        spend(s, 'staff_welfare', totalSal, { note: 'festival bonus payout' })
+        spend(s, 'staff_welfare', totalSal, { note: 'festival bonus (100% payout)' })
         for (const st of Object.values(s.staff)) {
-          st.morale = Math.min(100, st.morale + 15)
+          st.morale = Math.min(100, st.morale + 20)
+          st.loyalty = Math.min(100, st.loyalty + 10)
         }
-        pushLog(s, 'good', `Festival bonus paid (${fmtCompact(totalSal)} to ${Object.keys(s.staff).length} staff). Morale +15.`)
+        pushLog(s, 'good', `Festival bonus (100% salary) paid (${fmtCompact(totalSal)} to ${Object.keys(s.staff).length} staff). Morale +20, Loyalty +10.`)
+      } else if (optionId.startsWith('pay_fest_half')) {
+        const year = Number(optionId.split(':')[1]) || 0
+        s.company.festivalBonusDecidedYear = year
+        const totalSal = Object.values(s.staff).reduce((a, st) => a + (st.salary || (st as any).wagePaise || 0), 0)
+        const halfSal = Math.round(totalSal * 0.5)
+        spend(s, 'staff_welfare', halfSal, { note: 'festival bonus (50% payout)' })
+        for (const st of Object.values(s.staff)) {
+          st.morale = Math.min(100, st.morale + 10)
+          st.loyalty = Math.min(100, st.loyalty + 5)
+        }
+        pushLog(s, 'good', `Festival bonus (50% salary) paid (${fmtCompact(halfSal)} to ${Object.keys(s.staff).length} staff). Morale +10, Loyalty +5.`)
+      } else if (optionId.startsWith('pay_fest_gift')) {
+        const year = Number(optionId.split(':')[1]) || 0
+        s.company.festivalBonusDecidedYear = year
+        const count = Object.keys(s.staff).length
+        const giftTotal = rs(count * 2500)
+        spend(s, 'staff_welfare', giftTotal, { note: 'festival sweet box & gift payout' })
+        for (const st of Object.values(s.staff)) {
+          st.morale = Math.min(100, st.morale + 5)
+          st.loyalty = Math.min(100, st.loyalty + 2)
+        }
+        pushLog(s, 'good', `Festival gift allowance paid (${fmtCompact(giftTotal)} to ${count} staff). Morale +5.`)
       } else if (optionId.startsWith('skip_fest_bonus')) {
         const year = Number(optionId.split(':')[1]) || 0
         s.company.festivalBonusDecidedYear = year
         for (const st of Object.values(s.staff)) {
-          st.morale = Math.max(0, st.morale - 20)
+          st.morale = Math.max(0, st.morale - 15)
+          st.loyalty = Math.max(0, st.loyalty - 5)
         }
-        pushLog(s, 'alert', 'Festival bonus skipped. Staff morale dropped by 20 points.')
+        pushLog(s, 'alert', 'Festival bonus skipped. Staff morale dropped by 15 points.')
       }
       break
     }
@@ -674,6 +703,7 @@ export function applyDecision(s: GameState, decisionId: ID, optionId: string): s
         const err = buyLot(s, {
           dealKey: `legacy${d.id}`,
           modelId: d.data?.modelId as string,
+          items: [{ modelId: d.data?.modelId as string, count: d.data?.count as number, age: d.data?.age as number }],
           count: d.data?.count as number,
           age: d.data?.age as number,
           total: d.data?.total as number,

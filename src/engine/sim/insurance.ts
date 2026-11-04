@@ -6,6 +6,7 @@
  *    and expensed under "Accident & repair" directly below "Maintenance & repairs".
  */
 import { BAL } from '../data/balance'
+import { fmtDate } from '../core/calendar'
 import { nextId } from '../core/ids'
 import { rngFor, rInt, rChance } from '../core/rng'
 import { fmtCompact } from '../core/money'
@@ -47,7 +48,7 @@ export function fileAccidentClaim(
   pushLog(
     s,
     'info',
-    `Claim filed on ${bus?.reg ?? busId}: surveyor due day ${claim.surveyorUntilDay}.${acct ? ` Accounts Manager ${acct.name} will handle settlement upon survey clearance.` : ' Pay garage now or wait to settle.'}`,
+    `Claim filed on ${bus?.reg ?? busId}: surveyor due ${fmtDate(claim.surveyorUntilDay)}.${acct ? ` Accounts Manager ${acct.name} will handle settlement upon survey clearance.` : ' Pay garage now or wait to settle.'}`,
   )
   return claim
 }
@@ -88,7 +89,7 @@ export function processInsuranceClaim(
     return { ok: false, error: `Claim already ${claim.status}.` }
   }
   if (s.day < claim.surveyorUntilDay && claim.status === 'survey') {
-    return { ok: false, error: `Surveyor still inspecting until Day ${claim.surveyorUntilDay}.` }
+    return { ok: false, error: `Surveyor still inspecting until ${fmtDate(claim.surveyorUntilDay)}.` }
   }
 
   const acct = accountantOnDuty(s)
@@ -110,7 +111,8 @@ export function processInsuranceClaim(
   if (rollsSettle) {
     // Settle success: credit to Insurance settlements in money
     const skillBonus = acct ? (acct.skill * deskCoverage(s, 'accountant') - 5) * 0.02 : 0
-    const payoutRate = Math.min(0.88, Math.max(0.60, C.settleShare + skillBonus))
+    const tierShift = s.config?.insuranceTier === 'basic' ? -0.15 : s.config?.insuranceTier === 'comprehensive' ? 0.07 : 0
+    const payoutRate = Math.min(0.95, Math.max(0.45, Math.min(0.88, Math.max(0.60, C.settleShare + skillBonus)) + tierShift))
     const payout = Math.round(claim.repairEstimate * payoutRate)
 
     earn(s, 'insurance_claim', payout, {

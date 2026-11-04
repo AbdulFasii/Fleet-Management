@@ -200,7 +200,7 @@ export function installDepotFuelTank(s: GameState): string | null {
 }
 
 /** Order a wholesale bulk tanker load (defaults to 8,000L) into the home depot tank. */
-export function orderDepotFuelRefill(s: GameState, litres = BAL.fuelCommercial.tankerLoadLitres): string | null {
+export function orderDepotFuelRefill(s: GameState, litres: number = BAL.fuelCommercial.tankerLoadLitres): string | null {
   const tank = s.company.depotFuelTank
   if (!tank?.installed) {
     return 'Home depot does not have a bulk fuel tank installed.'
@@ -239,7 +239,7 @@ export function toggleAutoRefillDepotTank(s: GameState, enabled?: boolean): stri
 /** Sign or switch an OMC Fleet Card partnership (IndianOil XtraPower, BPCL SmartFleet, HPCL DriveTrack Plus). */
 export function setFuelContract(s: GameState, partner: FuelPartner): string | null {
   if (partner === 'none') {
-    s.company.fuelContract = { partner: 'none', active: false }
+    s.company.fuelContract = { partner: 'none', active: false, signedDay: s.day }
     pushLog(s, 'info', 'OMC Fleet Card partnership cancelled.')
     return null
   }
@@ -254,7 +254,7 @@ export function setFuelContract(s: GameState, partner: FuelPartner): string | nu
     partner,
     active: true,
     signedDay: s.day,
-    cashbackRateBps: BAL.fuelCommercial.fleetCardRebateBps,
+    cashbackBps: BAL.fuelCommercial.fleetCardRebateBps,
   }
 
   pushLog(

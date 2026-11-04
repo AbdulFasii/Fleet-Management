@@ -1,4 +1,5 @@
 import type { Money } from './core/money'
+export type { Money } from './core/money'
 import type { IdCounter } from './core/ids'
 import type { RivalDef } from './data/rivals'
 
@@ -54,6 +55,7 @@ export type BusClassId =
   | 'AC_SLEEPER_PREM'
   | 'E_AC_SEMI'
   | 'CARGO'
+  | 'CHARTER'
 
 export interface BusModel {
   id: string
@@ -88,6 +90,7 @@ export interface BusModel {
   cargoVolumeCbm?: number
   /** Dedicated cargo carrier with 0 passenger seats */
   isCargoOnly?: boolean
+  isCharterOnly?: boolean
 }
 
 export type LayoutCols = '2+1' | '2+2' | '2+3' | 'cargo'
@@ -243,6 +246,14 @@ export interface Bus {
   bodyDesignId?: string
   /** Snapshot of body design name for display resilience. */
   bodyDesignName?: string
+  /** Calendar day when Engine & Transmission underwent precision mid-life overhaul */
+  powertrainOverhaulDay?: number
+  /** Fuel efficiency bonus multiplier from precision powertrain overhaul (+8% to +12% km/l, e.g. 0.10) */
+  powertrainKmplBonus?: number
+  /** Calendar day when luxury tech & amenities package retrofit was completed */
+  luxuryRetrofitDay?: number
+  /** Whether pneumatic air-suspension retrofit kit is fitted */
+  airSuspensionFitted?: boolean
 }
 
 export interface BusOrder {
@@ -317,7 +328,7 @@ export interface AttachOffer {
 /* ================================ Staff ================================ */
 
 export type StaffRole = 'driver' | 'co_driver' | 'conductor' | 'mechanic' | 'manager'
-export type DeskPost = 'hr' | 'ops' | 'workshop' | 'cargo' | 'schedule' | 'documents' | 'crm' | 'accountant'
+export type DeskPost = 'hr' | 'ops' | 'workshop' | 'cargo' | 'schedule' | 'documents' | 'crm' | 'accountant' | 'charter'
 
 export interface SpanMeter {
   desk: DeskPost
@@ -332,7 +343,7 @@ export interface SpanMeter {
 export type LicenceClass = 'HMV_PSV' | 'HMV_HP'
 export type MechanicTrade = 'engine_gearbox' | 'electrical_ac' | 'body_suspension' | 'general'
 
-export type BusDuty = 'line' | 'spare'
+export type BusDuty = 'line' | 'spare' | 'charter'
 
 export interface Staff {
   id: ID
@@ -454,19 +465,19 @@ export type FuelPartner = 'indianoil' | 'bpcl' | 'hpcl' | 'none'
 
 export interface FuelContract {
   partner: FuelPartner
-  cashbackBps: number // 250 = 2.5%
-  adulterationImmune: boolean
+  cashbackBps?: number // 250 = 2.5%
+  adulterationImmune?: boolean
   active: boolean
-  signedDay: number
+  signedDay?: number
 }
 
 export interface DepotFuelTank {
   installed: boolean
   capacityLitres: number // 10,000
-  currentLitres: number
-  wholesaleDiscountPaise: number // rs(4.00)
+  litres: number
+  wholesaleDiscountPaise?: number // rs(4.00)
   autoRefill: boolean
-  refillThresholdLitres: number // 2,000
+  refillThresholdLitres?: number // 2,000
 }
 
 export interface OperatorCertifications {
@@ -646,6 +657,8 @@ export interface Trip {
   pairEmptyDepart?: boolean
   /** Whether this trip was generated for a seasonal (festival) duty / service run. */
   isSeasonal?: boolean
+  /** Runs only on festival days. */
+  festivalOnly?: boolean
   /** Active flash sale discount (-20% fare, +65% booking pace) */
   flashDeal?: boolean
   /** Active last-minute surge (+25% fare) */
@@ -662,6 +675,7 @@ export type TxnHead =
   // income
   | 'ticket' | 'cargo' | 'charter' | 'advertising' | 'onboard' | 'cancellation_fee'
   | 'asset_sale' | 'subsidy' | 'other_income' | 'cargo_spot' | 'fuel_cashback'
+  | 'lounge_revenue'
   // direct trip cost
   | 'fuel' | 'adblue' | 'toll' | 'border_tax' | 'bata' | 'parking_cleaning' | 'loading_unloading'
   | 'passenger_amenities' | 'driver_incentive'
@@ -671,11 +685,11 @@ export type TxnHead =
   | 'maintenance' | 'accident_repair' | 'tyres' | 'insurance' | 'fitness' | 'puc' | 'permit_tax' | 'road_tax' | 'gps_telematics' | 'gps_fit'
   | 'lease_rent' | 'attach_owner_share' | 'inspection' | 'cargo_liability' | 'cleaning' | 'amenity_retrofit' | 'rebranding'
   // people & admin
-  | 'salary' | 'training' | 'office_admin' | 'depot_rent' | 'staff_welfare'
+  | 'salary' | 'training' | 'office_admin' | 'depot_rent' | 'staff_welfare' | 'lounge_opex'
   // finance & statutory
   | 'interest' | 'od_interest' | 'penalty' | 'processing_fee' | 'gst' | 'tds' | 'income_tax' | 'fine' | 'refund' | 'depreciation'
   // capital (not in P&L)
-  | 'bus_purchase' | 'workshop_capex' | 'app_capex' | 'depot_capex' | 'depot_fuel_capex' | 'loan_disbursal' | 'loan_principal'
+  | 'bus_purchase' | 'workshop_capex' | 'app_capex' | 'depot_capex' | 'depot_fuel_capex' | 'lounge_capex' | 'loan_disbursal' | 'loan_principal'
   | 'od_draw' | 'od_repay' | 'deposit' | 'seed_capital'
   | 'insurance_claim'
 
@@ -709,6 +723,8 @@ export interface Txn {
   busId?: ID
   routeId?: string
   tripId?: ID
+  /** Brand (subsidiary) that owns the bus behind this posting, stamped by the ledger. */
+  groupId?: ID
   refundCategory?: RefundCategory
 }
 
@@ -902,6 +918,23 @@ export interface Overdraft {
 
 /* ================================ World ================================ */
 
+export type CorridorStance = 'neutral' | 'undercut' | 'premium_hold' | 'cargo_bundle'
+
+export interface CorridorRivalAction {
+  rivalId: string
+  rivalName: string
+  routeId: string
+  tactic: 'predatory_timing' | 'price_war' | 'capacity_dump'
+  targetDepartureClocks: string[] // e.g. ["20:45", "22:15"]
+  fareDiscountPct: number // e.g. 20 (meaning -20%)
+  addedDailySeats: number // e.g. 90
+  startDay: number
+  untilDay: number
+  intensity: 'aggressive' | 'moderate' | 'desperate'
+  headline: string
+  details: string
+}
+
 export interface World {
   dieselPaise: number // per litre today
   /** competitor fare index per route (1 = benchmark), random walk + reactions */
@@ -941,6 +974,10 @@ export interface World {
   lastUnionDemandDay?: number
   /** Game day when the last group charter was generated (cooldown tracker) */
   lastCharterDay?: number
+  /** Dynamic rival intelligence actions (predatory timing, retaliatory price wars) */
+  rivalActions?: Record<string, CorridorRivalAction>
+  /** Game day when rival intelligence was last evaluated (weekly batched evaluation) */
+  lastRivalIntelDay?: number
 }
 
 /* ============================ Events & inbox ============================ */
@@ -953,12 +990,18 @@ export interface InboxMsg {
   cat: LogCat
   text: string
   read?: boolean
+  /** Page to open to act on this message, e.g. "/fleet/b12" or "/workshop". */
+  link?: string
 }
 
 export interface DecisionOption {
   id: string
   label: string
   detail?: string
+  /** Some decisions carry a stable key, a cost and a one-line effect for their handler. */
+  key?: string
+  cost?: number
+  effectHint?: string
 }
 
 export interface Decision {
@@ -970,6 +1013,8 @@ export interface Decision {
   body: string
   options: DecisionOption[]
   data?: Record<string, unknown>
+  /** Last day this decision can still be answered. */
+  expiresDay?: number
 }
 
 /* =============================== Company =============================== */
@@ -1070,6 +1115,124 @@ export interface CargoHaulDay {
   pools?: Record<string, CargoPoolState>
 }
 
+/* ================================ Charters & Block Bookings ================================ */
+
+export type CharterPricingStrategy = 'discount' | 'market' | 'premium'
+
+export type CharterCategory = 'pilgrimage' | 'wedding' | 'corporate' | 'school' | 'family' | 'tour'
+
+export interface CharterContract {
+  id: ID
+  title: string
+  category: CharterCategory
+  clientName: string
+  originCityId: string
+  destinationName: string
+  roundTripKm: number
+  durationDays: number
+  preferredCoachKind: 'semi' | 'sleeper' | 'seater' | 'van'
+  minSeats: number
+  minCondition: number
+  payout: Money
+  fuelCostEst: Money
+  tollCostEst: Money
+  driverBataEst: Money
+  netProfitEst: Money
+  busId?: ID
+  driverId?: ID
+  startDay: number
+  endDay: number
+  currentDayProgress: number
+  status: 'inquiry' | 'booked' | 'active' | 'completed' | 'cancelled'
+  pricingStrategy: CharterPricingStrategy
+  clientRating?: number
+  completedRevenue?: Money
+  completedExpenses?: Money
+  notes?: string
+  /** Deposit already collected at booking. */
+  depositPaid?: Money
+}
+
+export interface CharterOpsConfig {
+  pricingStrategy: CharterPricingStrategy
+  operatingBaseCityId: string
+  autoAccept: boolean
+  autoDispatch: boolean
+  minConditionScore: number
+  /** Auto-accept only takes tours with at least this margin. Default 0. */
+  minMarginPct?: number
+  /** Share of the fee collected when the tour is booked. Default 0. */
+  depositPct?: number
+}
+
+export interface CharterStats {
+  totalContracts: number
+  totalRevenue: Money
+  totalProfit: Money
+  avgRating: number
+}
+
+/* ================================ Passenger Lounges & Waiting Areas ================================ */
+
+export type LoungeTier = 'express' | 'premium' | 'business'
+
+export interface LoungeTierDef {
+  id: LoungeTier
+  name: string
+  label: string
+  sqft: number
+  seats: number
+  setupCost: Money
+  dailyRent: Money
+  dailyElectricity: Money
+  dailyStaffWage: Money
+  avgSnackSpend: Money
+  snackMargin: number
+  demandBoostPct: number
+  maxDailyPaxCapacity: number
+  desc: string
+  features: string[]
+}
+
+export type LoungeSeating = 'bench' | 'cushioned' | 'recliner' | 'pods'
+export type LoungeAmenityId = 'tea' | 'wifi' | 'assist' | 'cctv' | 'cafe' | 'rest'
+
+export interface PassengerLounge {
+  id: ID
+  cityId: string
+  locationName: string
+  tier: LoungeTier
+  /** Seating package. Missing on older saves: treated as cushioned. */
+  seating?: LoungeSeating
+  /** Amenities this lounge offers. Missing on older saves: the network policy in Settings applies. */
+  amenities?: LoungeAmenityId[]
+  openedDay: number
+  /** Daily stats */
+  yesterdayPax: number
+  yesterdaySnackRevenue: Money
+  yesterdayRentExpense: Money
+  yesterdayElectricExpense: Money
+  yesterdayStaffExpense: Money
+  yesterdayNetProfit: Money
+  /** Cumulative totals */
+  lifetimePax: number
+  lifetimeRevenue: Money
+  lifetimeExpense: Money
+}
+
+export interface PassengerHandlingConfig {
+  /** Amenity policy: complimentary tea, coffee & mineral water for waiting passengers */
+  complimentaryTeaCoffee?: boolean
+  /** Free high-speed optical Wi-Fi & USB fast charging */
+  freeHighSpeedWifi?: boolean
+  /** Boarding priority assistance & live SMS / WhatsApp tracking alerts */
+  boardingAssistanceAlerts?: boolean
+  /** 24/7 CCTV surveillance & digital luggage tag tracking */
+  cctvLuggageSecurity?: boolean
+  /** Lounge access policy: open to all passengers or premium ticket holders only */
+  accessPolicy?: 'all_passengers' | 'ac_only'
+}
+
 export interface Grievance {
   id: ID
   day: number
@@ -1083,6 +1246,10 @@ export interface Grievance {
 export interface Company {
   name: string
   cash: Money
+  /** 0-100, recomputed daily. See sim/health.ts. */
+  fleetHealth?: number
+  /** 0-100, recomputed daily. See sim/health.ts. */
+  crewWelfare?: number
   rating: number // RedBus star rating 1-5
   ratingCount: number
   punctuality: number // 0-1 on-time factor
@@ -1133,6 +1300,10 @@ export interface Company {
   crmId?: ID
   /** Accountant — files GST and TDS on due day */
   accountantId?: ID
+  /** Charter Operations Manager — coordinates pilgrimage, wedding & block contracts */
+  charterManagerId?: ID
+  /** Charter operations configuration and pricing policy */
+  charterConfig?: CharterOpsConfig
   /** Extra managers posted to a desk beyond the head. Each adds part of a head's span. */
   deskAssistants?: Partial<Record<DeskPost, ID[]>>
   /** Last day a span warning was logged for a desk (throttled to once per 30 days). */
@@ -1191,6 +1362,8 @@ export interface Company {
   cargoHaulDay?: CargoHaulDay
   /** Dedicated Cargo Service Subsidiary (unlocks dedicated fleet, large contracts up to 26T, bulk spot consignments) */
   dedicatedCargoSubsidiary?: boolean
+  /** Player's strategic corridor defensive stance per route against rival predatory moves */
+  corridorStance?: Record<string, CorridorStance>
   /** Whether the manager automatically signs corporate contracts (defaults to true; set false to manage manually). */
   cargoAutoSignContracts?: boolean
   /** Relationship score per lender (0-100) — grows with on-time EMI payments, unlocks rate discounts */
@@ -1215,6 +1388,8 @@ export interface Company {
   certifications?: OperatorCertifications
   /** Driver eco-driving & safety mileage incentive active (₹250/trip bonus) */
   ecoIncentiveActive?: boolean
+  /** Passenger waiting areas & boarding lounges opened across cities */
+  lounges?: PassengerLounge[]
 }
 
 export type TyreBrand = 'oem' | 'tier2' | 'retread'
@@ -1300,6 +1475,8 @@ export interface ScheduleDefaults {
 }
 
 export type CargoPricingType = 'normal' | 'aggressive' | 'discount'
+export type DriverDormitoryTier = 'none' | 'basic' | 'ac_canteen'
+export type FestivalBonusTier = 'full' | 'half' | 'gift' | 'skip'
 
 /** Player-tunable display / ops knobs (not economy balance). */
 export interface PlayerConfig {
@@ -1307,6 +1484,10 @@ export interface PlayerConfig {
   odoHighlightKm: number
   /** Auto-pay insurance, fitness, road tax and route permits when due (cash + OD). Default on. */
   autoRenewDocs?: boolean
+  /** Eco-driving bonus to drivers: better mileage and tyre life. */
+  ecoIncentiveActive?: boolean
+  /** HR raises salaries to market automatically. */
+  hrAutoRaise?: boolean
   /** Parcel base rate in ₹ per kg per 100 km (default 2.0). */
   cargoBaseRateRs?: number
   /** Cargo pricing strategy: normal (1.0x), aggressive (+10% to +20%), discount (-5% to -15%) */
@@ -1319,6 +1500,10 @@ export interface PlayerConfig {
   healthCoverage?: boolean
   /** Welfare: annual Diwali/festival bonus for staff */
   festivalBonus?: boolean
+  /** Welfare: depot driver dormitories (clean AC bunks, hot showers, subsidized canteen) */
+  driverDormitoryTier?: DriverDormitoryTier
+  /** Welfare: festival bonus policy tier (full = 100% salary, half = 50%, gift = ₹2,500, skip) */
+  festivalBonusTier?: FestivalBonusTier
 
   /* ---- Decision & Simulation Flow Configs ---- */
   /** Auto-pause simulation when cash drops below emergency threshold (default: on) */
@@ -1353,12 +1538,24 @@ export interface PlayerConfig {
   lastMinuteDiscount?: boolean
   /** Minimum cash reserve safety buffer before making large purchases (paise) */
   emergencyReserveBuffer?: Money
+  /** Highest fare multiplier dynamic pricing may reach on ordinary days, in percent of the base fare. Default 275. */
+  surgeCapPct?: number
+  /** Last-minute cut (when enabled) takes fares to this percent of the normal fare. Default 85. */
+  lastMinuteFloorPct?: number
+  /** Whether a workshop manager covers a broken-down coach with a spare: never, from the same brand only, or from any brand. */
+  autoCoverPolicy?: 'off' | 'same_brand' | 'any'
+  /** Monthly training budget. Each ₹25,000 sends one crew member on a course (+1 skill, +morale). Default 0. */
+  trainingBudgetPerMonth?: Money
+  /** Insurance cover: basic is cheaper and pays claims less; comprehensive costs more and pays more. */
+  insuranceTier?: 'basic' | 'standard' | 'comprehensive'
+  /** Minutes late before a freight run counts as an SLA breach. Default 120. */
+  slaToleranceMin?: number
   /** Default passenger amenities offered on newly created schedules */
   defaultAmenities?: PassengerAmenities
   /** Default service branding tier on newly created schedules */
   defaultServiceTier?: ServiceTier
-  /** Driver eco-driving & safety mileage incentive active (₹250/trip bonus) */
-  ecoIncentiveActive?: boolean
+  /** Passenger safety, hospitality & lounge handling policies */
+  passengerConfig?: PassengerHandlingConfig
 }
 
 /* ================================ KPIs ================================= */
@@ -1379,6 +1576,14 @@ export interface DailyKpi {
 /* ============================== Game state ============================= */
 
 export type Difficulty = 'sahukar' | 'malik' | 'seth' // hard / normal / easy
+
+export interface Victory {
+  day: number
+  score: GameOver['score']
+  netWorth: Money
+  /** Player chose to keep playing; do not show the scorecard again. */
+  acknowledged?: boolean
+}
 
 export interface GameOver {
   day: number
@@ -1403,8 +1608,10 @@ export interface BusGroup {
   name: string                 // "Maruti Travels"
   code: string                 // short uppercase code, unique, 2-5 chars
   color: string                // hex used for the badge
-  /** Optional branding photo (e.g. livery / bus shot) as a downscaled image data URL. */
+  /** Optional branding photo (e.g. livery / bus shot) as a public HTTPS URL or legacy data URL. */
   brandingPic?: string
+  /** Optional brand gallery showcase photos (stored as public HTTPS URLs, capped at 12). */
+  gallery?: string[]
   /**
    * UI-only parent subsidiary reference. Not used by sim/finance; for org chart display.
    */
@@ -1489,6 +1696,15 @@ export interface GameState {
   /** Separately tracked revenue, direct expenses, and outcomes for seasonal festival scheduled service runs. */
   seasonalStats?: SeasonalServiceStats
 
+  /** Active & running dedicated charter and block contracts */
+  charterContracts?: CharterContract[]
+  /** Pending incoming customer inquiries for charter bookings */
+  charterInquiries?: CharterContract[]
+  /** Completed past charter contracts financial history */
+  charterHistory?: CharterContract[]
+  /** Cumulative lifetime performance stats for charter operations */
+  charterStats?: CharterStats
+
   world: World
   inbox: InboxMsg[]
   decisions: Decision[]
@@ -1507,4 +1723,8 @@ export interface GameState {
   forcedEventId?: string
 
   gameOver?: GameOver
+  /** Company goals reached: id -> day. */
+  objectives?: Record<string, number>
+  /** Set once when the final goal is met; the game continues after it. */
+  victory?: Victory
 }

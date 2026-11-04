@@ -436,6 +436,8 @@ export const BAL = {
     AC_SLEEPER: 0.94,
     AC_SLEEPER_PREM: 0.86,
     E_AC_SEMI: 1.04,
+    CARGO: 1.0,
+    CHARTER: 1.0,
   } as Record<BusClassId, number>,
   /**
    * Spread across the open booking window so a schedule created yesterday is
@@ -735,6 +737,22 @@ export const BAL = {
     seatRefurbComfortBonus: 1.5,
     /** Max PSS points a fully refurbished cabin adds on a trip. */
     seatRefurbPssMax: 0.45,
+
+    /** Powertrain (Engine & Transmission) precision mid-life overhaul */
+    powertrainCostMin: L(3.5),
+    powertrainCostMax: L(5.5),
+    powertrainDays: 14,
+    powertrainRestore: 98,
+    /** Restores fuel efficiency by 8–12% (+10% mileage boost) */
+    powertrainKmplBonus: 0.10,
+
+    /** Luxury amenities & pneumatic air-suspension retrofit */
+    luxuryCostMin: L(2.5),
+    luxuryCostMax: L(4.2),
+    luxuryDays: 10,
+    luxuryComfortBonus: 2.0,
+    luxuryPssBonus: 0.65,
+    luxuryRestoreSuspension: 95,
   },
 
   /* ---------------- insurance / statutory / fixed ---------------- */
@@ -800,6 +818,7 @@ export const BAL = {
       documents: 40,  // vehicle files: coaches + route permits
       crm: 40,        // open grievances processed per day
       accountant: 2500, // ledger rows in the trailing 30 days
+      charter: 12,    // active charter contracts & dedicated fleet
     },
     /** Each skill point away from 5 changes span by this share. */
     skillPerPoint: 0.06,       // +30% at skill 10, -18% at skill 2

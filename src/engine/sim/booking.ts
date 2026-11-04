@@ -203,7 +203,7 @@ export function planMarathonLegs(
         if (t.routeId !== route.id) continue
         // Only trips that have actually run or are currently on the road define physical vehicle position.
         // Open trips across the booking window are prospective legs being planned/rebuilt.
-        const isPhysicalTrip = t.status === 'completed' || t.status === 'dispatched' || t.day < s.day
+        const isPhysicalTrip = t.status === 'completed' || t.day < s.day
         if (!isPhysicalTrip) continue
 
         const tripDep = t.day * 1440 + t.depHour * 60 + (t.depMin ?? 0)
@@ -666,10 +666,12 @@ interface BusyIndex {
 
 function makeBusyIndex(s: GameState): BusyIndex {
   const idx: BusyIndex = { byBus: new Map(), byTrip: new Map() }
-  for (const t of Object.values(s.trips)) {
-    if (t.status === 'cancelled') continue
+  const minDay = s.day - 2
+  for (const id in s.trips) {
+    const t = s.trips[id]
+    if (!t || t.status === 'cancelled') continue
     // Only recent and future departures can collide with a fresh leg.
-    if (t.day < s.day - 2) continue
+    if (t.day < minDay) continue
     const route = ROUTES[t.routeId]
     const start = t.day * 1440 + t.depHour * 60 + (t.depMin ?? 0)
     const turnMin = route ? turnaroundMinutes(route, s) : 45
@@ -689,16 +691,24 @@ function setBusy(idx: BusyIndex, tripId: string, busId: ID, start: number, end: 
     }
   }
   idx.byTrip.set(tripId, { busId, start, end })
-  const list = idx.byBus.get(busId) ?? []
+  let list = idx.byBus.get(busId)
+  if (!list) {
+    list = []
+    idx.byBus.set(busId, list)
+  }
   list.push({ id: tripId, start, end })
-  idx.byBus.set(busId, list)
 }
 
 /** True when this vehicle is already booked for an overlapping departure. */
 function busyClash(idx: BusyIndex, busId: ID, start: number, end: number, selfTripId: string): boolean {
   const list = idx.byBus.get(busId)
   if (!list) return false
-  return list.some((w) => w.id !== selfTripId && start < w.end && w.start < end)
+  const len = list.length
+  for (let i = 0; i < len; i++) {
+    const w = list[i]!
+    if (w.id !== selfTripId && start < w.end && w.start < end) return true
+  }
+  return false
 }
 
 /** Ensure trips exist for one outbound calendar day of a schedule. */
@@ -876,8 +886,9 @@ export function generateTrips(s: GameState): void {
 
   // 1. Release legs the current plan no longer runs, so they cannot block the
   //    coach's real departure in the collision index below.
-  for (const sch of Object.values(s.schedules)) {
-    if (!sch.active || sch.busIds.length === 0) continue
+  for (const schId in s.schedules) {
+    const sch = s.schedules[schId]
+    if (!sch || !sch.active || sch.busIds.length === 0) continue
     const permit = s.permits[sch.routeId]
     if (!permit || permit.status !== 'active') continue
     const route = ROUTES[sch.routeId]
@@ -887,8 +898,9 @@ export function generateTrips(s: GameState): void {
 
   // 2. Book what survived, then fill in every missing leg of the window.
   const busy = makeBusyIndex(s)
-  for (const sch of Object.values(s.schedules)) {
-    if (!sch.active || sch.busIds.length === 0) continue
+  for (const schId in s.schedules) {
+    const sch = s.schedules[schId]
+    if (!sch || !sch.active || sch.busIds.length === 0) continue
     const permit = s.permits[sch.routeId]
     if (!permit || permit.status !== 'active') continue
     const route = ROUTES[sch.routeId]
@@ -1550,21 +1562,36 @@ export function processCancellations(s: GameState, trip: Trip): void {
       })
     }
     if (retainedTotal > 0) {
-      s.curMonth.income.ticket = Math.max(0, (s.curMonth.income.ticket ?? 0) - retainedTotal)
-      s.curMonth.income.cancellation_fee = (s.curMonth.income.cancellation_fee ?? 0) + retainedTotal
-      if (s.curMonth.ticketBreakdown) {
-        s.curMonth.ticketBreakdown.gross = Math.max(0, s.curMonth.ticketBreakdown.gross - retainedTotal)
+      // The retained part of a cancelled ticket stays company income but changes head:
+      // ticket -> cancellation fee. Move exactly what the ticket head holds so totals
+      // never change, and move the same amount in the ledger rows so they still tie out.
+      const moved = Math.min(retainedTotal, s.curMonth.income.ticket ?? 0)
+      if (moved > 0) {
+        s.curMonth.income.ticket = (s.curMonth.income.ticket ?? 0) - moved
+        s.curMonth.income.cancellation_fee = (s.curMonth.income.cancellation_fee ?? 0) + moved
+        if (s.curMonth.ticketBreakdown) {
+          s.curMonth.ticketBreakdown.gross = Math.max(0, s.curMonth.ticketBreakdown.gross - moved)
+        }
+        let left = moved
+        for (let i = s.txns.length - 1; i >= 0 && left > 0; i--) {
+          const row = s.txns[i]!
+          if (row.head !== 'ticket' || row.kind !== 'income' || row.busId !== trip.busId || row.routeId !== trip.routeId) continue
+          const take = Math.min(left, row.amount)
+          row.amount -= take
+          left -= take
+        }
+        s.txns = s.txns.filter((r) => !(r.head === 'ticket' && r.kind === 'income' && r.amount <= 0))
+        pushTxn(s, {
+          day: s.day,
+          head: 'cancellation_fee',
+          kind: 'income',
+          amount: moved,
+          busId: trip.busId,
+          routeId: trip.routeId,
+          tripId: trip.id,
+          note: `${nCancel} seat(s) cancelled · fee retained (${policy})`,
+        })
       }
-      pushTxn(s, {
-        day: s.day,
-        head: 'cancellation_fee',
-        kind: 'income',
-        amount: retainedTotal,
-        busId: trip.busId,
-        routeId: trip.routeId,
-        tripId: trip.id,
-        note: `${nCancel} seat(s) cancelled · fee retained (${policy})`,
-      })
     }
     const bus = s.buses[trip.busId]
     if (bus?.ownership === 'attached' && bus.attach) {
@@ -1675,6 +1702,17 @@ export function bookingPass(s: GameState): { seatsSold: number } {
       }
     }
     before += trip.sold
+    processCancellations(s, trip)
+
+    const cap = trip.seatCount || trip.seats.length
+    // If the coach is already full after cancellations, no new seats can be sold.
+    // Skip load-factor estimation, arrivals calculation, and queue allocations.
+    if (trip.sold >= cap) {
+      after += trip.sold
+      packColdTripSeats(s, trip)
+      continue
+    }
+
     // One load-factor estimate per trip per day — cancellations, backfill and
     // today's arrivals all read the same model, and evaluating it three times
     // was the single largest cost of a day in a 70-coach game.
@@ -1685,7 +1723,6 @@ export function bookingPass(s: GameState): { seatsSold: number } {
     // occupancy and channel mix without rebuilding, sorting and re-packing
     // ~40 berths twice a day.
     const aggregate = trip.seats.length === 0 && daysToDep > LIVE_SEAT_DAYS
-    processCancellations(s, trip)
     if (aggregate) {
       const counts = emptyChannelSold()
       const gap = weights ? backfillGap(s, trip, daysToDep, est, weights) : null

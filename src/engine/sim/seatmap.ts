@@ -59,7 +59,7 @@ export function buildSeats(model: BusModel, seed: number, tripKey: string): Trip
   } else if (layout.kind !== 'sleeper') {
     const cols: LayoutCols = isLayoutCols(layout.cols)
       ? layout.cols
-      : (layout.kind === 'hybrid' ? '2+1' : '2+2')
+      : ((layout.kind as string) === 'hybrid' ? '2+1' : '2+2')
     const perRow = cols === '2+3' ? 5 : 4
     const posOfCol: ('window' | 'aisle' | 'middle')[] =
       cols === '2+3'

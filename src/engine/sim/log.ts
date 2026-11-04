@@ -4,10 +4,10 @@ import type { Decision, GameState, LogCat } from '../types'
 /** All relevant operational categories land in the inbox; visually styled by category. */
 const KEEP: ReadonlySet<LogCat> = new Set(['alert', 'event', 'good', 'finance', 'info', 'trip'])
 
-export function pushLog(s: GameState, cat: LogCat, text: string): void {
+export function pushLog(s: GameState, cat: LogCat, text: string, link?: string): void {
   if (!KEEP.has(cat)) return
   if (!s.inbox) s.inbox = []
-  s.inbox.push({ id: nextId(s.ids, 'm'), day: s.day, cat, text, read: false })
+  s.inbox.push({ id: nextId(s.ids, 'm'), day: s.day, cat, text, read: false, ...(link ? { link } : {}) })
   if (s.inbox.length > 300) s.inbox.splice(0, s.inbox.length - 300)
 }
 

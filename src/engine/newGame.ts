@@ -91,6 +91,13 @@ export function newGame(
       hrAutoRaise: false,
       hrAutoFire: defaultHrAutoFire(),
       opsAutoStaff: true,
+      charterConfig: {
+        pricingStrategy: 'market',
+        operatingBaseCityId: ROUTES[homeRouteId]?.from ?? 'maa',
+        autoAccept: false,
+        autoDispatch: true,
+        minConditionScore: 50,
+      },
     },
     workshop: { level: 0, bays: 0, mechanicIds: [], locations: [] },
     config: {
@@ -111,7 +118,7 @@ export function newGame(
       speedGovernor: 'normal',
       preventiveServiceThreshold: 75,
       tyreReplacementKmThreshold: 15_000,
-      preferredTyreBrand: 'tier2',
+      preferredTyreBrand: 'oem',
       dynamicYieldSurge: true,
       lastMinuteDiscount: false,
       emergencyReserveBuffer: rs(200_000),
@@ -155,6 +162,10 @@ export function newGame(
       lifetime: { trips: 0, revenue: 0, expenses: 0, profit: 0, pax: 0, seatKm: 0, paxKm: 0 },
       history: [],
     },
+    charterContracts: [],
+    charterInquiries: [],
+    charterHistory: [],
+    charterStats: { totalContracts: 0, totalRevenue: 0, totalProfit: 0, avgRating: 4.8 },
 
     world: {
       dieselPaise: BAL.dieselBase,
@@ -192,6 +203,7 @@ export function newGame(
 
   const initCode = initialBrandCode(name)
   const grpId = nextId(s.ids, 'grp')
+  s.groups = s.groups ?? {}
   s.groups[grpId] = {
     id: grpId,
     name,

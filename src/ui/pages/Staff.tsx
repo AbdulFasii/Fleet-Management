@@ -30,7 +30,7 @@ import { conductorCleanlinessTarget } from '../../engine/sim/maintenance'
 import { companyCargoFillRate } from '../../engine/sim/cargo'
 import type { GameState, HrAutoHire, ID, Staff, StaffRole } from '../../engine/types'
 import { CREW_ROLES } from '../crew'
-import { Bar, DataTable, M, Panel, SpanMeter, type Col } from '../bits'
+import { Bar, DataTable, M, Panel, SpanMeter, type Col, Hint, StatRow, BusLink, Tabs, PageHeader } from '../bits'
 import { qty } from '../format'
 import { spanMeters, DESK_UNIT, officeStaffingStats } from '../../engine/sim/span'
 
@@ -109,7 +109,7 @@ function DeskAssistants({ s, desk }: { s: GameState; desk: DeskPost }) {
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--panel-border, rgba(255,255,255,0.1))' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <span className="dim small" style={{ fontWeight: 600 }}>Assistant Managers ({list.length})</span>
+        <span className="dim small bold">Assistant Managers ({list.length})</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <ManagerPick
             s={s}
@@ -130,7 +130,7 @@ function DeskAssistants({ s, desk }: { s: GameState; desk: DeskPost }) {
             if (!st) return null
             return (
               <span key={aid} className="pill small" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                👤 {st.name} (Sk {st.skill})
+                {st.name} (Sk {st.skill})
                 <button
                   onClick={() => g.unappointDeskAssistant(desk, aid)}
                   style={{ background: 'none', border: 'none', color: 'var(--red, #ef4444)', cursor: 'pointer', padding: '0 2px', fontWeight: 'bold' }}
@@ -206,9 +206,7 @@ function CrewHeadcountTable({ s }: { s: GameState }) {
           </tr>
         </tbody>
       </table>
-      <div className="dim small" style={{ marginTop: 8 }}>
-        * Total Req includes ~15% relief buffer for CMVR statutory night rest, weekly off, and sick leave.
-      </div>
+      <Hint text={"* Total Req includes ~15% relief buffer for CMVR statutory night rest, weekly off, and sick leave."} />
     </div>
   )
 }
@@ -258,14 +256,12 @@ function RoleSalaryCapsEditor({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
         <div>
           <b className="small">Role Salary Caps (Auto-Fire Thresholds):</b>
-          <div className="dim small">
-            HR automatically fires any employee whose monthly salary crosses their role's cap (no confirmation needed, 1 month severance paid).
-          </div>
+          <Hint text={"HR automatically fires any employee whose monthly salary crosses their role's cap (no confirmation needed, 1 month severance paid)."} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="row gap">
           {dirty && (
             <span className="warn small">
-              ⚠️ Unsaved changes
+              Unsaved changes
             </span>
           )}
           <button
@@ -316,7 +312,7 @@ function RoleSalaryCapsEditor({
                 <span className="dim small">{roleStaff.length} on rolls</span>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div className="row gap6">
                 <span className="dim small" style={{ fontSize: 11, minWidth: 28 }}>Cap:</span>
                 <input
                   type="number"
@@ -375,11 +371,11 @@ function RoleSalaryCapsEditor({
 
               {overCapCount > 0 ? (
                 <div className="bad small" style={{ fontSize: 11 }}>
-                  ⚠️ {overCapCount} currently over cap
+                  {overCapCount} currently over cap
                 </div>
               ) : (
                 <div className="good small" style={{ fontSize: 11 }}>
-                  ✓ All staff within cap
+                  All staff within cap
                 </div>
               )}
             </div>
@@ -469,7 +465,7 @@ function AutoHireRulesEditor({
               title={autoMode === 'match' ? `${matchTargetHint(role)}: ${have} / ${target}` : undefined}
               onClick={() => setActiveRoleTab(role)}
             >
-              {isEnabled ? '✓ ' : '✕ '}
+              {isEnabled ? '' : '✕ '}
               {ROLE_LABEL[role]}
               <span className="dim" style={{ marginLeft: 4, fontSize: 11 }}>
                 ({isEnabled ? `${skillsCount} skills` : 'off'}
@@ -484,7 +480,7 @@ function AutoHireRulesEditor({
       {auto.byRole[activeRoleTab] !== undefined ? (
         <div style={{ background: 'var(--bg2)', padding: 10, border: '1px solid var(--border)', borderRadius: 4, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div className="row gap wrap">
               <span style={{ fontWeight: 600, fontSize: 13 }}>{ROLE_LABEL[activeRoleTab]} Auto-Hire Criteria</span>
               <span className="pill good small">Active</span>
               {autoMode === 'match' && (
@@ -507,7 +503,7 @@ function AutoHireRulesEditor({
           {/* Skill Filter Row */}
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
-              <span className="dim small" style={{ fontWeight: 600 }}>Skill Filter (1–10):</span>
+              <span className="dim small bold">Skill Filter (1–10):</span>
               <div style={{ display: 'flex', gap: 4 }}>
                 <button
                   type="button"
@@ -560,10 +556,10 @@ function AutoHireRulesEditor({
                   </button>
                 )
               })}
-              <span className="dim small" style={{ marginLeft: 8 }}>
+              <span className="dim small ml8">
                 {auto.byRole[activeRoleTab]?.length
                   ? `Hires skill ${(auto.byRole[activeRoleTab] ?? []).join(', ')}`
-                  : '⚠️ No skills selected — hiring paused for this role'}
+                  : 'No skills selected — hiring paused for this role'}
               </span>
             </div>
           </div>
@@ -572,21 +568,21 @@ function AutoHireRulesEditor({
           {activeRoleTab === 'driver' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
               {/* Driving Style Selectors */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div className="row gap wrap">
                 <span className="dim small" style={{ fontWeight: 600, minWidth: 100 }}>Driving Style:</span>
                 <button
                   type="button"
                   className={drivingStyles.includes('cautious') ? 'primary small' : 'small faint'}
                   onClick={() => g.setHrAutoHire({ toggleDrivingStyle: 'cautious' })}
                 >
-                  {drivingStyles.includes('cautious') ? '✓ ' : ''}🛡️ Cautious
+                  {drivingStyles.includes('cautious') ? '' : ''}Cautious
                 </button>
                 <button
                   type="button"
                   className={drivingStyles.includes('aggressive') ? 'primary small' : 'small faint'}
                   onClick={() => g.setHrAutoHire({ toggleDrivingStyle: 'aggressive' })}
                 >
-                  {drivingStyles.includes('aggressive') ? '✓ ' : ''}⚡ Aggressive
+                  {drivingStyles.includes('aggressive') ? '' : ''}Aggressive
                 </button>
                 <span className="dim small">
                   {drivingStyles.length === 0 || drivingStyles.length === 2
@@ -598,21 +594,21 @@ function AutoHireRulesEditor({
               </div>
 
               {/* Licence Class Selectors */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div className="row gap wrap">
                 <span className="dim small" style={{ fontWeight: 600, minWidth: 100 }}>Licence Class:</span>
                 <button
                   type="button"
                   className={licenceClasses.includes('HMV_PSV') ? 'primary small' : 'small faint'}
                   onClick={() => g.setHrAutoHire({ toggleLicenceClass: 'HMV_PSV' })}
                 >
-                  {licenceClasses.includes('HMV_PSV') ? '✓ ' : ''}HMV_PSV (Standard)
+                  {licenceClasses.includes('HMV_PSV') ? '' : ''}HMV_PSV (Standard)
                 </button>
                 <button
                   type="button"
                   className={licenceClasses.includes('HMV_HP') ? 'primary small' : 'small faint'}
                   onClick={() => g.setHrAutoHire({ toggleLicenceClass: 'HMV_HP' })}
                 >
-                  {licenceClasses.includes('HMV_HP') ? '✓ ' : ''}HMV_HP (Heavy Coach)
+                  {licenceClasses.includes('HMV_HP') ? '' : ''}HMV_HP (Heavy Coach)
                 </button>
                 <span className="dim small">
                   {licenceClasses.length === 0 || licenceClasses.length === 2
@@ -643,7 +639,7 @@ function AutoHireRulesEditor({
                     className={isSelected ? 'primary small' : 'small faint'}
                     onClick={() => g.setHrAutoHire({ toggleMechanicTrade: tradeKey as any })}
                   >
-                    {isSelected ? '✓ ' : ''}{tradeLabel}
+                    {isSelected ? '' : ''}{tradeLabel}
                   </button>
                 )
               })}
@@ -739,6 +735,7 @@ export function StaffPage() {
   const docsMgr = s.company.docsManagerId ? s.staff[s.company.docsManagerId] : undefined
   const crmMgr = s.company.crmId ? s.staff[s.company.crmId] : undefined
   const accountantMgr = s.company.accountantId ? s.staff[s.company.accountantId] : undefined
+  const charterMgr = s.company.charterManagerId ? s.staff[s.company.charterManagerId] : undefined
   const pool = (poolFilter === 'all' ? s.hiringPool : s.hiringPool.filter((c) => c.role === poolFilter))
     .filter((c) => {
       if (!poolSearch.trim()) return true
@@ -774,7 +771,7 @@ export function StaffPage() {
       render: (x) => (
         <div>
           <b>{x.name}</b>
-          <span className="pill small dim" style={{ marginLeft: 6 }}>
+          <span className="pill small dim ml6">
             {ROLE_LABEL[x.role] ?? x.role}
           </span>
           {x.onLeaveUntilDay && x.onLeaveUntilDay >= s.day && (
@@ -794,7 +791,7 @@ export function StaffPage() {
           return (
             <div>
               <span className={x.drivingStyle === 'aggressive' ? 'warn' : 'good'}>
-                {x.drivingStyle === 'aggressive' ? '⚡ Aggressive' : '🛡️ Cautious'}
+                {x.drivingStyle === 'aggressive' ? 'Aggressive' : 'Cautious'}
               </span>
               {' · '}
               <span className={x.licenceClass === 'HMV_HP' ? 'good' : 'dim'} title={x.licenceClass === 'HMV_HP' ? 'Heavy coach licence' : 'Standard bus licence'}>
@@ -878,7 +875,7 @@ export function StaffPage() {
             <b><M v={x.salary} /></b>
             {isOver && (
               <div className="bad small" title={`Exceeds ${ROLE_LABEL[x.role]} auto-fire cap of ${fmtCompact(cap)}/mo (will be auto-fired by HR)`}>
-                ⚠️ Over cap ({fmtCompact(cap)})
+                Over cap ({fmtCompact(cap)})
               </div>
             )}
             {isNear && (
@@ -896,7 +893,7 @@ export function StaffPage() {
       label: 'Morale',
       sort: (x) => x.morale,
       render: (x) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className="row gap6">
           <Bar value={x.morale / 100} tone="auto" width={6} />
           <span className="small">{Math.round(x.morale)}%</span>
         </div>
@@ -910,7 +907,7 @@ export function StaffPage() {
         if (x.role !== 'driver' && x.role !== 'conductor') return <span className="dim">—</span>
         const fat = Math.round(Number(x.fatigue) || 0)
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div className="row gap6">
             <Bar value={fat / 100} tone={fat >= BAL.hrFatigueSwapAt ? 'bad' : fat >= BAL.fatigueAccidentThreshold ? 'warn' : 'auto'} width={6} />
             <span className={`small ${fat >= BAL.hrFatigueSwapAt ? 'bad' : fat >= BAL.fatigueAccidentThreshold ? 'warn' : 'dim'}`}>{fat}%</span>
           </div>
@@ -944,7 +941,7 @@ export function StaffPage() {
           }
           return (
             <div>
-              <span className="good">🏢 {DESK_LABEL[desk]}</span>{' '}
+              <span className="good">{DESK_LABEL[desk]}</span>{' '}
               <button className="small faint" onClick={unappoint}>unappoint</button>
             </div>
           )
@@ -952,7 +949,7 @@ export function StaffPage() {
         if ((s.workshop.mechanicIds ?? []).includes(x.id)) {
           return (
             <div>
-              <span className="good">🔧 Workshop Bay</span>{' '}
+              <span className="good">Workshop Bay</span>{' '}
               <button className="small faint" onClick={() => g.unappointBayMechanic(x.id)}>release</button>
             </div>
           )
@@ -985,7 +982,7 @@ export function StaffPage() {
             : 'Idle in yard'
         return (
           <div>
-            <Link to={`/fleet/${bus.id}`}><b>{bus.reg}</b></Link>
+            <BusLink id={bus.id} reg={bus.reg} />
             <div className="dim small">{routeLabel}</div>
             {x.role === 'driver' && (
               <button className="small faint" style={{ marginTop: 2 }} onClick={() => g.appointSpareDriver(x.id)}>
@@ -1158,85 +1155,53 @@ export function StaffPage() {
   return (
     <>
       {/* Page Title & Navigation */}
-      <div className="page-title">
-        <span>Staff & Crew Operations</span>
-        <span className="sub">
-          {staff.length} on rolls · Payroll <M v={totalPayroll} />/mo · Head Office <M v={officeCost.total} />/mo
-        </span>
-        <span className="spacer" />
-        <span className="flex" style={{ gap: 6 }}>
-          {([
-            ['payroll', `📋 Rolls (${staff.length})`],
-            ['hiring', `🤝 Hiring Pool (${s.hiringPool.length})`],
-            ['desks', `🏢 Head Office (${officeStaff.totalFilled}/${officeStaff.totalRequired})`],
-            ['planning', '👥 Crew Planning'],
-          ] as const).map(([id, label]) => (
-            <button
-              key={id}
-              className={`small ${activeTab === id ? 'primary' : ''}`}
-              onClick={() => selectTab(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
+      <PageHeader title="Staff" facts={<>{staff.length} on rolls · Payroll <M v={totalPayroll} />/mo · Head Office <M v={officeCost.total} />/mo</>}>
+        <Tabs inline tabs={[
+            ['payroll', `Rolls (${staff.length})`],
+            ['hiring', `Hiring Pool (${s.hiringPool.length})`],
+            ['desks', `Head Office (${officeStaff.totalFilled}/${officeStaff.totalRequired})`],
+            ['planning', 'Crew Planning'],
+          ] as const} value={activeTab} onChange={selectTab} />
+      </PageHeader>
 
-      {/* Top Compact KPI Summary Bar */}
-      <div className="grid-4" style={{ gap: 10, marginBottom: 12 }}>
-        <div className="panel" style={{ padding: '8px 12px' }}>
-          <div className="dim small" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>Headcount On Rolls</div>
-          <div style={{ fontSize: 17, fontWeight: 700, margin: '2px 0' }}>{staff.length} Employees</div>
-          <div className="dim small">
-            {drivers.length} Drivers · {conductors.length} Conductors · {mechanics.length} Mechanics
-          </div>
-        </div>
+      <StatRow
+        items={[
+          { label: 'Staff', value: staff.length, title: `${drivers.length} drivers · ${conductors.length} conductors · ${mechanics.length} mechanics` },
+          { label: 'Payroll/mo', value: <M v={totalPayroll} />, title: `Avg ${fmtCompact(staff.length > 0 ? Math.round(totalPayroll / staff.length) : 0)} per employee` },
+          { label: 'Crew', value: `${activeCrewCount} active${restingCount > 0 ? ` · ${restingCount} rest` : ''}${onLeaveCount > 0 ? ` · ${onLeaveCount} leave` : ''}`, tone: est.drivers.total.current < est.drivers.total.required ? 'warn' : 'good', title: est.drivers.total.current < est.drivers.total.required ? 'Driver buffer needed' : 'Crew requirement covered' },
+          { label: 'Desks', value: `${officeStaff.totalFilled}/${officeStaff.totalRequired}`, tone: officeStaff.tone as 'good' | 'warn' | 'bad', title: `${officeStaff.headsFilled}/8 heads · office rent ${fmtCompact(officeCost.total)}/mo` },
+        ]}
+      />
 
-        <div className="panel" style={{ padding: '8px 12px' }}>
-          <div className="dim small" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>Monthly Payroll</div>
-          <div style={{ fontSize: 17, fontWeight: 700, margin: '2px 0' }} className="good">
-            <M v={totalPayroll} full />
-          </div>
-          <div className="dim small">
-            Avg {fmtCompact(staff.length > 0 ? Math.round(totalPayroll / staff.length) : 0)} / employee
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '8px 12px' }}>
-          <div className="dim small" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>Crew Duty Status</div>
-          <div style={{ fontSize: 17, fontWeight: 700, margin: '2px 0' }}>
-            <span className="good">{activeCrewCount} Active</span>
-            {restingCount > 0 && <span className="warn" style={{ marginLeft: 6 }}>· {restingCount} Resting</span>}
-            {onLeaveCount > 0 && <span className="dim" style={{ marginLeft: 6 }}>· {onLeaveCount} Leave</span>}
-          </div>
-          <div className="dim small">
-            {est.drivers.total.current < est.drivers.total.required ? (
-              <span className="warn">⚠️ Driver buffer needed</span>
-            ) : (
-              <span className="good">✓ Crew requirement covered</span>
-            )}
-          </div>
-        </div>
-
-        <div className="panel" style={{ padding: '8px 12px' }}>
-          <div className="dim small" style={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>Head Office & Desks</div>
-          <div style={{ fontSize: 17, fontWeight: 700, margin: '2px 0' }}>
-            <span className={officeStaff.tone}>{officeStaff.totalFilled} / {officeStaff.totalRequired} Managers</span>
-            <span className="dim small" style={{ fontSize: 12, fontWeight: 400, marginLeft: 6 }}>
-              ({officeStaff.headsFilled}/8 desks)
-            </span>
-          </div>
-          <div className="dim small">
-            Rent: <M v={officeCost.total} />/mo ({fmtCompact(officeCost.base)} + {officeCost.assignedManagers} desks)
-          </div>
-        </div>
-      </div>
+      {(() => {
+        const avgMorale = drivers.length > 0 ? Math.round(drivers.reduce((x, d) => x + d.morale, 0) / drivers.length) : 100
+        const dormTier = s.config?.driverDormitoryTier ?? 'none'
+        const dormLabel = dormTier === 'ac_canteen' ? 'AC bunks and canteen' : dormTier === 'basic' ? 'depot bunks' : 'roadside'
+        const festTier = s.config?.festivalBonusTier ?? (s.config?.festivalBonus === false ? 'skip' : 'full')
+        const festLabel = festTier === 'full' ? 'full month' : festTier === 'half' ? 'half month' : festTier === 'gift' ? 'gift' : 'skipped'
+        const strikeThreshold = dormTier === 'ac_canteen' ? 22 : dormTier === 'basic' ? 30 : BAL.strikeMoraleThreshold
+        const onStrike = Boolean(s.world.strikeUntilDay && s.world.strikeUntilDay >= s.day)
+        const strikeRisk = avgMorale < strikeThreshold + 10
+        return (
+          <>
+            <StatRow
+              items={[
+                { label: 'Driver morale', value: `${avgMorale}%`, tone: avgMorale >= 70 ? 'good' : avgMorale >= 50 ? 'warn' : 'bad' },
+                { label: 'Union', value: onStrike ? `strike ${s.world.strikeUntilDay - s.day + 1}d` : strikeRisk ? 'at risk' : 'calm', tone: onStrike || strikeRisk ? 'bad' : 'good', title: `Strike below ${strikeThreshold}% morale` },
+                { label: 'Quarters', value: dormLabel, tone: dormTier === 'ac_canteen' ? 'good' : dormTier === 'basic' ? 'warn' : undefined },
+                { label: 'Festival bonus', value: festLabel, tone: festTier !== 'skip' ? 'good' : 'bad' },
+              ]}
+            />
+            <div className="mb12 right"><Link to="/settings?tab=welfare" className="small">Welfare and dorms ›</Link></div>
+          </>
+        )
+      })()}
 
       {/* ========================================================================= */}
       {/* TAB 1: PAYROLL & EMPLOYEE DIRECTORY                                       */}
       {/* ========================================================================= */}
       {activeTab === 'payroll' && (
-        <Panel flat title={`Employee Payroll & Rolls · ${filteredStaff.length} of ${staff.length} Shown`}>
+        <Panel flat title={`Rolls (${filteredStaff.length} of ${staff.length})`}>
           {/* HR Auto-Fire Status & Role Caps on Rolls */}
           <div
             style={{
@@ -1261,23 +1226,21 @@ export function StaffPage() {
                 </label>
                 {hr ? (
                   <span className={autoFire.enabled ? 'pill good small' : 'pill dim small'}>
-                    {autoFire.enabled ? `✓ Active (${hr.name})` : 'Disabled'}
+                    {autoFire.enabled ? `Active (${hr.name})` : 'Disabled'}
                   </span>
                 ) : (
                   <span className="pill warn small" title="Appoint an HR manager in Head Office to activate auto-fire">
-                    ⚠️ Requires HR Manager
+                    Requires HR Manager
                   </span>
                 )}
-                <span className="dim small">
-                  Auto-terminates employees when salary crosses role cap (no confirmation needed, 1 mo severance).
-                </span>
+                <Hint text={"Auto-terminates employees when salary crosses role cap (no confirmation needed, 1 mo severance)."} />
               </div>
               <button
                 type="button"
                 className="small faint"
                 onClick={() => setShowAutoFireRules(!showAutoFireRules)}
               >
-                {showAutoFireRules ? '▲ Hide Role Caps' : '⚙️ Configure Role Caps'}
+                {showAutoFireRules ? '▲ Hide Role Caps' : 'Configure Role Caps'}
               </button>
             </div>
 
@@ -1302,26 +1265,14 @@ export function StaffPage() {
               borderBottom: '1px solid var(--border)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span className="dim small">Role Filter:</span>
-              <button className={roleFilter === 'all' ? 'primary small' : 'small'} onClick={() => setRoleFilter('all')}>
-                All ({staff.length})
-              </button>
-              {STAFF_ROLES.map((r) => {
-                const count = staff.filter((x) => x.role === r).length
-                return (
-                  <button
-                    key={r}
-                    className={roleFilter === r ? 'primary small' : 'small'}
-                    onClick={() => setRoleFilter(r)}
-                  >
-                    {ROLE_LABEL[r]} ({count})
-                  </button>
-                )
-              })}
-            </div>
+            <Tabs
+              inline
+              tabs={([['all', `All (${staff.length})`], ...STAFF_ROLES.map((r) => [r, `${ROLE_LABEL[r]} (${staff.filter((x) => x.role === r).length})`])]) as unknown as readonly (readonly [typeof roleFilter, string])[]}
+              value={roleFilter}
+              onChange={setRoleFilter}
+            />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="row gap">
               {roleFilter !== 'all' && (
                 <span className="dim small">Subtotal: <b className="good"><M v={shownPayroll} />/mo</b></span>
               )}
@@ -1356,7 +1307,7 @@ export function StaffPage() {
       {activeTab === 'hiring' && (
         <Panel
           flat
-          title="Hiring Pool Candidates"
+          title="Candidates"
           right={
             <div className="flex" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span className={`pill small ${poolDaysLeft <= 1 ? 'warn' : 'info'}`}>
@@ -1392,16 +1343,14 @@ export function StaffPage() {
                 </label>
                 {hr ? (
                   <span className={auto.enabled ? 'pill good small' : 'pill dim small'}>
-                    {auto.enabled ? `✓ Active (${hr.name}) · Mode: ${autoMode === 'match' ? 'Match Targets' : 'Unlimited'}` : 'Disabled'}
+                    {auto.enabled ? `Active (${hr.name}) · Mode: ${autoMode === 'match' ? 'Match Targets' : 'Unlimited'}` : 'Disabled'}
                   </span>
                 ) : (
                   <span className="pill warn small" title="Appoint an HR manager in Head Office to activate auto-hire">
                     Requires HR Manager
                   </span>
                 )}
-                <span className="dim small">
-                  Auto-hires matching role, skill, and driving style filters.
-                </span>
+                <Hint text={"Auto-hires matching role, skill, and driving style filters."} />
               </div>
               <button
                 type="button"
@@ -1432,30 +1381,16 @@ export function StaffPage() {
               borderBottom: '1px solid var(--border)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span className="dim small">Role:</span>
-              <button className={poolFilter === 'all' ? 'primary small' : 'small'} onClick={() => setPoolFilter('all')}>
-                All ({s.hiringPool.length})
-              </button>
-              {HIRE_POOL_ROLES.map((r) => {
-                const n = s.hiringPool.filter((x) => x.role === r).length
-                const have = staffCountForRole(s, r)
-                const need = autoHireRoleTarget(s, r)
-                const short = need > have
-                return (
-                  <button
-                    key={r}
-                    className={poolFilter === r ? 'primary small' : 'small'}
-                    onClick={() => setPoolFilter(r)}
-                    title={short ? `Short ${need - have} vs crew target ${need}` : `${have} on rolls · target ${need}`}
-                  >
-                    {ROLE_LABEL[r]} ({n})
-                    {short ? ' · short' : ''}
-                  </button>
-                )
-              })}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <Tabs
+              inline
+              tabs={([['all', `All (${s.hiringPool.length})`], ...HIRE_POOL_ROLES.map((r) => {
+                const short = autoHireRoleTarget(s, r) > staffCountForRole(s, r)
+                return [r, `${ROLE_LABEL[r]} (${s.hiringPool.filter((x) => x.role === r).length})${short ? ' · short' : ''}`]
+              })]) as unknown as readonly (readonly [typeof poolFilter, string])[]}
+              value={poolFilter}
+              onChange={setPoolFilter}
+            />
+            <div className="row gap wrap">
               {pool.length > 0 && (
                 <span className="dim small">
                   {pool.length} shown · ask <b className="good"><M v={poolAskingTotal} />/mo</b>
@@ -1493,40 +1428,23 @@ export function StaffPage() {
       {/* ========================================================================= */}
       {activeTab === 'desks' && (
         <>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              background: 'var(--bg2)',
-              border: '1px solid var(--border)',
-              marginBottom: 12,
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            <div>
-              <b>Fleet Head Office & Management Desks:</b>{' '}
-              <span className="dim small">
-                {officeStaff.headsFilled} of 8 departments manned ({officeStaff.totalFilled}/{officeStaff.totalRequired} total managers). Each assigned desk adds ₹{fmtCompact(BAL.officeAdminPerManager)}/mo office overhead.
-              </span>
-            </div>
-            <div className="small">
-              Total Office Admin Rent: <b><M v={officeCost.total} />/mo</b> ({fmtCompact(officeCost.base)} base + {officeCost.assignedManagers} desks)
-            </div>
+          <div className="row between mb12">
+            <span className="muted" title={`Each desk adds ${fmtCompact(BAL.officeAdminPerManager)}/month of office overhead`}>
+              {officeStaff.headsFilled} of 8 desks manned · {officeStaff.totalFilled}/{officeStaff.totalRequired} managers
+            </span>
+            <span className="muted">Office rent <b><M v={officeCost.total} />/mo</b> ({fmtCompact(officeCost.base)} base + {officeCost.assignedManagers} desks)</span>
           </div>
 
           <div className="grid-2" style={{ gap: 10 }}>
             {/* 1. HR Desk */}
-            <Panel title="1. Human Resources (HR)" info="Maintains crew morale, coaches skills over time (+1 skill every 6 months), manages rest rotations, and handles recruitment.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="HR" info="Maintains crew morale, coaches skills over time (+1 skill every 6 months), manages rest rotations, and handles recruitment.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.hrId} desk="hr" onChange={(id) => g.appointHr(id)} />
                 </div>
                 <span className={hr ? 'pill good small' : 'pill warn small'}>
-                  {hr ? `✓ ${hr.name}` : 'Unassigned'}
+                  {hr ? `${hr.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1574,20 +1492,18 @@ export function StaffPage() {
                 </button>
               </div>
 
-              <div className="dim small">
-                {hr ? '✓ Morale cushions active · Skill coaching active · Fatigue rotation automated' : '⚠️ No HR appointed. Morale recovery and skill coaching operate at baseline.'}
-              </div>
+              {!hr && <div className="warn small">No HR appointed. Morale recovery and skill coaching operate at baseline.</div>}
             </Panel>
 
             {/* 2. Ops Desk */}
-            <Panel title="2. Operations (Ops)" info="Auto-assigns crew from payroll to bus schedules, balances duty hours, manages CMVR night rest.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Operations" info="Auto-assigns crew from payroll to bus schedules, balances duty hours, manages CMVR night rest.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.opsId} desk="ops" onChange={(id) => g.appointOps(id)} />
                 </div>
                 <span className={ops ? 'pill good small' : 'pill warn small'}>
-                  {ops ? `✓ ${ops.name}` : 'Unassigned'}
+                  {ops ? `${ops.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1609,20 +1525,18 @@ export function StaffPage() {
                 </button>
               </div>
 
-              <div className="dim small">
-                {ops ? '✓ Rosters balanced · Drivers swapped before exhaustion · Night rest enforced' : '⚠️ No Ops manager. Must manually assign drivers and conductors to all buses.'}
-              </div>
+              {!ops && <div className="warn small">No Ops manager. Must manually assign drivers and conductors to all buses.</div>}
             </Panel>
 
             {/* 3. Workshop Desk */}
-            <Panel title="3. Fleet Workshop & Maintenance" info="Supervises mechanics, runs periodic maintenance, and covers idle buses during breakdowns.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Workshop" info="Supervises mechanics, runs periodic maintenance, and covers idle buses during breakdowns.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.workshop.managerId} desk="workshop" onChange={(id) => g.appointFleetManager(id)} />
                 </div>
                 <span className={workshopMgr ? 'pill good small' : 'pill warn small'}>
-                  {workshopMgr ? `✓ ${workshopMgr.name}` : 'Unassigned'}
+                  {workshopMgr ? `${workshopMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1636,20 +1550,18 @@ export function StaffPage() {
                 <Link to="/workshop" className="small">Open Workshop Page →</Link>
               </div>
 
-              <div className="dim small">
-                {workshopMgr ? '✓ Automated service scheduling · Bay mechanic coordination active' : '⚠️ No Workshop manager. Maintenance must be triggered manually.'}
-              </div>
+              {!workshopMgr && <div className="warn small">No Workshop manager. Maintenance must be triggered manually.</div>}
             </Panel>
 
             {/* 4. Cargo Desk */}
-            <Panel title="4. Cargo & Logistics Desk" info="Maximizes bus luggage boot parcel fill and handles corporate logistics contracts.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Cargo" info="Maximizes bus luggage boot parcel fill and handles corporate logistics contracts.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.cargoManagerId} desk="cargo" onChange={(id) => g.appointCargoManager(id)} />
                 </div>
                 <span className={cargoMgr ? 'pill good small' : 'pill warn small'}>
-                  {cargoMgr ? `✓ ${cargoMgr.name}` : 'Unassigned'}
+                  {cargoMgr ? `${cargoMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1664,19 +1576,19 @@ export function StaffPage() {
               </div>
 
               <div className="dim small">
-                {cargoMgr ? `✓ Booking efficiency bonus +${Math.round(companyCargoFillRate(s) * 100)}% · Counter spot queueing active` : '⚠️ No Cargo manager. Parcel fill operates at basic floor rate.'}
+                {cargoMgr ? `Booking efficiency bonus +${Math.round(companyCargoFillRate(s) * 100)}% · Counter spot queueing active` : 'No Cargo manager. Parcel fill operates at basic floor rate.'}
               </div>
             </Panel>
 
             {/* 5. Schedule & Festival Planning */}
-            <Panel title="5. Schedules & Festivals" info="Manages peak festival schedules, selects idle coaches 3 days prior, auto-accepts group charters, and optimizes timetables.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Schedules and festivals" info="Manages peak festival schedules, selects idle coaches 3 days prior, auto-accepts group charters, and optimizes timetables.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.scheduleManagerId} desk="schedule" onChange={(id) => g.appointScheduleManager(id)} />
                 </div>
                 <span className={scheduleMgr ? 'pill good small' : 'pill warn small'}>
-                  {scheduleMgr ? `✓ ${scheduleMgr.name}` : 'Unassigned'}
+                  {scheduleMgr ? `${scheduleMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1684,63 +1596,40 @@ export function StaffPage() {
               <DeskAssistants s={s} desk="schedule" />
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 6 }}>
-                <span className="small">Festival Services: <b>Automatic coach rostering & charters</b></span>
+                <span />
                 <Link to="/schedules" className="small">View Schedules →</Link>
               </div>
 
-              {scheduleMgr && (
-                <div style={{ marginTop: 6, marginBottom: 6 }}>
-                  <label className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={s.company.scheduleAutoAcceptCharters !== false}
-                      onChange={(e) => g.setScheduleAutoAcceptCharters(e.target.checked)}
-                    />
-                    <span>Auto-accept profitable group charters</span>
-                  </label>
-                </div>
-              )}
-
-              <div className="dim small">
-                {scheduleMgr
-                  ? '✓ Pre-assigns idle coaches for festival schedules 3 days ahead · Sources and coordinates group charters'
-                  : '⚠️ No Schedule manager. Group charters and festival coach rostering require an appointed Schedule manager.'}
-              </div>
+              {!scheduleMgr && <div className="warn small">No Schedule manager. Extra festival coach rostering requires an appointed Schedule manager.</div>}
             </Panel>
 
             {/* 6. Compliance & Documents */}
-            <Panel title="6. Compliance & Documents" info="Handles RTO paperwork, halves route permit rejections, and auto-renews expiring docs.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Compliance and documents" info="Handles RTO paperwork, halves route permit rejections, and auto-renews expiring docs.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.docsManagerId} desk="documents" onChange={(id) => g.appointDocsManager(id)} />
                 </div>
                 <span className={docsMgr ? 'pill good small' : 'pill warn small'}>
-                  {docsMgr ? `✓ ${docsMgr.name}` : 'Unassigned'}
+                  {docsMgr ? `${docsMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
               <SpanMeter meter={meters.documents} unit={DESK_UNIT.documents} />
               <DeskAssistants s={s} desk="documents" />
 
-              <div className="dim small" style={{ marginTop: 8, marginBottom: 6 }}>
-                Auto-renews PUC, Fitness, Insurance, Road Tax, and AITP permits with zero fleet downtime.
-              </div>
-
-              <div className="dim small">
-                {docsMgr ? '✓ 50% lower RTO permit rejection risk · All fleet renewals automated' : '⚠️ No Documents manager. Expiring documents must be renewed manually in Fleet.'}
-              </div>
+              {!docsMgr && <div className="warn small">No Documents manager. Expiring documents must be renewed manually in Fleet.</div>}
             </Panel>
 
             {/* 7. CRM & Grievances */}
-            <Panel title="7. CRM & Customer Relations" info="Resolves passenger disputes, protects operator star ratings, and processes refunds.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Customer relations" info="Resolves passenger disputes, protects operator star ratings, and processes refunds.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.crmId} desk="crm" onChange={(id) => g.appointCrm(id)} />
                 </div>
                 <span className={crmMgr ? 'pill good small' : 'pill warn small'}>
-                  {crmMgr ? `✓ ${crmMgr.name}` : 'Unassigned'}
+                  {crmMgr ? `${crmMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
@@ -1748,7 +1637,7 @@ export function StaffPage() {
               <DeskAssistants s={s} desk="crm" />
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, marginBottom: 6 }}>
-                <label className="dim small" style={{ width: 60 }}>Policy</label>
+                <label className="dim small w60">Policy</label>
                 <select
                   value={s.company.crmPolicy ?? 'ask'}
                   onChange={(e) => g.setCrmPolicy(e.target.value as any)}
@@ -1764,33 +1653,61 @@ export function StaffPage() {
                 </span>
               </div>
 
-              <div className="dim small">
-                {crmMgr ? '✓ Automated passenger dispute handling · Rating protection active' : '⚠️ No CRM manager. Customer complaints remain open until addressed.'}
-              </div>
+              {!crmMgr && <div className="warn small">No CRM manager. Customer complaints remain open until addressed.</div>}
             </Panel>
 
             {/* 8. Accounts & Finance */}
-            <Panel title="8. Accounts & Tax Compliance" info="Remits monthly GST on time, files quarterly TDS, handles insurance claims, clears cheque bounces.">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <label className="dim small" style={{ width: 60 }}>Manager</label>
+            <Panel title="Accounts and tax" info="Remits monthly GST on time, files quarterly TDS, handles insurance claims, clears cheque bounces.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
                   <ManagerPick s={s} value={s.company.accountantId} desk="accountant" onChange={(id) => g.appointAccountant(id)} />
                 </div>
                 <span className={accountantMgr ? 'pill good small' : 'pill warn small'}>
-                  {accountantMgr ? `✓ ${accountantMgr.name}` : 'Unassigned'}
+                  {accountantMgr ? `${accountantMgr.name}` : 'Unassigned'}
                 </span>
               </div>
 
               <SpanMeter meter={meters.accountant} unit={DESK_UNIT.accountant} />
               <DeskAssistants s={s} desk="accountant" />
 
-              <div className="dim small" style={{ marginTop: 8, marginBottom: 6 }}>
-                Files GST & TDS automatically, pursues cheque defaulters, and settles insurance claims.
+              {!accountantMgr && <div className="warn small">No Accountant. Must file taxes and insurance claims manually in Finance.</div>}
+            </Panel>
+
+            {/* 9. Charters & Special Hire */}
+            <Panel title="Charters" info="Negotiates group hire contracts, optimizes quotes according to pricing policy, and coordinates dedicated charter fleet.">
+              <div className="row between mb8">
+                <div className="row gap">
+                  <label className="dim small w60">Manager</label>
+                  <ManagerPick s={s} value={s.company.charterManagerId} desk="charter" onChange={(id) => g.appointCharterManager(id)} />
+                </div>
+                <span className={charterMgr ? 'pill good small' : 'pill warn small'}>
+                  {charterMgr ? `${charterMgr.name}` : 'Unassigned'}
+                </span>
               </div>
 
-              <div className="dim small">
-                {accountantMgr ? '✓ Automated monthly GST/TDS remittance · Zero late tax penalties' : '⚠️ No Accountant. Must file taxes and insurance claims manually in Finance.'}
+              <SpanMeter meter={meters.charter} unit={DESK_UNIT.charter} />
+              <DeskAssistants s={s} desk="charter" />
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 6 }}>
+                <span />
+                <Link to="/charters" className="small">Charters Desk →</Link>
               </div>
+
+              {charterMgr && (
+                <div style={{ marginTop: 6, marginBottom: 6 }}>
+                  <label className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={s.company.charterConfig?.autoAccept ?? false}
+                      onChange={(e) => g.setCharterAutoAccept(e.target.checked)}
+                    />
+                    <span>Auto-assign best contracts</span>
+                  </label>
+                </div>
+              )}
+
+              {!charterMgr && <div className="warn small">No Charter Manager. Must review and dispatch contracts manually in Charters.</div>}
             </Panel>
           </div>
         </>
@@ -1800,9 +1717,9 @@ export function StaffPage() {
       {/* TAB 4: CREW PLANNING & CMVR COMPLIANCE                                    */}
       {/* ========================================================================= */}
       {activeTab === 'planning' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="stack12">
           <Panel
-            title="HR Auto-Hire Rules"
+            title="Auto-hire rules"
             flat
             right={
               <div className="flex" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1834,7 +1751,7 @@ export function StaffPage() {
           </Panel>
 
           <Panel
-            title="Role Salary Caps (Auto-Fire)"
+            title="Salary caps (auto-fire)"
             flat
             right={
               <div className="flex" style={{ alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -1868,11 +1785,8 @@ export function StaffPage() {
             </div>
           </Panel>
 
-          <Panel title="Management Span of Control" flat>
+          <Panel title="Desk coverage" flat>
             <div style={{ padding: 12 }}>
-              <div className="dim small" style={{ marginBottom: 10 }}>
-                Managers maintain operational efficiency across their departments. When demand exceeds a manager's span of control, desk coverage dilutes and automated tasks are skipped. Appoint assistant managers on the Desks tab to restore full coverage.
-              </div>
               <DataTable
                 rows={Object.values(spanMeters(s)).sort((a, b) => a.coverage - b.coverage)}
                 rowKey={(m) => m.desk}
@@ -1896,30 +1810,22 @@ export function StaffPage() {
           </Panel>
 
           <div className="grid-2" style={{ gap: 12 }}>
-            <Panel title="Crew Headcount & Rostering Requirements" flat>
+            <Panel title="Crew needed" flat>
               <div style={{ padding: 12 }}>
                 <CrewHeadcountTable s={s} />
               </div>
             </Panel>
 
-            <Panel title="CMVR Safety & Rest Guidelines" flat>
-              <div style={{ padding: 12, lineHeight: 1.6 }}>
-                <div style={{ marginBottom: 10 }}>
-                  <b>Central Motor Vehicles Rules (CMVR) Compliance:</b>
-                </div>
-                <ul style={{ paddingLeft: 18, margin: 0 }} className="dim small">
-                  <li><b>8 Hours Daily Limit:</b> A driver can drive at most 8 hours in any 24-hour window.</li>
-                  <li><b>Mandatory Night Rest:</b> Drivers finishing an overnight shift enter mandatory 8-hour rest before their next dispatch.</li>
-                  <li><b>Dual-Driver Requirement:</b> Routes exceeding 9 hours or 450 km legally require a co-driver on board.</li>
-                  <li><b>Heavy Bus Licence:</b> Multi-axle luxury coaches (Volvo 9400/9600, Scania) legally require <code>HMV_HP</code> licence.</li>
-                  <li><b>Relief Bench:</b> Keep ~15% extra spare drivers on rolls to prevent trip cancellations when crew takes leave.</li>
-                </ul>
-                <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                  <span className="good small">
-                    Tip: Appoint an <b>Operations Manager</b> to automate crew duty allocations and night rest rotations.
-                  </span>
-                </div>
-              </div>
+            <Panel title="CMVR rules" flat>
+              <table className="data">
+                <tbody>
+                  <tr><td><b>8 hours</b></td><td className="muted">Most a driver can drive in 24 hours</td></tr>
+                  <tr><td><b>Night rest</b></td><td className="muted">8 hours after an overnight shift</td></tr>
+                  <tr><td><b>Co-driver</b></td><td className="muted">Needed beyond 9 hours or 450 km</td></tr>
+                  <tr><td><b>HMV_HP</b></td><td className="muted">Licence for Volvo 9400/9600 and Scania</td></tr>
+                  <tr><td><b>Relief bench</b></td><td className="muted">Keep about 15% spare drivers for leave</td></tr>
+                </tbody>
+              </table>
             </Panel>
           </div>
         </div>

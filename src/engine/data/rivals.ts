@@ -125,8 +125,8 @@ export const RIVAL_ALIASES: Record<string, string> = {
 
 /** Seed route share percents across player and 3 rivals (sum = 100). */
 export function seedRouteShare(
-  routeId: string,
-  competition: number,
+  _routeId: string,
+  _competition: number,
   rawRivalNames?: string[],
   playerShare: number = 0,
 ): { player: number; byRival: Record<string, number> } {

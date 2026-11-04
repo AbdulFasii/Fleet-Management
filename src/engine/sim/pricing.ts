@@ -15,7 +15,7 @@ import { FESTIVALS, festivalEffect, dow } from '../core/calendar'
 import { rngFor } from '../core/rng'
 import type { Money } from '../core/money'
 import type { Bus, GameState, RouteDef, Schedule, ServiceTier, Trip, ID } from '../types'
-import { isHomebound, corridorProfile, windowMass, departureTimeFit } from './corridor'
+import { isHomebound, departureTimeFit } from './corridor'
 
 /** Brand service-tier ticket multiplier vs corridor AC benchmark. */
 export function serviceTierFareMult(tier?: ServiceTier | null): number {
@@ -54,7 +54,7 @@ export function roundFare(n: number): Money {
  * Shoulder windows sit around ~100%.
  */
 export function timeDemandMultiplier(
-  seed: number,
+  _seed: number,
   route: RouteDef,
   depHour: number,
   depMin = 0,
@@ -171,6 +171,9 @@ export function occupancyFareAdj(occ: number, daysToDep: number, weight = 1): nu
 }
 
 function corridorFareIdx(s: GameState, routeId: string): number {
+  if (s.company.corridorStance?.[routeId] === 'premium_hold') {
+    return s.world.fareIndex[routeId] ?? 1 // Hold full price to defend margin and bleed rival
+  }
   const war = s.world.priceWars[routeId]
   const warCut = war && war.untilDay >= s.day ? 1 - war.depth : 1
   return (s.world.fareIndex[routeId] ?? 1) * warCut
@@ -319,7 +322,7 @@ export function resolveTripFare(
     finalMult = clamp(finalMult, 2.70, 3.30)
   } else {
     // Clamp everything except Diwali-plus-weekend to at most 275% after wobble
-    finalMult = clamp(finalMult, 0.65, 2.75)
+    finalMult = clamp(finalMult, 0.65, Math.max(1, Math.min(2.75, (s.config?.surgeCapPct ?? 275) / 100)))
   }
 
   // Cap upward yield moves when current sold is well behind pace
@@ -340,15 +343,20 @@ export function resolveTripFare(
     const cap = trip.seatCount || trip.seats?.length || 44
     const occ = cap > 0 ? (trip.sold || 0) / cap : 0
     const adj = occupancyFareAdj(occ, daysToDep, 1)
-    if (adj !== 0) {
+    // With dynamic surge off, a busy trip never gets a late fare rise (cuts still apply).
+    if (adj !== 0 && !(adj > 0 && s.config?.dynamicYieldSurge === false)) {
       fare = roundFare(fare * (1 + adj))
+    }
+    // Optional last-day cut on trips that are still mostly empty.
+    if (s.config?.lastMinuteDiscount && daysToDep <= 1 && occ < 0.4) {
+      fare = roundFare(fare * ((s.config?.lastMinuteFloorPct ?? 85) / 100))
     }
   }
 
   // Flash Sale (-20%) vs Last-Minute Surge (+25%)
   if (trip.flashDeal) {
     fare = roundFare(fare * (1 - BAL.yieldDeals.flashSaleDiscount))
-  } else if (trip.surgeDeal) {
+  } else if (trip.surgeDeal && s.config?.dynamicYieldSurge !== false) {
     fare = roundFare(fare * BAL.yieldDeals.surgePriceMultiplier)
   }
 

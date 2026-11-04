@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useGame } from '../store/gameStore'
 import { fmtDate, festivalEffect, seasonInfo } from '../engine/core/calendar'
@@ -20,10 +20,15 @@ import { TripBoardPage } from './pages/TripBoard'
 import { StaffPage } from './pages/Staff'
 import { WorkshopPage } from './pages/Workshop'
 import { CargoPage } from './pages/Cargo'
+import { ChartersPage } from './pages/Charters'
+import { LoungesPage } from './pages/Lounges'
 import { InboxPage } from './pages/Inbox'
 import { MoneyPage } from './pages/Money'
 import { AnalyticsPage } from './pages/Analytics'
 import { SettingsPage } from './pages/Settings'
+import { tabBadges } from '../engine/sim/advisor'
+import { OBJECTIVES } from '../engine/sim/objectives'
+import { ACHIEVEMENT_DEFS } from '../engine/sim/reputation'
 import { TABS } from './navigation'
 
 function occTone(o: number | null): string {
@@ -217,7 +222,7 @@ function StatusStrip() {
           <div
             className="stat-item linkish"
             onClick={() => nav('/money')}
-            title={`Loan EMI due: ${nextLoan.lender} · ₹${toRupees(nextLoan.emi).toLocaleString('en-IN')} on Day ${nextLoan.nextEmiDay}.\nClick to view Money.`}
+            title={`Loan EMI due: ${nextLoan.lender} · ₹${toRupees(nextLoan.emi).toLocaleString('en-IN')} on ${fmtDate(nextLoan.nextEmiDay)}.\nClick to view Money.`}
             style={{ cursor: 'pointer' }}
           >
             <span className="lbl">Loan EMI</span>
@@ -227,7 +232,14 @@ function StatusStrip() {
       })()}
       <div className="stat-item">
         <span className="lbl">Alerts</span>
-        <span className={`val ${alerts > 0 ? 'bad' : 'dim'}`}>{alerts}</span>
+        <span
+          className={`val ${alerts > 0 ? 'bad' : 'dim'}`}
+          style={{ cursor: 'pointer' }}
+          title="Open the inbox"
+          onClick={() => nav('/inbox')}
+        >
+          {alerts}
+        </span>
       </div>
       <div className="time-controls">
         <button className="primary" onClick={() => advance(1)} disabled={busy} title="N">▸ Day</button>
@@ -315,6 +327,33 @@ function DecisionModal() {
   )
 }
 
+function VictoryScreen() {
+  const s = useGame((g) => g.state)!
+  const ack = useGame((g) => g.acknowledgeVictory)
+  const abandon = useGame((g) => g.abandon)
+  const v = s.victory!
+  return (
+    <Modal
+      title="A TRANSPORT EMPIRE"
+      actions={<><button className="primary" onClick={ack}>Keep playing</button><button onClick={abandon}>Retire & start over</button></>}
+    >
+      <p>Your company reached ₹100 Cr net worth. The game carries on if you want to keep building.</p>
+      <table className="data">
+        <tbody>
+          <tr><td>Days taken</td><td className="num">{v.score.daysSurvived}</td></tr>
+          <tr><td>Net worth</td><td className="num"><M v={v.netWorth} /></td></tr>
+          <tr><td>Peak fleet</td><td className="num">{v.score.peakFleet} buses</td></tr>
+          <tr><td>Lifetime operating profit</td><td className="num"><M v={v.score.lifetimeProfit} colored /></td></tr>
+          <tr><td>Rating</td><td className="num">{v.score.bestRating}★</td></tr>
+          <tr><td>Routes served</td><td className="num">{v.score.routesServed}</td></tr>
+          <tr><td>Goals reached</td><td className="num">{Object.keys(s.objectives ?? {}).length}/{OBJECTIVES.length}</td></tr>
+          <tr><td>Achievements</td><td className="num">{Object.keys(s.achievements).length}/{ACHIEVEMENT_DEFS.length}</td></tr>
+        </tbody>
+      </table>
+    </Modal>
+  )
+}
+
 function GameOverScreen() {
   const s = useGame((g) => g.state)!
   const abandon = useGame((g) => g.abandon)
@@ -396,6 +435,17 @@ function Shell() {
   const nav = useNavigate()
   const loc = useLocation()
 
+  // Celebrate new goals and achievements as they land (not the ones already earned on load).
+  const goalCount = Object.keys(s.objectives ?? {}).length + Object.keys(s.achievements ?? {}).length
+  const [seenGoals, setSeenGoals] = useState(goalCount)
+  useEffect(() => {
+    if (goalCount > seenGoals) {
+      const last = [...(s.inbox ?? [])].reverse().find((m) => m.text.startsWith('GOAL REACHED') || m.text.startsWith('ACHIEVEMENT'))
+      if (last) toast(last.text, 'good')
+    }
+    if (goalCount !== seenGoals) setSeenGoals(goalCount)
+  }, [goalCount, seenGoals, s.inbox, toast])
+
   useEffect(() => {
     if (skipStop) toast(`Skip paused: ${skipStop}`, 'bad')
   }, [skipStop, toast])
@@ -437,15 +487,19 @@ function Shell() {
     ['1-8,0', 'tabs'], ['C', 'cargo'], ['A', 'analytics'], ['I', 'inbox'],
   ], [])
 
+  const badges = s ? tabBadges(s) : {}
+
   return (
     <div className="app-shell">
       <StatusStrip />
       <div className="tab-bar">
-        {TABS.map((t) => {
+        {TABS.map((t, i) => {
           const isInbox = t.path === '/inbox'
-          const unread = isInbox ? (s?.inbox ?? []).filter((m) => !m.read).length : 0
+          const unread = isInbox ? (s?.inbox ?? []).filter((m) => !m.read).length : (badges[t.path] ?? 0)
           return (
-            <NavLink key={t.path} to={t.path} className={({ isActive }) => (isActive ? 'active' : '')} end={t.path === '/'}>
+            <Fragment key={t.path}>
+            {i > 0 && TABS[i - 1]!.group !== t.group && <span className="tab-sep" />}
+            <NavLink to={t.path} className={({ isActive }) => (isActive ? 'active' : '')} end={t.path === '/'}>
               {t.label}
               {unread > 0 && (
                 <span
@@ -457,6 +511,7 @@ function Shell() {
               )}
               <span className="key">{t.key}</span>
             </NavLink>
+            </Fragment>
           )
         })}
       </div>
@@ -471,6 +526,8 @@ function Shell() {
           <Route path="/trips" element={<TripBoardPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/cargo" element={<CargoPage />} />
+          <Route path="/charters" element={<ChartersPage />} />
+          <Route path="/lounges" element={<LoungesPage />} />
           <Route path="/workshop" element={<WorkshopPage />} />
           <Route path="/money" element={<MoneyPage />} />
           <Route path="/finance" element={<Navigate to="/money" replace />} />
@@ -490,6 +547,7 @@ function Shell() {
       </div>
       {s.decisions.length > 0 && !s.gameOver && <DecisionModal />}
       {s.gameOver && <GameOverScreen />}
+      {s.victory && !s.victory.acknowledged && !s.gameOver && <VictoryScreen />}
       <Toasts />
     </div>
   )

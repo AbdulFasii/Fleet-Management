@@ -157,8 +157,12 @@ console.log('--- Cargo manager answers spot offers, not the player ---')
   })
   check(cargoManagerOnDuty(s) === undefined, 'no manager on the desk')
   dailyCargoPass(s)
-  check(spotDecisions(s).length === 1, 'without a manager the decision still reaches the player')
-  check(acceptSpotCargoOffer(s, o.id) === null, 'and the player can still queue it by hand')
+  check(spotDecisions(s).length === 0, 'without a manager, lingering spot cargo decision popups are cleared')
+  for (let i = 0; i < 10; i++) {
+    s.day++
+    dailyCargoPass(s)
+  }
+  check(spotDecisions(s).length === 0, 'no spot cargo popups generated over 10 days without a manager')
 }
 
 console.log(failures === 0 ? '\n--- ALL CARGO DESK AUTOMATION CHECKS PASSED ---' : `\n--- ${failures} CARGO DESK CHECK(S) FAILED ---`)

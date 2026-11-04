@@ -105,13 +105,31 @@ export function hydratePackedState(s: GameState): void {
   s.inbox = s.inbox ?? []
 }
 
-/** JSON DTO: trips without empty seats; openTripIds rebuilt on load. Inbox is session-only. */
+/** JSON DTO: trips without empty seats; openTripIds rebuilt on load. bodyBuilders omitted (in Supabase cloud catalog). */
 export function toSaveDto(s: GameState): Record<string, unknown> {
   const trips: Record<string, PackedTrip> = {}
   for (const [id, t] of Object.entries(s.trips ?? {})) {
     trips[id] = packTrip(t)
   }
-  const { openTripIds: _o, trips: _t, ...rest } = s
+  const { openTripIds: _o, trips: _t, bodyBuilders: _b, ...rest } = s
+
+  // Strip accidental data: URLs on encode as a safety net
+  if (rest.groups && typeof rest.groups === 'object') {
+    const cleanGroups: Record<string, unknown> = {}
+    for (const [gid, g] of Object.entries(rest.groups as Record<string, any>)) {
+      if (g && typeof g === 'object') {
+        const copy = { ...g }
+        if (typeof copy.brandingPic === 'string' && copy.brandingPic.startsWith('data:')) {
+          delete copy.brandingPic
+        }
+        cleanGroups[gid] = copy
+      } else {
+        cleanGroups[gid] = g
+      }
+    }
+    rest.groups = cleanGroups as any
+  }
+
   return { ...rest, trips, inbox: s.inbox ?? [] }
 }
 
@@ -150,17 +168,21 @@ function decompressBody(enc: 'raw' | 'zlib-b64', body: string): string {
   return strFromU8(decompressSync(bytes))
 }
 
-/** Encode live state → storage/export string (packed + optionally zlib). */
-export function encodeSaveString(s: GameState): string {
-  const dto = toSaveDto(s)
+/** Encode save DTO -> storage/export string (packed + optionally zlib). */
+export function encodeSaveStringFromDto(dto: Record<string, unknown>, version: number): string {
   const json = JSON.stringify(dto)
   const { enc, body } = compressBody(json)
   return JSON.stringify({
-    v: s.version,
+    v: version,
     fmt: 'seatpack',
     enc,
     body,
   })
+}
+
+/** Encode live state → storage/export string (packed + optionally zlib). */
+export function encodeSaveString(s: GameState): string {
+  return encodeSaveStringFromDto(toSaveDto(s), s.version)
 }
 
 /** Decode storage/export string → plain state object (trips may still be packed). */

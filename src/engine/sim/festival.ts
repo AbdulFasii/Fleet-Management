@@ -15,6 +15,8 @@ import { releaseCoverFor } from './cover'
 import { cancelOpenTripsForBus } from './booking'
 import { opsAutoStaffPass, scheduleManagerOnDuty } from './staffing'
 import { deskCapacity } from './span'
+import { applyWear } from './dispatch'
+import { isBusBusyOnCharter } from './charter'
 import { earn, spend } from './finance'
 
 export { isFestivalDay }
@@ -55,6 +57,7 @@ function idleFestivalBuses(s: GameState): ID[] {
     .filter(
       (b) =>
         b.status === 'active'
+        && b.duty !== 'charter'
         && !b.scheduleId
         && !b.coveringBusId
         && b.ownership !== 'attached',
@@ -496,12 +499,8 @@ export function executeCharterContract(
   }
 
   // 3. Add round-trip distance and mechanical wear to coach
-  bus.odometerKm += q.roundTripKm
+  applyWear(s, bus, q.roundTripKm) // same wear, odometer and tyre model as line trips
   bus.parkedCityId = route.from // return charter returns coach to origin depot
-  if (bus.condition) {
-    bus.condition.engine = Math.max(10, bus.condition.engine - 0.25)
-    bus.condition.tyres = Math.max(10, bus.condition.tyres - 0.25)
-  }
 
   // 4. Record run in seasonal and festival analytics
   recordCharterTripRun(
@@ -597,6 +596,8 @@ export interface SeasonalPeriodSummary {
     seatKm: number
     paxKm: number
     charterRevenue: Money
+    charterExpenses?: Money
+    charterProfit?: Money
     charterTrips: number
   }
 }
@@ -852,6 +853,8 @@ export function createCharterInquiry(s: GameState, rng?: () => number): boolean 
       b.status === 'active' &&
       !b.scheduleId &&
       !b.coveringBusId &&
+      b.duty !== 'charter' && // dedicated charter coaches are booked through the Charters desk
+      !isBusBusyOnCharter(s, b.id) &&
       b.ownership !== 'attached' &&
       (BUS_MODELS[b.modelId]?.seats ?? 0) > 0,
   )

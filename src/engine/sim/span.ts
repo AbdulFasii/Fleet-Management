@@ -15,6 +15,7 @@ export const ALL_SPAN_DESKS: SpanDesk[] = [
   'documents',
   'crm',
   'accountant',
+  'charter',
 ]
 
 export const DESK_UNIT: Record<SpanDesk, string> = {
@@ -26,6 +27,7 @@ export const DESK_UNIT: Record<SpanDesk, string> = {
   documents: 'Files',
   crm: 'Grievances',
   accountant: 'Ledger rows',
+  charter: 'Contracts',
 }
 
 function clamp(val: number, min: number, max: number): number {
@@ -79,6 +81,11 @@ export function spanDemand(s: GameState, desk: SpanDesk): number {
         if (t.day >= cut) count++
       }
       return count
+    }
+    case 'charter': {
+      const activeContracts = (s.charterContracts ?? []).filter((c) => c.status === 'booked' || c.status === 'active').length
+      const charterBuses = Object.values(s.buses ?? {}).filter((b) => b.duty === 'charter' && b.status === 'active').length
+      return activeContracts + charterBuses
     }
   }
 }
@@ -226,6 +233,7 @@ const DESK_NAMES: Record<SpanDesk, string> = {
   documents: 'Documents Manager',
   crm: 'CRM Manager',
   accountant: 'Accounts Manager',
+  charter: 'Charter Manager',
 }
 
 /** Check and emit throttled 30-day span warnings to company inbox. */

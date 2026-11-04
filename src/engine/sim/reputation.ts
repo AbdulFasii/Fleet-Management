@@ -7,6 +7,7 @@ import { isCargoModel } from '../data/busModels'
 import type { GameState } from '../types'
 import { pushLog, pushDecision } from './log'
 import { netWorth } from './finance'
+import { loungesHaveCctv } from './lounge'
 
 function hasPendingPrimoInvite(s: GameState, groupId?: string): boolean {
   return (s.decisions ?? []).some(
@@ -139,7 +140,10 @@ export function checkCertifications(s: GameState): void {
   // 2. Women-Friendly & Safe Coach Certification
   const activePassengerBuses = Object.values(s.buses).filter((b) => b.status === 'active' && !isCargoModel(b.modelId))
   const cctvCount = activePassengerBuses.filter((b) => b.cctvFitted).length
-  const cctvShare = activePassengerBuses.length > 0 ? cctvCount / activePassengerBuses.length : 0
+  // Lounge CCTV secures boarding points, worth +15 points of coverage toward the 50% bar.
+  const cctvShare = activePassengerBuses.length > 0
+    ? Math.min(1, cctvCount / activePassengerBuses.length + (loungesHaveCctv(s) ? 0.15 : 0))
+    : 0
   const qualifiesWomenFriendly = c.rating >= 4.0 && (c.cmvrOffenceCount ?? 0) === 0 && (activePassengerBuses.length > 0 && cctvShare >= 0.5)
 
   if (qualifiesWomenFriendly && !c.certifications.womenFriendly) {
@@ -354,13 +358,13 @@ const ACHIEVEMENTS: AchievementDef[] = [
     id: 'own_app_dominant',
     label: 'Direct Digital Power (60%+ App)',
     test: (s) => {
-      const m = s.monthly[s.monthly.length - 1]
-      if (!m || m.ticketSales <= 0) return false
-      return (m.channelRevenue?.ownapp ?? 0) / m.ticketSales > 0.6
+      const b = s.monthly[s.monthly.length - 1]?.ticketBreakdown
+      if (!b || b.gross <= 0) return false
+      return (b.channels.ownapp?.revenue ?? 0) / b.gross > 0.6
     },
     progress: (s) => {
-      const m = s.monthly[s.monthly.length - 1]
-      const share = m && m.ticketSales > 0 ? (m.channelRevenue?.ownapp ?? 0) / m.ticketSales : 0
+      const b = s.monthly[s.monthly.length - 1]?.ticketBreakdown
+      const share = b && b.gross > 0 ? (b.channels.ownapp?.revenue ?? 0) / b.gross : 0
       return { current: Math.round(share * 100), target: 60, fmt: (v) => `${v}%` }
     },
   },
