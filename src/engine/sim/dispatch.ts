@@ -21,6 +21,7 @@ import { recordScheduleOcc } from './schedules'
 import { loungeServiceBonus } from './lounge'
 import { healthBreakdownMult, welfareDelayMult, welfarePssPenalty } from './health'
 import { crewStandardPenalty } from './brandPolicy'
+import { rankSafetyBonus } from './careers'
 import { recordTripGrievanceOrCompliment } from './crm'
 import { allocateCargoForTrip, cargoLaneKey, makeCorridorCargoPool, recordCargoLane, type CargoDepartureRef, type CorridorCargoPool } from './cargo'
 import { ownerPaysService, conductorCleanlinessTarget } from './maintenance'
@@ -644,7 +645,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
 
     // ---- risk rolls ----
     const avgDriverSkill = crew.drivers.length > 0 ? crew.drivers.reduce((a, d) => a + (d.skill ?? 5), 0) / crew.drivers.length : 5
-    const avgSafety = crew.drivers.length > 0 ? crew.drivers.reduce((a, d) => a + (d.safety ?? 5), 0) / crew.drivers.length : 5
+    const avgSafety = crew.drivers.length > 0 ? crew.drivers.reduce((a, d) => a + (d.safety ?? 5) + rankSafetyBonus(d), 0) / crew.drivers.length : 5
     const maxFatigue = crew.drivers.length > 0 ? Math.max(...crew.drivers.map((d) => d.fatigue)) : 30
 
     let delay = Math.max(0, rJitter(rng, BAL.delayBaseMin, 1))

@@ -375,6 +375,8 @@ export interface Staff {
   nextDutyNotBeforeHour?: number
   safetyRecord?: { accidents: number; hardBrakes: number; violations: number }
   tripsDriven?: number
+  /** Career rank 0-3 (Trainee, Driver, Senior, Master) last acknowledged. See sim/careers.ts. */
+  careerRank?: number
   retrainUntilDay?: number
   licenceUpgradeUntilDay?: number
   nightRestUntilDay?: number

@@ -1,3 +1,4 @@
+import { careerInfo, careerRank } from '../../engine/sim/careers'
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
@@ -781,6 +782,23 @@ export function StaffPage() {
           )}
         </div>
       ),
+    },
+    {
+      key: 'rank',
+      label: 'Rank',
+      sort: (x) => careerRank(x),
+      render: (x) => {
+        if (x.role !== 'driver' && (x.role as string) !== 'co_driver') return <span className="dim">—</span>
+        const info = careerInfo(x)
+        return (
+          <span
+            className={`pill small ${info.rank >= 3 ? 'accent' : info.rank === 2 ? 'good' : info.rank === 1 ? 'info' : 'dim'}`}
+            title={info.next ? `Next rank: ${info.next}` : 'Top rank. Rivals notice Masters, so keep them paid and happy.'}
+          >
+            {info.name}
+          </span>
+        )
+      },
     },
     {
       key: 'style_licence',

@@ -2,6 +2,7 @@
  * Staff: hiring pool, assignment, fatigue/leave/morale, payroll,
  * attrition, poaching and strikes.
  */
+import { monthlyCareerPass, poachChanceMult } from './careers'
 import { BAL } from '../data/balance'
 import { ROUTES } from '../data/routes'
 import { modelNeedsHp, isCargoModel } from '../data/busModels'
@@ -1986,6 +1987,7 @@ export function monthlyStaffPass(s: GameState): void {
   const rng = rngFor(s.seed, 'staffmonth', s.day)
   hrAutoRaisePass(s)
   hrAutoFirePass(s)
+  monthlyCareerPass(s)
   const staff = Object.values(s.staff)
   hrDevelopSkills(s)
   const hr = hrOnDuty(s)
@@ -2075,7 +2077,7 @@ export function monthlyStaffPass(s: GameState): void {
     }
 
     // poaching of your best people
-    if (st.skill >= 7 && rChance(rng, BAL.poachChance)) {
+    if (st.skill >= 7 && rChance(rng, Math.min(0.25, BAL.poachChance * poachChanceMult(st)))) {
       const offer = Math.round(st.salary * rJitter(rng, 1.25, 0.1))
       const hrDuty = s.company.hrAutoRaise ? hrOnDuty(s) : undefined
       if (hrDuty) {

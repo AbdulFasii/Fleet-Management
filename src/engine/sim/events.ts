@@ -3,6 +3,7 @@
  * event deck: shocks, crackdowns, closures, price wars, windfalls.
  * Also resolves player decisions raised by any system.
  */
+import { applyPromotion } from './careers'
 import { BAL } from '../data/balance'
 import { ROUTE_LIST, ROUTES, routeName, RIVALS } from '../data/routes'
 import { BUS_MODELS, modelTitle } from '../data/busModels'
@@ -580,6 +581,18 @@ export function applyDecision(s: GameState, decisionId: ID, optionId: string): s
         const offer = offerId ? s.company.spotOffers?.find((o) => o.id === offerId) : undefined
         if (offer && offer.status !== 'shipped') offer.status = 'expired'
         pushLog(s, 'info', 'Declined spot cargo offer.')
+      }
+      break
+    }
+    case 'promotion': {
+      const st = s.staff[d.data?.staffId as ID]
+      const rank = d.data?.rank as number
+      if (st && optionId === 'promote') {
+        applyPromotion(s, st, rank)
+      } else if (st) {
+        st.loyalty = Math.max(0, st.loyalty - 6)
+        st.morale = Math.max(0, st.morale - 3)
+        pushLog(s, 'info', `${st.name} was passed over for promotion and is not happy about it.`)
       }
       break
     }
