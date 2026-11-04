@@ -937,6 +937,17 @@ export interface CorridorRivalAction {
   details: string
 }
 
+export interface RivalMemory {
+  /** 0-1: how much this rival wants to hurt you. Grows while you dominate their routes, fades over time. */
+  grudge: number
+  actions: number
+  /** Attacks that failed: you held your ground. Each makes the rival a little more cautious. */
+  defeats: number
+  /** Attacks that worked: you lost share. Each makes the rival bolder. */
+  victories: number
+  lastActionDay: number
+}
+
 export interface World {
   dieselPaise: number // per litre today
   /** competitor fare index per route (1 = benchmark), random walk + reactions */
@@ -978,6 +989,8 @@ export interface World {
   lastCharterDay?: number
   /** Dynamic rival intelligence actions (predatory timing, retaliatory price wars) */
   rivalActions?: Record<string, CorridorRivalAction>
+  /** What each rival remembers about you. See sim/rivalIntelligence.ts. */
+  rivalMemory?: Record<string, RivalMemory>
   /** Game day when rival intelligence was last evaluated (weekly batched evaluation) */
   lastRivalIntelDay?: number
 }

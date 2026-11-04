@@ -90,7 +90,7 @@ console.log('2. Setup 5 departures on Chennai–Bangalore corridor.')
 
 // Fast forward to trigger weekly evaluation
 const initialDay = s.day
-for (let d = 0; d < 8; d++) {
+for (let d = 0; d < 30; d++) { // rivals may wait a few weeks before striking
   advanceDay(s)
 }
 
