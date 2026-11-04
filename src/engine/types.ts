@@ -675,7 +675,7 @@ export type TxnHead =
   // income
   | 'ticket' | 'cargo' | 'charter' | 'advertising' | 'onboard' | 'cancellation_fee'
   | 'asset_sale' | 'subsidy' | 'other_income' | 'cargo_spot' | 'fuel_cashback'
-  | 'lounge_revenue'
+  | 'lounge_revenue' | 'fuel_hedge'
   // direct trip cost
   | 'fuel' | 'adblue' | 'toll' | 'border_tax' | 'bata' | 'parking_cleaning' | 'loading_unloading'
   | 'passenger_amenities' | 'driver_incentive'
@@ -1243,9 +1243,22 @@ export interface Grievance {
   amount: Money // suggested refund, ₹100–₹800
 }
 
+export interface FuelHedge {
+  strikePaise: Money // locked price per litre
+  litresPerMonth: number
+  startDay: number
+  untilDay: number
+  priceSum: number
+  days: number
+  premiumPaid: Money
+  netSettled: Money
+}
+
 export interface Company {
   name: string
   cash: Money
+  /** The running fuel hedge, if any. See sim/hedge.ts. */
+  fuelHedge?: FuelHedge
   /** 0-100, recomputed daily. See sim/health.ts. */
   fleetHealth?: number
   /** 0-100, recomputed daily. See sim/health.ts. */

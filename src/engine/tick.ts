@@ -34,6 +34,7 @@ import { dailyCrmPass } from './sim/crm'
 import { dailyHealthPass } from './sim/health'
 import { dailyBrandPass, monthlyBrandPass } from './sim/brandPolicy'
 import { dailyRouteLifePass } from './sim/routeLife'
+import { dailyHedgePass, monthlyHedgePass } from './sim/hedge'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
 
@@ -77,6 +78,7 @@ export function advanceDay(s: GameState): void {
   dailyMaintenancePass(s)
   dailyBrandPass(s)
   dailyRouteLifePass(s)
+  dailyHedgePass(s)
   dailyClaimsPass(s)
   dailyStaffPass(s)
   dailyCrmPass(s)
@@ -113,6 +115,7 @@ export function advanceDay(s: GameState): void {
     monthlyTaxPass(s)
     monthlyBankingPass(s)
     monthlyBrandPass(s)
+    monthlyHedgePass(s)
     const m = closeMonth(s)
     pushLog(
       s,

@@ -16,6 +16,7 @@ import {
 import type { MonthlySummary, Txn, TxnHead } from '../../engine/types'
 import { M, Panel, StatRow, Tabs, PageHeader } from '../bits'
 import { BankPage } from './Bank'
+import { HEDGE_LITRES, HEDGE_MONTHS, quoteFuelHedge } from '../../engine/sim/hedge'
 
 const INCOME_LABELS: Partial<Record<TxnHead, string>> = {
   ticket: 'Ticket sales',
@@ -25,6 +26,7 @@ const INCOME_LABELS: Partial<Record<TxnHead, string>> = {
   cancellation_fee: 'Cancellation retained',
   insurance_claim: 'Insurance settlements',
   fuel_cashback: 'OMC fleet fuel card cashback',
+  fuel_hedge: 'Fuel hedge payouts',
   other_income: 'Other',
 }
 
@@ -33,6 +35,7 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
     label: 'Direct Trip Operating Costs',
     heads: [
       ['fuel', 'Diesel / Energy'],
+      ['fuel_hedge', 'Fuel hedge premium & losses'],
       ['adblue', 'AdBlue exhaust fluid'],
       ['toll', 'FASTag highway tolls'],
       ['border_tax', 'Interstate border entry tax'],
@@ -98,6 +101,59 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
     ],
   },
 ]
+
+/** Lock a diesel price. Pays out when pump prices rise above it, costs money when they fall below. */
+function FuelHedgePanel() {
+  const s = useGame((g) => g.state)!
+  const g = useGame()
+  const [months, setMonths] = useState<number>(6)
+  const [litres, setLitres] = useState<number>(25_000)
+  const h = s.company.fuelHedge
+  const q = quoteFuelHedge(s, months, litres)
+  const diesel = s.world.dieselPaise
+  return (
+    <Panel
+      title="Fuel hedge"
+      right={<span className="muted" title="Diesel today">diesel {fmtCompact(diesel)}/L</span>}
+    >
+      {h ? (
+        <div className="stack10">
+          <div className="row gap wrap">
+            <span className="pill good small">active</span>
+            <span>Locked at <b>{fmtCompact(h.strikePaise)}/L</b> on <b>{h.litresPerMonth.toLocaleString('en-IN')} L</b> a month</span>
+            <span className="muted">until {fmtDate(h.untilDay)}</span>
+          </div>
+          <div className="muted">
+            Diesel {fmtCompact(diesel)}/L now, {diesel >= h.strikePaise ? 'above' : 'below'} the locked price: this month is {diesel >= h.strikePaise ? 'paying you' : 'costing you'} about{' '}
+            <b className={diesel >= h.strikePaise ? 'good' : 'bad'}>{fmtCompact(Math.abs(diesel - h.strikePaise) * h.litresPerMonth)}</b>.
+            Settled so far <b><M v={h.netSettled} colored /></b> after a {fmtCompact(h.premiumPaid)} premium.
+          </div>
+        </div>
+      ) : (
+        <div className="stack10">
+          <div className="row gap wrap">
+            <label className="row gap6" title="How long the price is locked">
+              <span className="muted">Term</span>
+              <Tabs inline tabs={HEDGE_MONTHS.map((m) => [String(m), `${m} months`] as const)} value={String(months)} onChange={(v) => setMonths(Number(v))} />
+            </label>
+            <label className="row gap6" title="Notional litres a month. You still buy your real fuel at the pump.">
+              <span className="muted">Volume</span>
+              <select value={litres} onChange={(e) => setLitres(Number(e.target.value))}>
+                {HEDGE_LITRES.map((l) => <option key={l} value={l}>{l.toLocaleString('en-IN')} L a month</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="row gap wrap">
+            <span>Lock <b>{fmtCompact(q.strikePaise)}/L</b></span>
+            <span className="muted" title="Paid now, 1% of the contract value">premium {fmtCompact(q.premium)}</span>
+            <span className="grow" />
+            <button className="primary small" onClick={() => g.buyFuelHedge(months, litres)}>Buy hedge</button>
+          </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
 
 function PnlPanel() {
   const s = useGame((g) => g.state)!
@@ -779,7 +835,12 @@ export function MoneyPage() {
       />
 
       {/* Main Sub-View */}
-      {tab === 'ops' && <PnlPanel />}
+      {tab === 'ops' && (
+        <>
+          <FuelHedgePanel />
+          <PnlPanel />
+        </>
+      )}
       {tab === 'bank' && <BankPage embedded />}
       {tab === 'books' && <BooksPanel />}
     </>

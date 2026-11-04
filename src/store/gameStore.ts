@@ -1,3 +1,4 @@
+import * as hedgeSim from '../engine/sim/hedge'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { setAutoFreeze } from 'immer'
@@ -273,6 +274,7 @@ interface GameStore {
   setCharterOperatingBase: (cityId: string) => void
   setCharterAutoAccept: (enabled: boolean) => void
   setCharterMinCondition: (minCondition: number) => void
+  buyFuelHedge: (months: number, litresPerMonth: number) => void
   setCharterMinMargin: (pct: number) => void
   setCharterDeposit: (pct: number) => void
   acceptCharterInquiry: (inquiryId: ID, busId: ID) => void
@@ -2134,6 +2136,7 @@ export const useGame = create<GameStore>()(
       cfg.minConditionScore = minCondition
       return null
     }),
+    buyFuelHedge: (months, litresPerMonth) => get().intent((s) => hedgeSim.buyFuelHedge(s, months, litresPerMonth)),
     setCharterMinMargin: (pct) => get().intent((s) => {
       charterSim.getCharterConfig(s).minMarginPct = pct
       return null
