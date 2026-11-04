@@ -1,3 +1,4 @@
+import { routeMaturity } from '../../engine/sim/routeLife'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
@@ -1486,7 +1487,7 @@ export function SchedulesPage() {
     <>
       <PageHeader title="Schedules" facts={<>{selected
             ? `${schedules.length} service${schedules.length === 1 ? '' : 's'} · ${freeBuses.length} free`
-            : 'pick a route'}</>} />
+            : 'pick a route'}{selected && (routeMaturity(s, selected) ?? 100) < 99 ? ` · ramp-up ${Math.round(routeMaturity(s, selected) ?? 100)}%` : ''}</>} factsTip="A new route starts at 60% of normal demand and reaches full demand after 90 days of service." />
 
       {routeOptions.length === 0 ? (
         <Panel>

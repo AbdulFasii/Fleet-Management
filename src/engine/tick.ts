@@ -33,6 +33,7 @@ import { retainDay } from './sim/retain'
 import { dailyCrmPass } from './sim/crm'
 import { dailyHealthPass } from './sim/health'
 import { dailyBrandPass, monthlyBrandPass } from './sim/brandPolicy'
+import { dailyRouteLifePass } from './sim/routeLife'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
 
@@ -75,6 +76,7 @@ export function advanceDay(s: GameState): void {
   // 6. fleet & people upkeep
   dailyMaintenancePass(s)
   dailyBrandPass(s)
+  dailyRouteLifePass(s)
   dailyClaimsPass(s)
   dailyStaffPass(s)
   dailyCrmPass(s)

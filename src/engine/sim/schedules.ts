@@ -1,6 +1,7 @@
 /**
  * Route permits and schedule management.
  */
+import { startRouteLife } from './routeLife'
 import { BAL } from '../data/balance'
 import { ROUTES, boardingPointsForRoute, routeName, canonicalRouteId } from '../data/routes'
 import { BUS_MODELS, isCargoModel, isCharterModel } from '../data/busModels'
@@ -498,6 +499,7 @@ export function createSchedule(s: GameState, input: ScheduleInput): { id: ID } |
         }
       : {}),
   }
+  startRouteLife(s, input.routeId)
   s.schedules[sch.id] = sch
   return { id: sch.id }
 }

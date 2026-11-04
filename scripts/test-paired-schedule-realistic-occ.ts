@@ -5,6 +5,7 @@ import { advanceDay } from '../src/engine/tick'
 import type { Bus, Staff } from '../src/engine/types'
 
 const s = newGame('Ops Admin', 'seth', 'maa-mdu', 1234)
+s.config.routeLifeCycle = false // these tests measure mature routes
 s.permits['maa-mdu'] = {
   id: 'pm-1',
   routeId: 'maa-mdu',

@@ -10,6 +10,7 @@ console.log('--- Testing Booking Curve Shape (Hybrid + Sleeper) ---')
 
 // Initialize game
 const s = newGame('Curve Test Co', 'seth', 'blr-cbe', 4242)
+s.config.routeLifeCycle = false // these tests measure mature routes
 
 // Set up permits
 s.permits['blr-cbe'] = {

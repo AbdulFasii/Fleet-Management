@@ -1538,6 +1538,8 @@ export interface PlayerConfig {
   lastMinuteDiscount?: boolean
   /** Minimum cash reserve safety buffer before making large purchases (paise) */
   emergencyReserveBuffer?: Money
+  /** New routes ramp up from 60% to full demand over 90 days. Default on. */
+  routeLifeCycle?: boolean
   /** Highest fare multiplier dynamic pricing may reach on ordinary days, in percent of the base fare. Default 275. */
   surgeCapPct?: number
   /** Last-minute cut (when enabled) takes fares to this percent of the normal fare. Default 85. */
@@ -1707,6 +1709,8 @@ export interface GameState {
   routeStats: Record<string, RouteStats>
   /** Per-route daily buckets for period reports (trimmed to ~370 days). */
   routeHistory: Record<string, RouteDayStats[]>
+  /** Route maturity 0-100 by canonical route id. See sim/routeLife.ts. */
+  routeMaturity?: Record<string, number>
 
   /** Separately tracked revenue, direct expenses, and outcomes for seasonal festival scheduled service runs. */
   seasonalStats?: SeasonalServiceStats

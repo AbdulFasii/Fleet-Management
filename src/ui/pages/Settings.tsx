@@ -1656,6 +1656,12 @@ export function SettingsPage() {
               {num('Surge cap', 'The most a fare may rise above the base fare on ordinary days. Festival peaks follow their own rules.', cfg.surgeCapPct ?? 275, 100, 275, 5, '%', (v) => g.updatePlayerConfig({ surgeCapPct: v }))}
               {num('Last-minute fare', 'When the last-minute cut is on, near-empty trips on their final day sell at this share of the normal fare.', cfg.lastMinuteFloorPct ?? 85, 50, 100, 5, '%', (v) => g.updatePlayerConfig({ lastMinuteFloorPct: v }))}
             </Panel>
+            <Panel title="Network">
+              <label className="row gap" style={{ cursor: 'pointer' }} title="A new route starts at 60% of normal demand and reaches full demand after 90 days of service. A route nobody serves loses 0.5 points of maturity a day.">
+                <input type="checkbox" checked={cfg.routeLifeCycle !== false} onChange={(e) => g.updatePlayerConfig({ routeLifeCycle: e.target.checked })} />
+                <span>New routes ramp up over 90 days</span>
+              </label>
+            </Panel>
             <Panel title="Fleet">
               {pick('Cover for breakdowns', 'Who lends a spare coach when a bus breaks down. Needs a workshop manager.', cfg.autoCoverPolicy ?? 'same_brand',
                 [['off', 'None'], ['same_brand', 'Same brand'], ['any', 'Any brand']] as const, (v) => g.updatePlayerConfig({ autoCoverPolicy: v }))}

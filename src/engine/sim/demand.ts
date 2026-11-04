@@ -41,6 +41,7 @@ import { marketFare, tripWobbleRate } from './pricing'
 import { busFittingsDemandMult } from '../data/amenitiesCatalog'
 import { isTripFrontRun, getCorridorStance } from './rivalIntelligence'
 import { getLoungeDemandBoost } from './lounge'
+import { routeLifeMult } from './routeLife'
 
 export { isHomebound } from './corridor'
 
@@ -1120,7 +1121,8 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
     }
   }
 
-  return { target, pool, ownSeats, rivalSeats, attr, parts, hybrid: hybridStats }
+  const lifeMult = routeLifeMult(s, route.id)
+  return { target: lifeMult < 1 ? Math.max(0.04, target * lifeMult) : target, pool, ownSeats, rivalSeats, attr, parts, hybrid: hybridStats }
 }
 
 /* ========================= stage 3: today's arrivals ========================= */
