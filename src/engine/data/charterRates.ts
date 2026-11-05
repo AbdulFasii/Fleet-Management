@@ -70,3 +70,44 @@ export function capCharterPrice(rateBased: number, directCost: number): { price:
   if (rateBased < floor) return { price: Math.ceil(floor), capped: false, floored: true }
   return { price: Math.round(rateBased), capped: false, floored: false }
 }
+
+/* ------------------------------ charter demand ------------------------------ */
+
+export const CHARTER_DEMAND = {
+  /** Requests a day for one charter coach, average brand, average month, mid-size base. */
+  baseRequestsPerDay: 0.6,
+  /** With no charter coach yet a few people still ask. */
+  noFleetFactor: 0.5,
+  /** More coaches, more word of mouth — square-root growth, capped. */
+  fleetFactorMax: 4,
+  /** Request volume by month (Jan..Dec): weddings Nov–Feb and Apr–May, Sabarimala Nov–Jan, school tours Dec–Feb, monsoon lull. */
+  monthFactor: [1.3, 1.3, 0.9, 1.15, 1.2, 0.7, 0.7, 0.8, 0.9, 1.1, 1.3, 1.4],
+  /** Tours in their own peak months are this much likelier to be the one asked for. */
+  peakRouteWeight: 2.5,
+  /** Distance (km) at which a tour starting elsewhere is half as likely as one from the base. */
+  baseHalfWeightKm: 150,
+  /** Pending requests allowed: this many plus two per charter coach, capped. */
+  pendingBase: 4,
+  pendingMax: 20,
+  /** Days a client waits for an answer (never past the day before the tour). */
+  answerDays: 4,
+  /** Share of requests that are last-minute (1–6 days out). */
+  lastMinuteShare: 0.15,
+  /** Booking lead (days) by category: [min, max]. */
+  leadDays: {
+    wedding: [20, 45],
+    school: [14, 40],
+    pilgrimage: [7, 30],
+    corporate: [5, 21],
+    family: [7, 30],
+    tour: [7, 35],
+  } as Record<string, [number, number]>,
+  /** Rival bids: win chance at the market fee for an average-rated operator. */
+  winBase: 0.70,
+  /** How hard clients react to our fee against the market fee for that coach. */
+  winPriceElasticity: 2.5,
+  /** Per star above/below 3.5. */
+  winPerStar: 0.15,
+  winMin: 0.15,
+  winMax: 0.97,
+} as const

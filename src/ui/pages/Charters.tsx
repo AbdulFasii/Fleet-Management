@@ -9,6 +9,7 @@ import { CHARTER_CATEGORIES } from '../../engine/data/charterRoutes'
 import {
   busHealthScore,
   charterDriverShortfall,
+  charterWinChance,
   quoteCharterForBus,
   canBusTakeContract,
   getCharterConfig,
@@ -23,9 +24,9 @@ import type { CharterPricingStrategy, CharterContract, ID } from '../../engine/t
 type Tab = 'inquiries' | 'tours' | 'fleet' | 'history' | 'policy'
 
 const PRICING: Record<CharterPricingStrategy, { label: string; effect: string; detail: string }> = {
-  discount: { label: 'Discount', effect: '-12% fee · +35% conversion', detail: 'Undercuts market rates; bookings fill fast.' },
+  discount: { label: 'Discount', effect: '-12% fee · wins more bids', detail: 'Undercuts the market fee for each coach, so clients rarely go to a rival.' },
   market: { label: 'Market', effect: 'standard rates', detail: 'South India hire rates for the coach you send. Profit is capped at 50% of the fee.' },
-  premium: { label: 'Premium', effect: '+20% fee · needs condition 75+', detail: 'High-end weddings and retreats; needs a clean, well-kept coach. Profit is still capped at 50% of the fee.' },
+  premium: { label: 'Premium', effect: '+20% fee · loses more bids · needs condition 75+', detail: 'High-end weddings and retreats; needs a clean, well-kept coach. Clients compare quotes, so more go to rivals. Profit is still capped at 50% of the fee.' },
 }
 
 const LAYOUT_LABEL: Record<string, string> = { semi: 'Semi-sleeper', sleeper: 'Sleeper', seater: 'Seater', van: 'Van / mini bus' }
@@ -162,6 +163,7 @@ export function ChartersPage() {
                   const busId = pick[inq.id]
                   const bus = busId ? s.buses[busId] : undefined
                   const quote = bus ? quoteCharterForBus(s, inq, bus) : null
+                  const win = bus ? charterWinChance(s, inq, bus) : null
                   const cost = quote?.costs ?? null
                   const optionFees = options.map((b) => quoteCharterForBus(s, inq, b).payout)
                   const feeLo = optionFees.length ? Math.min(...optionFees) : inq.payout
@@ -178,6 +180,10 @@ export function ChartersPage() {
                         <td className="nowrap">
                           {fmtDate(inq.startDay)}
                           <div className="muted">{inq.durationDays} day{inq.durationDays === 1 ? '' : 's'} · {inq.roundTripKm} km</div>
+                          {(inq.positioningKm ?? 0) > 0 && (
+                            <div className="muted" title="Empty run from our charter base to the client's city and back, at our cost">+{inq.positioningKm} km empty run</div>
+                          )}
+                          {inq.respondByDay !== undefined && <div className="muted">reply by {fmtDate(inq.respondByDay)}</div>}
                         </td>
                         <td className="nowrap">
                           <b>{inq.minSeats}+</b> seats
@@ -196,6 +202,7 @@ export function ChartersPage() {
                         </td>
                         <td className="num">
                           {cost ? <span className={cost.netProfit >= 0 ? 'good' : 'bad'}><M v={cost.netProfit} /> <span className="muted">{cost.marginPct}%</span></span> : <span className="dim">—</span>}
+                          {win !== null && <div className="muted" title="Chance the client books us rather than a rival at this fee">{Math.round(win * 100)}% win</div>}
                         </td>
                         <td className="nowrap right">
                           <button className="small" title="Cost breakdown" onClick={() => setOpen(isOpen ? null : inq.id)}>{isOpen ? '▴' : '▾'}</button>{' '}
@@ -222,6 +229,7 @@ export function ChartersPage() {
                                           <td colSpan={2} className="muted">
                                             ₹{quote.ratePerKm}/km for this coach · fee <M v={quote.payout} />
                                             {quote.capped ? ' · held at the 50% profit cap' : quote.floored ? ' · raised to cost + 5%' : ''}
+                                            {(inq.positioningKm ?? 0) > 0 ? ` · costs include the ${inq.positioningKm} km empty run` : ''}
                                           </td>
                                         </tr>
                                       )}

@@ -12,10 +12,11 @@ import { CHARTER_ROUTES, type CharterRouteDef } from '../data/charterRoutes'
 import { BUS_MODELS, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { BAL } from '../data/balance'
-import { CHARTER_DETENTION_SHARE, CHARTER_MIN_KM_PER_DAY, capCharterPrice, charterRatePerKm } from '../data/charterRates'
+import { CHARTER_DEMAND, CHARTER_DETENTION_SHARE, CHARTER_MIN_KM_PER_DAY, capCharterPrice, charterRatePerKm } from '../data/charterRates'
+import { ROUTES } from '../data/routes'
 import { nextId } from '../core/ids'
 import { fmtCompact, rs } from '../core/money'
-import { rngFor, rInt, rPick, rChance } from '../core/rng'
+import { rngFor, rInt, rPick, rChance, rPoisson } from '../core/rng'
 import { earn, spend } from './finance'
 import { pushLog } from './log'
 import { charterManagerOnDuty } from './staffing'
@@ -211,7 +212,7 @@ const REFERENCE_MODEL: Record<CharterRouteDef['preferredCoachKind'], string> = {
  */
 export function priceCharterForVehicle(
   s: GameState,
-  job: { roundTripKm: number; durationDays: number },
+  job: { roundTripKm: number; durationDays: number; positioningKm?: number },
   strategy: CharterPricingStrategy,
   seasonMult: number,
   bus: Pick<Bus, 'modelId'> & Partial<Bus>,
@@ -224,20 +225,79 @@ export function priceCharterForVehicle(
   const shortfallKm = Math.max(0, days * CHARTER_MIN_KM_PER_DAY - km)
   const hire = rs(km * ratePerKm + shortfallKm * ratePerKm * CHARTER_DETENTION_SHARE)
 
-  const zero = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout: 0 }, bus as Bus)
-  const passThrough = zero.tollCost + zero.driverBata
+  // Tolls, permits and bata on the tour itself are billed to the client.
+  const tour = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout: 0 }, bus as Bus)
+  const passThrough = tour.tollCost + tour.driverBata
   const rateBased = Math.round(hire * strategyMult(strategy) * seasonMult) + passThrough
+  // The empty run from our base to the client's city and back is ours to pay.
+  const posKm = Math.max(0, job.positioningKm ?? 0)
+  const zero = posKm > 0
+    ? calculateCharterBusCosts(s, { roundTripKm: km + posKm, durationDays: days, payout: 0 }, bus as Bus)
+    : tour
   const { price, capped, floored } = capCharterPrice(rateBased, zero.totalDirectCost)
   // Round to ₹100 without crossing the cap or the floor.
   const round100 = capped ? Math.floor : floored ? Math.ceil : Math.round
   const payout = round100(price / rs(100)) * rs(100)
-  const costs = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout }, bus as Bus)
+  const costs = calculateCharterBusCosts(s, { roundTripKm: km + posKm, durationDays: days, payout }, bus as Bus)
   return { payout, ratePerKm, rateBased, costs, capped, floored }
 }
 
 /** The price for this inquiry if `bus` takes it (strategy and season fixed when the inquiry came in). */
 export function quoteCharterForBus(s: GameState, inq: CharterContract, bus: Bus): CharterPrice {
   return priceCharterForVehicle(s, inq, inq.pricingStrategy, inq.seasonMult ?? 1, bus)
+}
+
+/**
+ * Chance the client books us rather than a rival, for this coach: our fee
+ * against what a local operator would charge for the same coach (market
+ * rates, no empty run), and our rating.
+ */
+export function charterWinChance(s: GameState, inq: CharterContract, bus: Bus): number {
+  const D = CHARTER_DEMAND
+  const ours = quoteCharterForBus(s, inq, bus).payout
+  const market = priceCharterForVehicle(s, { ...inq, positioningKm: 0 }, 'market', inq.seasonMult ?? 1, bus).payout
+  const rel = market > 0 ? ours / market : 1
+  const stars = (s.company.rating ?? 3.5) - 3.5
+  const p = D.winBase * Math.pow(Math.max(0.5, rel), -D.winPriceElasticity) * (1 + D.winPerStar * stars)
+  return Math.max(D.winMin, Math.min(D.winMax, p))
+}
+
+const RIVAL_CHARTER_DESKS = ['KPN Travels', 'SRS Travels', 'Parveen Travels', 'VRL Travels', 'a local tour operator']
+
+/* ------------------------------ road distances ------------------------------ */
+
+let roadKmCache: Map<string, Map<string, number>> | null = null
+
+/** Shortest road km between two cities over the corridor network (Dijkstra, cached). */
+export function cityRoadKm(a: string, b: string): number {
+  if (a === b) return 0
+  if (!roadKmCache) {
+    const adj = new Map<string, [string, number][]>()
+    for (const r of Object.values(ROUTES)) {
+      for (const [x, y] of [[r.from, r.to], [r.to, r.from]] as const) {
+        if (!adj.has(x)) adj.set(x, [])
+        adj.get(x)!.push([y, r.km])
+      }
+    }
+    roadKmCache = new Map()
+    for (const src of adj.keys()) {
+      const dist = new Map<string, number>([[src, 0]])
+      const done = new Set<string>()
+      for (;;) {
+        let u: string | undefined
+        let best = Infinity
+        for (const [k, d] of dist) if (!done.has(k) && d < best) { best = d; u = k }
+        if (u === undefined) break
+        done.add(u)
+        for (const [v, w] of adj.get(u) ?? []) {
+          const nd = best + w
+          if (nd < (dist.get(v) ?? Infinity)) dist.set(v, nd)
+        }
+      }
+      roadKmCache.set(src, dist)
+    }
+  }
+  return roadKmCache.get(a)?.get(b) ?? 400
 }
 
 /**
@@ -269,20 +329,42 @@ export function calculateCharterQuote(
   }
 }
 
+/** Expected charter requests today: base city size, charter fleet, brand and the month. */
+export function charterRequestRate(s: GameState): number {
+  const D = CHARTER_DEMAND
+  const cfg = getCharterConfig(s)
+  const fleet = getCharterFleet(s).length
+  const fleetFactor = fleet === 0 ? D.noFleetFactor : Math.min(D.fleetFactorMax, Math.sqrt(fleet))
+  const stars = (s.company.rating ?? 3.5) - 3.5
+  const brand = Math.max(0.5, Math.min(1.6, 1 + 0.2 * stars + 0.4 * ((s.company.brandAwareness ?? 0) - 0.2)))
+  const metro = CITIES[cfg.operatingBaseCityId]?.metro ?? 0.3
+  const city = 0.6 + 0.6 * metro
+  const month = D.monthFactor[toCivil(s.day).m - 1] ?? 1
+  return D.baseRequestsPerDay * fleetFactor * brand * city * month
+}
+
+function weightedPick<T>(rng: () => number, items: readonly T[], weight: (x: T) => number): T {
+  let total = 0
+  for (const x of items) total += weight(x)
+  let roll = rng() * total
+  for (const x of items) {
+    roll -= weight(x)
+    if (roll <= 0) return x
+  }
+  return items[items.length - 1]!
+}
+
 /** Generate incoming charter inquiries */
 export function generateCharterInquiries(s: GameState): void {
   if (!s.charterInquiries) s.charterInquiries = []
-
-  // Max 6 pending inquiries
-  if (s.charterInquiries.length >= 6) return
+  const D = CHARTER_DEMAND
 
   const cfg = getCharterConfig(s)
-  const rng = rngFor(s.seed, 'charter-inq', s.day)
-
-  // Do not restrict candidate routes based on operating city or van size!
-  // South India charter inquiries arrive across all popular circuits.
-  // Standard coaches are 30-50 seaters (semi-sleeper and sleeper).
   const charterFleet = getCharterFleet(s)
+  const maxPending = Math.min(D.pendingMax, D.pendingBase + 2 * Math.max(1, charterFleet.length))
+  if (s.charterInquiries.length >= maxPending) return
+
+  const rng = rngFor(s.seed, 'charter-inq', s.day)
   const hasCharterVans = charterFleet.some((b) => {
     const m = BUS_MODELS[b.modelId]
     return m && (m.seats <= 17 || isCharterModel(m))
@@ -295,26 +377,36 @@ export function generateCharterInquiries(s: GameState): void {
     if (candidateRoutes.length === 0) candidateRoutes = CHARTER_ROUTES
   }
 
-  // Count to generate (1 or 2 per day)
-  const count = rChance(rng, 0.65) ? 2 : 1
+  // Clients near our base find us first; tours in their own season are asked for more.
+  const base = cfg.operatingBaseCityId
+  const month = toCivil(s.day).m
+  const routeWeight = (r: CharterRouteDef) => {
+    const d = cityRoadKm(base, r.originCityId)
+    const near = 1 / (1 + (d / D.baseHalfWeightKm) ** 2)
+    return near * (r.peakMonths.includes(month) ? D.peakRouteWeight : 1)
+  }
 
+  const count = rPoisson(rng, charterRequestRate(s))
   for (let i = 0; i < count; i++) {
-    if (s.charterInquiries.length >= 6) break
+    if (s.charterInquiries.length >= maxPending) break
 
-    // Indian market split: 75% Semi-sleeper / Seater, 25% Full-sleeper
-    const preferSleeper = rChance(rng, 0.25)
-    let pool = candidateRoutes.filter((r) =>
-      preferSleeper ? r.preferredCoachKind === 'sleeper' : r.preferredCoachKind !== 'sleeper',
-    )
-    if (pool.length === 0) pool = candidateRoutes
-
-    const route = rPick(rng, pool)
+    const route = weightedPick(rng, candidateRoutes, routeWeight)
     const clientName = rPick(rng, route.clientTypes)
-    const quote = calculateCharterQuote(s, route, cfg.pricingStrategy)
+    const positioningKm = 2 * cityRoadKm(base, route.originCityId)
 
-    // Start day between tomorrow and 4 days out
-    const startDay = s.day + rInt(rng, 1, 4)
+    // Booking lead: most clients plan weeks ahead (weddings furthest), a few call last-minute.
+    const [lo, hi] = D.leadDays[route.category] ?? [7, 30]
+    const lead = rChance(rng, D.lastMinuteShare) ? rInt(rng, 1, 6) : rInt(rng, lo, hi)
+    const startDay = s.day + lead
     const endDay = startDay + route.durationDays - 1
+    const seasonMult = charterSeasonMult(s, route.peakMonths)
+    const indicative = priceCharterForVehicle(
+      s,
+      { roundTripKm: route.roundTripKm, durationDays: route.durationDays, positioningKm },
+      cfg.pricingStrategy,
+      seasonMult,
+      { modelId: REFERENCE_MODEL[route.preferredCoachKind] },
+    )
 
     const inquiry: CharterContract = {
       id: nextId(s.ids, 'chtr'),
@@ -328,8 +420,10 @@ export function generateCharterInquiries(s: GameState): void {
       preferredCoachKind: route.preferredCoachKind,
       minSeats: route.minSeats,
       minCondition: cfg.pricingStrategy === 'premium' ? 75 : 50,
-      payout: quote.payout,
-      seasonMult: charterSeasonMult(s, route.peakMonths),
+      payout: indicative.payout,
+      seasonMult,
+      positioningKm,
+      respondByDay: Math.min(startDay - 1, s.day + D.answerDays),
       fuelCostEst: 0,
       tollCostEst: 0,
       driverBataEst: 0,
@@ -425,6 +519,16 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
   }
   const noDriver = charterDriverShortfall(s, bus, inq)
   if (noDriver) return noDriver + '.'
+
+  // Rival bids: the client may book someone else at our price.
+  const win = charterWinChance(s, inq, bus)
+  const bidRng = rngFor(s.seed, 'charter-bid', inq.id)
+  if (!rChance(bidRng, win)) {
+    const rival = rPick(bidRng, RIVAL_CHARTER_DESKS)
+    s.charterInquiries.splice(inqIdx, 1)
+    pushLog(s, 'info', `CHARTER LOST: ${inq.clientName} booked ${rival} for ${inq.title} (we had a ${Math.round(win * 100)}% chance at our quote).`)
+    return `Lost the bid: ${inq.clientName} went with ${rival}.`
+  }
 
   // Price and cost strictly with the exact selected bus
   const priced = quoteCharterForBus(s, inq, bus)
@@ -786,8 +890,8 @@ export function dailyCharterPass(s: GameState): void {
   const cfg = getCharterConfig(s)
   const manager = charterManagerOnDuty(s)
 
-  // 1. Expire stale inquiries (past startDay or older than 3 days)
-  s.charterInquiries = s.charterInquiries.filter((inq) => s.day < inq.startDay)
+  // 1. Expire inquiries the client stopped waiting on (or that start today)
+  s.charterInquiries = s.charterInquiries.filter((inq) => s.day < inq.startDay && s.day <= (inq.respondByDay ?? inq.startDay - 1))
 
   // 2. Generate new inquiries
   generateCharterInquiries(s)

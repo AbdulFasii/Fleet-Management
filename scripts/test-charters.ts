@@ -109,6 +109,10 @@ console.log('   Duty assignment result:', dutyErr ?? 'Success', 'Bus duty:', bus
 
 // A tour needs a driver: with none free the booking is refused
 firstInquiry.minSeats = 10
+// Clients book 7-45 days ahead now; pin this one to start in two days so the tour runs in this test.
+firstInquiry.startDay = s.day + 2
+firstInquiry.endDay = firstInquiry.startDay + firstInquiry.durationDays - 1
+firstInquiry.respondByDay = s.day + 1
 const noCrewErr = acceptCharterInquiry(s, firstInquiry.id, busId)
 if (!noCrewErr || !/driver/i.test(noCrewErr)) throw new Error('Booking should be refused when no driver is free, got: ' + noCrewErr)
 console.log('   No driver -> refused:', noCrewErr)
@@ -189,9 +193,18 @@ const assigned = autoAssignBestCharters(s)
 console.log(`   Manager auto-assigned: ${assigned} contracts`)
 console.log('   Active/Booked contracts:', s.charterContracts?.length)
 
-if (assigned === 0 && (s.charterInquiries?.length ?? 0) > 0) {
-  console.log('   Inquiries:', s.charterInquiries?.map(i => ({ title: i.title, minSeats: i.minSeats, startDay: i.startDay })))
-  throw new Error('Manager should auto-assign eligible matching contracts!')
+// A request the 33-seat coach can take: the manager must answer it. Rival
+// bids mean the client may still go elsewhere, so it ends signed or lost.
+const fitting = { ...firstInquiry, id: 'chtr_fit_test', minSeats: 30, status: 'inquiry' as const, busId: undefined, driverId: undefined,
+  startDay: s.day + 3, endDay: s.day + 3 + firstInquiry.durationDays - 1, respondByDay: s.day + 2, currentDayProgress: 0 }
+s.charterInquiries = [fitting]
+s.staff['drv_test_2'] = { id: 'drv_test_2', name: 'Second Driver', role: 'driver', salary: 20000, skill: 6, fatigue: 10, morale: 80, loyalty: 50, lastPaidDay: s.day, safety: 6 } as never
+const assignedFit = autoAssignBestCharters(s)
+const signedFit = s.charterContracts?.some((c) => c.id === 'chtr_fit_test')
+const lostFit = s.inbox?.some((m) => /CHARTER LOST/.test(m.text))
+console.log(`   Fitting request: ${signedFit ? 'signed' : lostFit ? 'lost to a rival' : 'still pending'} (assigned ${assigned + assignedFit})`)
+if (s.charterInquiries.some((i) => i.id === 'chtr_fit_test')) {
+  throw new Error('Manager should answer an eligible matching request (sign it or lose the bid)')
 }
 
 // 8. Test Data Sanitization against NaN

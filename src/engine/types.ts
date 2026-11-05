@@ -1167,6 +1167,10 @@ export interface CharterContract {
   pricingStrategy: CharterPricingStrategy
   /** Peak-month and festival multiplier fixed when the inquiry came in (1 if missing). */
   seasonMult?: number
+  /** Empty km to bring the coach from our charter base to the start city and back (0 if missing). */
+  positioningKm?: number
+  /** Last day the client waits for our answer (falls back to the day before the tour). */
+  respondByDay?: number
   clientRating?: number
   completedRevenue?: Money
   completedExpenses?: Money
