@@ -9,6 +9,24 @@ import { routeName, ROUTES, haulBrief, haulTitle, routeViaLabel } from '../../en
 import { fmtCompact } from '../../engine/core/money'
 import type { Difficulty } from '../../engine/types'
 
+const SCENARIO_DETAILS: Record<Scenario, { title: string; desc: string; highlights: string[] }> = {
+  standard: {
+    title: 'Standard Campaign',
+    desc: 'The complete bus tycoon experience. Balance loan EMIs, diesel spikes, permits, and bus upkeep.',
+    highlights: ['Win goal: ₹100 Cr net worth', 'Distress rescue loans permitted', 'Save/load anytime'],
+  },
+  sandbox: {
+    title: 'Sandbox Free Play',
+    desc: 'Risk-free playground to experiment with routes, luxury coach builders, and custom liveries without fear of failure.',
+    highlights: ['+₹10.00 Cr extra starting promoter capital', 'Bankruptcy disabled (cannot lose)', 'Indefinite gameplay (no victory cutoff)'],
+  },
+  ironman: {
+    title: 'Ironman Hardcore Mode',
+    desc: 'High-stakes trial for seasoned operators. Every misstep is permanent with higher victory targets.',
+    highlights: ['Win goal: ₹150 Cr net worth', 'Zero rescue loans — insolvency causes permanent bankruptcy', 'Save import locked during active game'],
+  },
+}
+
 export function SetupScreen() {
   const g = useGame()
   const startNew = g.startNew
@@ -116,11 +134,27 @@ export function SetupScreen() {
         <label>Scenario</label>
         <div className="subtabs inline">
           {([
-            ['standard', 'Standard', 'The full game. Reach ₹100 Cr net worth to win.'],
-            ['sandbox', 'Sandbox', 'Extra ₹10 Cr, the game never ends, no victory. For trying things out.'],
-            ['ironman', 'Ironman', 'No rescue loan, no loading another save over a running game, and a ₹150 Cr finish line.'],
-          ] as const).map(([id, label, tip]) => (
-            <button key={id} className={`small ${scenario === id ? 'primary' : ''}`} title={tip} onClick={() => setScenario(id)}>{label}</button>
+            ['standard', 'Standard'],
+            ['sandbox', 'Sandbox'],
+            ['ironman', 'Ironman'],
+          ] as const).map(([id, label]) => (
+            <button key={id} className={`small ${scenario === id ? 'primary' : ''}`} onClick={() => setScenario(id)}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="callout" style={{ maxWidth: 560, marginTop: -4, marginBottom: 14, padding: '10px 14px', fontSize: '0.85rem' }}>
+        <div style={{ fontWeight: 600, color: 'var(--accent, #f59e0b)', marginBottom: 3 }}>
+          {SCENARIO_DETAILS[scenario].title}
+        </div>
+        <div className="dim small" style={{ marginBottom: 6, lineHeight: '1.4' }}>
+          {SCENARIO_DETAILS[scenario].desc}
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: '0.78rem' }}>
+          {SCENARIO_DETAILS[scenario].highlights.map((h, i) => (
+            <span key={i} className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ color: 'var(--accent, #f59e0b)' }}>◆</span> {h}
+            </span>
           ))}
         </div>
       </div>
