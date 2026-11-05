@@ -61,8 +61,10 @@ import {
   writeSave,
 } from './saveCodec'
 import { encodeSaveDtoAsync } from './saveWorkerClient'
+import { createSaveQueue } from './saveQueue'
 import {
   getActiveCloudSaveId,
+  getActiveCloudSaveRevision,
   setActiveCloudSaveId,
   appendCloudSave,
   createCloudSave,
@@ -312,66 +314,31 @@ interface GameStore {
   updatePassengerConfig: (patch: Partial<PassengerHandlingConfig>) => void
 }
 
-let pendingSave: GameState | null = null
-let pendingSaveMutable = false
-let saveTimer: ReturnType<typeof setTimeout> | null = null
+const saveQueue = createSaveQueue({
+  destination: getActiveCloudSaveId,
+  destinationRevision: getActiveCloudSaveRevision,
+  toDto: toSaveDto,
+  encode: encodeSaveDtoAsync,
+  write: writeSave,
+  persistSync: (state) => persistState(state),
+  append: appendCloudSave,
+})
 
 function dropPendingSave(): void {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  pendingSave = null
+  saveQueue.invalidate()
 }
 
-/** Write a deferred autosave now synchronously (page hide, explicit save, load/import). */
+/** Includes a save whose worker is still encoding when the page is hidden. */
 export function flushPendingSave(): boolean {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  const s = pendingSave
-  const mutable = pendingSaveMutable
-  pendingSave = null
-  if (!s) return true
-  return persist(s, { alreadyMutable: mutable })
+  return saveQueue.flushSync()
 }
 
-/** Asynchronously encodes and writes the autosave using the background Web Worker. */
-async function flushPendingSaveAsync(): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
-  const s = pendingSave
-  pendingSave = null
-  if (!s) return
-
-  // Single toSaveDto call shared by both Web Worker encoding and cloud auto-append
-  const dto = toSaveDto(s)
-  triggerCloudAutoAppend(s, dto)
-
-  try {
-    const payload = await encodeSaveDtoAsync(dto, s.version, s.day)
-    writeSave(payload, s.day)
-  } catch (err) {
-    console.warn('Async worker save encode failed, falling back to sync:', err)
-    persist(s)
-  }
-}
-
-/**
- * Defer the autosave that follows a clock advance by a beat. Offloads JSON + zlib
- * compression to a Web Worker so the main UI thread never stutters after day ticks.
- */
 function persistSoon(s: GameState | null, opts?: { alreadyMutable?: boolean }): void {
-  if (!s) return
-  pendingSave = s
-  pendingSaveMutable = opts?.alreadyMutable ?? false
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    flushPendingSaveAsync().catch(() => {})
-  }, 500)
+  if (s) saveQueue.enqueue(s, opts?.alreadyMutable)
+}
+
+function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): boolean {
+  return s ? saveQueue.saveNow(s, opts?.alreadyMutable) : false
 }
 
 if (typeof window !== 'undefined') {
@@ -382,30 +349,7 @@ if (typeof window !== 'undefined') {
   })
 }
 
-let cloudAppendTimer: any = null
-
-function triggerCloudAutoAppend(s: GameState, precomputedDto?: Record<string, any>): void {
-  const activeId = getActiveCloudSaveId()
-  if (!activeId) return
-
-  const dtoToUse = precomputedDto ?? toSaveDto(s)
-
-  // Debounce (1200ms) to batch back-to-back mutations or ticks smoothly
-  if (cloudAppendTimer) clearTimeout(cloudAppendTimer)
-  cloudAppendTimer = setTimeout(() => {
-    cloudAppendTimer = null
-    const currentActiveId = getActiveCloudSaveId()
-    if (!currentActiveId) return
-    appendCloudSave(currentActiveId, s, dtoToUse).catch((err) => {
-      console.warn('Background cloud append failed:', err)
-    })
-  }, 1200)
-}
-
-function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): boolean {
-  if (!s) return false
-  // An immediate write supersedes anything still waiting on the timer.
-  dropPendingSave()
+function persistState(s: GameState): boolean {
   // Hot path: encode straight off the live state. `encodeSaveString` only reads
   // (trips are packed into a DTO), so a full deep clone here just doubled the
   // working set of a long game on every click. Retention runs daily in the
@@ -424,7 +368,7 @@ function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): bool
   } else {
     // Storage refused the payload: make a private copy to trim, never mutating
     // the live state the UI is rendering from.
-    const draft = opts?.alreadyMutable ? s : structuredClone(s) as GameState
+    const draft = structuredClone(s) as GameState
     compactTrips(draft)
     draft.txns = draft.txns.slice(-400)
     if (tryWrite(draft)) {
@@ -440,9 +384,6 @@ function persist(s: GameState | null, opts?: { alreadyMutable?: boolean }): bool
     }
   }
 
-  if (ok) {
-    triggerCloudAutoAppend(s)
-  }
   return ok
 }
 
@@ -1570,6 +1511,7 @@ export const useGame = create<GameStore>()(
     },
 
     abandon: () => {
+      dropPendingSave()
       clearSaveStores()
       setActiveCloudSaveId(null)
       set({ state: null, skipStopReason: null })
@@ -1577,6 +1519,7 @@ export const useGame = create<GameStore>()(
 
     resetToNewGame: () => {
       skipInFlight = false
+      dropPendingSave()
       clearSaveStores()
       setActiveCloudSaveId(null)
       set({ state: null, skipStopReason: null })
@@ -1607,8 +1550,8 @@ export const useGame = create<GameStore>()(
         dropPendingSave()
         set({ state: s, skipStopReason: null, uiPrefs: validPrefs })
         clearSaveStores()
-        persist(s)
         setActiveCloudSaveId(id)
+        persist(s)
         return { ok: true, label: res.label }
       } catch (err: any) {
         return { ok: false, error: err?.message || 'Failed to load cloud save.' }
@@ -1632,6 +1575,7 @@ export const useGame = create<GameStore>()(
     },
 
     unlinkActiveCloudSlot: () => {
+      saveQueue.cancelCloud()
       setActiveCloudSaveId(null)
     },
 

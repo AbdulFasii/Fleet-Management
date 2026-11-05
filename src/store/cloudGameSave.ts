@@ -32,6 +32,12 @@ export interface CloudSaveRow extends CloudSaveHeader {
 // In-memory cache of the last synced state DTO per active save ID
 let lastSyncedSlotId: string | null = null
 let lastSyncedDto: Record<string, any> | null = null
+let activeSlotRevision = 0
+
+/** Detect slot changes even when the player switches away and back. */
+export function getActiveCloudSaveRevision(): number {
+  return activeSlotRevision
+}
 
 export function getActiveCloudSaveId(): string | null {
   try {
@@ -42,6 +48,7 @@ export function getActiveCloudSaveId(): string | null {
 }
 
 export function setActiveCloudSaveId(id: string | null): void {
+  if (getActiveCloudSaveId() !== id) activeSlotRevision++
   try {
     if (id) {
       localStorage.setItem(ACTIVE_CLOUD_SAVE_KEY, id)

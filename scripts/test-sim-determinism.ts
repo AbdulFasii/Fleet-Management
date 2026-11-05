@@ -6,8 +6,9 @@ import { orderNewBus } from '../src/engine/sim/fleet'
 import { recruitVeteran, assignStaff } from '../src/engine/sim/staffing'
 import { applyDecision } from '../src/engine/sim/events'
 import type { GameState } from '../src/engine/types'
+import { pathToFileURL } from 'node:url'
 
-export function buildProbeFixture(fleetTarget = 60, seed = 4242): GameState {
+export function buildProbeFixture(fleetTarget = 60, seed = 4242, models = ['leyacsleep2', 'volvo9400semi', 'volvo9400']): GameState {
   const s: GameState = newGame('Perf Probe', 'malik', 'maa-mdu', seed)
   s.company.cash = 100_000_000_000
   const ROUTE_IDS = ['maa-mdu', 'maa-blr', 'blr-hyd', 'maa-cbe', 'mdu-trv', 'maa-tir', 'maa-hyd', 'blr-goa']
@@ -21,10 +22,10 @@ export function buildProbeFixture(fleetTarget = 60, seed = 4242): GameState {
   }
 
   function topUpFleet(): void {
-    const live = Object.values(s.buses).filter((b) => b.status !== 'sold' && b.status !== 'delivery')
+    const live = Object.values(s.buses).filter((b) => b.status !== 'delivery')
     const need = fleetTarget - live.length - s.busOrders.length
     for (let i = 0; i < need; i++) {
-      const modelId = i % 3 === 0 ? 'leyacsleep2' : i % 3 === 1 ? 'volvo9400semi' : 'volvo9400'
+      const modelId = models[i % models.length]!
       const err = orderNewBus(s, modelId, {})
       if (err) break
     }
@@ -33,7 +34,7 @@ export function buildProbeFixture(fleetTarget = 60, seed = 4242): GameState {
 
   function crewFleet(): void {
     for (const bus of Object.values(s.buses)) {
-      if (bus.status === 'delivery' || bus.status === 'sold') continue
+      if (bus.status === 'delivery') continue
       const crew = Object.values(s.staff).filter((st) => st.busId === bus.id)
       const drivers = crew.filter((st) => st.role === 'driver' || st.role === 'co_driver')
       if (drivers.length < 2) {
@@ -83,7 +84,10 @@ export function buildProbeFixture(fleetTarget = 60, seed = 4242): GameState {
   function settleDecisions(): void {
     while (s.decisions.length > 0) {
       const dec = s.decisions[0]!
-      const optId = dec.options[0]?.id ?? 'pass'
+      // Collection decisions currently use unseeded randomness; choose write-off
+      // so reference fixtures remain reproducible without changing engine rules.
+      const option = dec.kind === 'cheque_bounce' ? dec.options.find((o) => o.id !== 'collector') : dec.options[0]
+      const optId = option?.id ?? 'pass'
       const err = applyDecision(s, dec.id, optId)
       if (err) s.decisions.shift()
     }
@@ -130,5 +134,7 @@ export function runDeterminismCheck(days = 5) {
   return snapshots
 }
 
-const snapshots = runDeterminismCheck(5)
-console.log('BASELINE SNAPSHOTS:\n', JSON.stringify(snapshots, null, 2))
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const snapshots = runDeterminismCheck(5)
+  console.log('BASELINE SNAPSHOTS:\n', JSON.stringify(snapshots, null, 2))
+}

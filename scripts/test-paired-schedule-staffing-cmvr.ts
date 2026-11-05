@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { newGame } from '../src/engine/newGame'
 import { ROUTES } from '../src/engine/data/routes'
 import { BUS_MODELS } from '../src/engine/data/busModels'
@@ -10,7 +11,7 @@ import type { GameState, Trip } from '../src/engine/types'
 import { BAL } from '../src/engine/data/balance'
 
 function checkTripCmvr(s: GameState, trip?: Trip): { isBlocked: boolean; needsHp: boolean } {
-  if (!trip) return { isBlocked: false, needsHp: false }
+  assert(trip, 'The fixture must contain the departure being checked')
   const bus = s.buses[trip.busId]
   const route = ROUTES[trip.routeId]
   if (!bus || !route) return { isBlocked: false, needsHp: false }
@@ -44,11 +45,11 @@ function checkTripCmvr(s: GameState, trip?: Trip): { isBlocked: boolean; needsHp
 function runTests() {
   console.log('=== TEST: Paired Schedule Staffing & CMVR Block Resolution ===')
 
-  const s = newGame('test-staff-cmvr', 'malik', 'maa-mdu', 12345)
+  const s = newGame('test-staff-cmvr', 'malik', 'maa-tir', 12345)
   s.day = 1
 
   // Use a route with <= 10h duration so 1 driver is needed per trip
-  const routeId = 'maa-mdu' // ~8.5h
+  const routeId = 'maa-tir' // Short enough for 21:00 out and 06:00 back, including cooldown
   const bus = {
     id: 'b1',
     reg: 'TN 01 AB 1234',

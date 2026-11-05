@@ -18,6 +18,8 @@ npm run sim -- --seed 42 --years 2 --bot competent   # headless balance run
 npm run sim -- --seed 42 --years 2 --bot careless    # watch a bad operator die
 ```
 
+Simulation regression checks, save reliability tests, performance commands, measurements, and known gameplay findings are documented in [simulation findings](docs/simulation-findings.md).
+
 ## The game
 
 You start with seed capital (₹15L–₹1Cr depending on difficulty), one

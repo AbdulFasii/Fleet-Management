@@ -91,7 +91,7 @@ function festivalGame(): GameState {
   }
   const res = createSchedule(s, {
     routeId,
-    depHour: 21,
+    depHour: 9,
     baseFare: 80_000,
     autoPrice: true,
     cancellation: 'standard',
@@ -99,13 +99,14 @@ function festivalGame(): GameState {
     outboundDuty: 'festival',
     returnDuty: 'festival',
     paired: true,
-    returnDepHour: 9,
+    returnDepHour: 21,
   })
   if ('error' in res) throw new Error(res.error)
   const sch = s.schedules[res.id]!
   sch.busIds = [busId]
   s.buses[busId]!.scheduleId = sch.id
 
+  const fresh = structuredClone(s)
   const prePadDay = FEST_DAY - FEST.pre - 1
   const windowStart = FEST_DAY - FEST.pre
   const windowEnd = FEST_DAY + FEST.post
@@ -134,7 +135,11 @@ function festivalGame(): GameState {
   check(post.length === 1, `post-pad generates exactly one leg (got ${post.length})`)
   check(post[0] === (hbAB ? 'BA' : 'AB'), `post-pad runs the returning direction (${hbAB ? 'BA' : 'AB'}, got ${post[0]})`)
 
-  const windowTrips = Object.values(s.trips).filter((t) => t.day >= windowStart && t.day <= windowEnd && t.status === 'open')
+  // Each date jump is a separate planning snapshot. Undispatched old open
+  // trips otherwise look like physical journeys when moved into the past.
+  fresh.day = windowStart
+  generateTrips(fresh)
+  const windowTrips = Object.values(fresh.trips).filter((t) => t.day >= windowStart && t.day <= windowEnd && t.status === 'open')
   check(windowTrips.length > 0, `named window still runs (${windowTrips.length} legs)`)
 
   const seasonalFlags = Object.values(s.trips).filter((t) => t.status === 'open' && t.isSeasonal)

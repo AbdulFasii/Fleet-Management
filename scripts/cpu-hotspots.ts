@@ -77,3 +77,36 @@ for (const [f, ms] of [...byFile.entries()].sort((a, b) => b[1] - a[1]).slice(0,
   const pct = total > 0 ? ((ms * 1000) / total) * 100 : 0
   console.log(`  ${ms.toFixed(1).padStart(9)} ms ${pct.toFixed(1).padStart(5)}%  ${f}`)
 }
+
+// Disjoint sampled categories inside the real bookingPass call tree. Financial
+// work nested in allocation/cancellations is attributed to financial updates.
+const categoryFunctions = new Map<string, string>()
+for (const [category, names] of [
+  ['financial updates', ['flushSaleBatch', 'earn', 'spend', 'spendNetted', 'pushTxn', 'bumpRouteStats', 'accrueGstOnTicket', 'reverseAttachOwnerShare']],
+  ['cancellations', ['processCancellations', 'processTripCancellations']],
+  ['seat allocation', ['allocateSeats', 'allocateAggregate', 'backfillElapsedSales', 'backfillGap']],
+  ['demand estimation', ['tripLoadFactor', 'tripArrivals', 'buildBookingCtx', 'channelWeights']],
+] as const) {
+  for (const name of names) categoryFunctions.set(name, category)
+}
+const categories = new Map<string, number>()
+for (const [id, us] of selfByNode) {
+  let node = nodes.get(id)
+  let category: string | undefined
+  let booking = false
+  while (node) {
+    category ??= categoryFunctions.get(node.callFrame.functionName)
+    if (node.callFrame.functionName === 'bookingPass') { booking = true; break }
+    node = parentOf.get(node.id)
+  }
+  if (booking) {
+    const label = category ?? 'other booking work'
+    categories.set(label, (categories.get(label) ?? 0) + us / 1000)
+  }
+}
+if (categories.size) {
+  console.log('\nbooking subcategories (disjoint sampled time):')
+  for (const [category, ms] of [...categories].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${ms.toFixed(1).padStart(9)} ms ${category}`)
+  }
+}

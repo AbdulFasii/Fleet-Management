@@ -57,15 +57,15 @@ s.buses['b2'] = {
   parkedCityId: 'mdu',
 } as Bus
 
-// 1. Create schedule with Daily 1st (09:00) + Seasonal 2nd (21:30)
-console.log('\n[Check 1] Creating schedule with Daily 1st (09:00) + Seasonal 2nd (21:30)...')
+// 1. Create schedule with Daily 1st (09:00) + Seasonal 2nd (21:00)
+console.log('\n[Check 1] Creating schedule with Daily 1st (09:00) + Seasonal 2nd (21:00)...')
 const res = createSchedule(s, {
   routeId: 'maa-mdu',
   depHour: 9,
   depMin: 0,
   paired: true,
   returnDepHour: 21,
-  returnDepMin: 30,
+  returnDepMin: 0,
   outboundDuty: 'daily',
   returnDuty: 'festival',
   cancellation: 'standard',
@@ -122,6 +122,7 @@ console.log('✓ Non-season day runs ONLY 1st slot (09:00) on both ways!')
 // 5. Check festival day trip generation
 console.log('\n[Check 4] Verifying trip generation on festival days...')
 const poojaDay = fromCivil(2025, 10, 15) // Pooja festival
+assert.ok(isFestivalDay(poojaDay + 1), 'The fixture date must be a named festival day')
 s.day = poojaDay
 // Clear previous trips to test freshly generated trips
 s.trips = {}
@@ -135,13 +136,13 @@ for (const t of festTrips) {
   console.log(`  Trip: dep ${t.depHour}:${t.depMin ?? 0} | dir: ${t.direction} | bus: ${t.busId} | isSeasonal: ${t.isSeasonal}`)
 }
 
-assert.equal(festTrips.length, 4, 'Expected 4 trips on festival day (both ways for 09:00 AND both ways for 21:30)')
+assert.equal(festTrips.length, 4, 'Expected 4 trips on festival day (both ways for 09:00 AND both ways for 21:00)')
 const festSlot1 = festTrips.filter((t) => t.depHour === 9)
 const festSlot2 = festTrips.filter((t) => t.depHour === 21)
 assert.equal(festSlot1.length, 2, 'Expected 2 trips at 09:00')
-assert.equal(festSlot2.length, 2, 'Expected 2 trips at 21:30')
+assert.equal(festSlot2.length, 2, 'Expected 2 trips at 21:00')
 assert.ok(festSlot1.every((t) => !t.isSeasonal), '09:00 daily trips have isSeasonal: false')
-assert.ok(festSlot2.every((t) => t.isSeasonal), '21:30 seasonal return trips have isSeasonal: true')
+assert.ok(festSlot2.every((t) => t.isSeasonal), '21:00 seasonal return trips have isSeasonal: true')
 console.log('✓ Festival day runs BOTH slots on both ways, with 2nd slot flagged as seasonal!')
 
 console.log('\n======================================================')

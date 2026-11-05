@@ -992,13 +992,18 @@ export function deepCleanBus(
  * Conductor with skill <= 4 performs no deep clean (cleanliness drops).
  */
 export function conductorAutoClean(s: GameState): void {
+  // Preserve the first assigned conductor, matching the previous find() order.
+  const conductors = new Map<ID, Staff>()
+  for (const st of Object.values(s.staff)) {
+    if (st.role === 'conductor' && st.busId && !conductors.has(st.busId)) {
+      conductors.set(st.busId, st)
+    }
+  }
   for (const bus of Object.values(s.buses)) {
     if (bus.status !== 'active') continue
 
     // Find assigned conductor
-    const conductor = Object.values(s.staff).find(
-      (st) => st.role === 'conductor' && st.busId === bus.id,
-    )
+    const conductor = conductors.get(bus.id)
     if (!conductor || conductor.skill <= 4) continue
 
     const target = conductorCleanlinessTarget(conductor.skill)

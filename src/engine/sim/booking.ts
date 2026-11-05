@@ -9,7 +9,7 @@ import { ROUTES, routeName } from '../data/routes'
 import { adaptTripSeats, coveringSpare } from './cover'
 import { clockFromMinutes, clockMinutes } from '../core/calendar'
 import { rngFor, rPoisson, rChance } from '../core/rng'
-import type { BusModel, CancellationPolicy, Channel, GameState, ID, Schedule, Trip, TripSeat } from '../types'
+import type { BusModel, CancellationPolicy, Channel, GameState, ID, Schedule, Trip, TripSeat, Txn } from '../types'
 import { CHANNELS, CHANNEL_META, emptyChannelSold } from '../data/channels'
 import { buildSeats, preferenceOrder, seatProfile, seatZoneOfId } from './seatmap'
 import { AGG_ANY_SEAT, AGG_SEATER_SEAT, AGG_SLEEPER_SEAT, LIVE_SEAT_DAYS, hydrateTripSeats, packColdTripSeats } from './seatstate'
@@ -118,6 +118,24 @@ interface MarathonLegPlan {
   isSeasonal: boolean
 }
 
+/** Physical history only; prospective bookings never determine coach position. */
+type PhysicalTripIndex = Map<string, Trip[]>
+
+function indexPhysicalTrips(s: GameState): PhysicalTripIndex {
+  const byBus: PhysicalTripIndex = new Map()
+  for (const id in s.trips) {
+    const trip = s.trips[id]
+    if (trip.status === 'cancelled' || (trip.status !== 'completed' && trip.day >= s.day)) continue
+    let trips = byBus.get(trip.busId)
+    if (!trips) {
+      trips = []
+      byBus.set(trip.busId, trips)
+    }
+    trips.push(trip)
+  }
+  return byBus
+}
+
 function sideForCity(
   route: NonNullable<typeof ROUTES[string]>,
   cityId: string | undefined,
@@ -175,6 +193,7 @@ export function planMarathonLegs(
   fromDay: number,
   toDay: number,
   s?: GameState,
+  physicalTrips?: PhysicalTripIndex,
 ): MarathonLegPlan[] {
   const out = clockFromMinutes(clockMinutes(sch))
   const ret = sch.paired ? pairReturnClock(sch, route) : out
@@ -193,12 +212,13 @@ export function planMarathonLegs(
 
   // Inspect physically departed or completed trips for each assigned coach so we respect actual bus positions & cooldowns
   const defaultSides = seedMarathonSides(s, sch, route)
+  const history = physicalTrips ?? (s ? indexPhysicalTrips(s) : undefined)
   for (const id of sch.busIds) {
     let latestEnd = -1
     let latestDest: 'A' | 'B' | null = null
 
     if (s) {
-      for (const t of Object.values(s.trips)) {
+      for (const t of history?.get(id) ?? []) {
         if (t.busId !== id || t.status === 'cancelled') continue
         if (t.routeId !== route.id) continue
         // Only trips that have actually run or are currently on the road define physical vehicle position.
@@ -208,8 +228,7 @@ export function planMarathonLegs(
 
         const tripDep = t.day * 1440 + t.depHour * 60 + (t.depMin ?? 0)
         const tripRun = Math.round((ROUTES[t.routeId]?.hours ?? route.hours) * 60)
-        const tripTurn = turnaroundMinutes(route, s)
-        const tripEnd = tripDep + tripRun + tripTurn
+        const tripEnd = tripDep + tripRun + turnMin
         if (tripEnd > latestEnd) {
           latestEnd = tripEnd
           latestDest = t.direction === 'AB' ? 'B' : 'A'
@@ -295,8 +314,9 @@ function generateMarathonTrips(
   fromDay: number,
   toDay: number,
   busy: BusyIndex,
+  physicalTrips: PhysicalTripIndex,
 ): void {
-  for (const leg of planMarathonLegs(sch, route, fromDay, toDay, s)) {
+  for (const leg of planMarathonLegs(sch, route, fromDay, toDay, s, physicalTrips)) {
     const line = s.buses[leg.busId]
     if (!line || line.status === 'delivery') continue
     const runner = line.status === 'active' ? line : coveringSpare(s, leg.busId)
@@ -819,13 +839,14 @@ function releaseStaleTrips(
   route: NonNullable<typeof ROUTES[string]>,
   edge: number,
   openTrips: Trip[],
+  physicalTrips: PhysicalTripIndex,
 ): number {
   if (openTrips.length === 0) return 0
   const isAllFest = sch.festivalOnly || (sch.outboundDuty === 'festival' && (!sch.paired || sch.returnDuty === 'festival'))
   const lastGenDay = isAllFest ? Math.min(edge, s.day + 3) : edge
   const expected = new Set<string>()
   if (usesMarathonReadiness(sch, route)) {
-    for (const leg of planMarathonLegs(sch, route, s.day, lastGenDay, s)) {
+    for (const leg of planMarathonLegs(sch, route, s.day, lastGenDay, s, physicalTrips)) {
       expected.add(tripKey(sch.id, leg.busId, leg.day, leg.dir))
     }
   } else {
@@ -874,6 +895,10 @@ function releaseStaleTrips(
  */
 export function generateTrips(s: GameState): void {
   pruneInvalidSeasonalTrips(s)
+  // Releasing/rebuilding future open legs cannot change physical history.
+  // Share this index across both planning passes, then discard it so edits,
+  // dispatch, covers and loaded saves are reflected on the next invocation.
+  const physicalTrips = indexPhysicalTrips(s)
   const edge = s.day + BAL.bookingWindowDays
   const openBySchedule = new Map<string, Trip[]>()
   for (const id of s.openTripIds) {
@@ -893,7 +918,7 @@ export function generateTrips(s: GameState): void {
     if (!permit || permit.status !== 'active') continue
     const route = ROUTES[sch.routeId]
     if (!route) continue
-    releaseStaleTrips(s, sch, route, edge, openBySchedule.get(sch.id) ?? [])
+    releaseStaleTrips(s, sch, route, edge, openBySchedule.get(sch.id) ?? [], physicalTrips)
   }
 
   // 2. Book what survived, then fill in every missing leg of the window.
@@ -918,7 +943,7 @@ export function generateTrips(s: GameState): void {
     }
 
     if (usesMarathonReadiness(sch, route)) {
-      generateMarathonTrips(s, sch, route, s.day, edge, busy)
+      generateMarathonTrips(s, sch, route, s.day, edge, busy, physicalTrips)
       continue
     }
 
@@ -1471,7 +1496,41 @@ export function retentionShare(hoursToDep: number, policy: 'flexible' | 'standar
   return t.under4h
 }
 
+/** Pass-local references preserve ledger order while avoiding per-trip scans. */
+class CancellationLedger {
+  private rows: Txn[] | undefined
+  private scanned = 0
+  private byBus = new Map<ID | undefined, Map<ID | undefined, Txn[]>>()
+  hasEmptyTickets = false
+
+  tickets(s: GameState, trip: Trip): Txn[] {
+    if (this.rows !== s.txns) {
+      this.rows = s.txns
+      this.scanned = 0
+      this.byBus.clear()
+      this.hasEmptyTickets = false
+    }
+    // New sale postings may append or fold into the referenced rows between
+    // cancellations. Rebuild only if pruning actually replaced the ledger.
+    for (; this.scanned < s.txns.length; this.scanned++) {
+      const row = s.txns[this.scanned]!
+      if (row.head !== 'ticket' || row.kind !== 'income') continue
+      let routes = this.byBus.get(row.busId)
+      if (!routes) { routes = new Map(); this.byBus.set(row.busId, routes) }
+      let tickets = routes.get(row.routeId)
+      if (!tickets) { tickets = []; routes.set(row.routeId, tickets) }
+      tickets.push(row)
+      if (row.amount <= 0) this.hasEmptyTickets = true
+    }
+    return this.byBus.get(trip.busId)?.get(trip.routeId) ?? []
+  }
+}
+
 export function processCancellations(s: GameState, trip: Trip): void {
+  processTripCancellations(s, trip)
+}
+
+function processTripCancellations(s: GameState, trip: Trip, ledger?: CancellationLedger): void {
   if (trip.sold <= 0) return
   const rng = rngFor(s.seed, 'cxl', trip.id, s.day)
   const sch = s.schedules[trip.scheduleId]
@@ -1493,6 +1552,7 @@ export function processCancellations(s: GameState, trip: Trip): void {
 
   const nCancel = Math.min(trip.sold, rPoisson(rng, trip.sold * effectiveRate))
   if (nCancel <= 0) return
+  const retainedShare = retentionShare(Math.max(0, hoursToDep), policy)
   let refundTotal = 0
   let retainedTotal = 0
   let totalTicketPrice = 0
@@ -1507,7 +1567,7 @@ export function processCancellations(s: GameState, trip: Trip): void {
     for (let k = 0; k < toCancel; k++) {
       const idx = Math.floor(rng() * rows.length)
       const row = rows[idx]!
-      const retained = Math.round(row.p * retentionShare(Math.max(0, hoursToDep), policy))
+      const retained = Math.round(row.p * retainedShare)
       refundTotal += row.p - retained
       retainedTotal += retained
       totalTicketPrice += row.p
@@ -1536,7 +1596,7 @@ export function processCancellations(s: GameState, trip: Trip): void {
       const seat = trip.seats[soldIdx[k]!]
       if (!seat?.sale) continue
       const price = seat.sale.price
-      const retained = Math.round(price * retentionShare(Math.max(0, hoursToDep), policy))
+      const retained = Math.round(price * retainedShare)
       const refund = price - retained
       refundTotal += refund
       retainedTotal += retained
@@ -1573,14 +1633,18 @@ export function processCancellations(s: GameState, trip: Trip): void {
           s.curMonth.ticketBreakdown.gross = Math.max(0, s.curMonth.ticketBreakdown.gross - moved)
         }
         let left = moved
-        for (let i = s.txns.length - 1; i >= 0 && left > 0; i--) {
-          const row = s.txns[i]!
+        const tickets = ledger ? ledger.tickets(s, trip) : s.txns
+        for (let i = tickets.length - 1; i >= 0 && left > 0; i--) {
+          const row = tickets[i]!
           if (row.head !== 'ticket' || row.kind !== 'income' || row.busId !== trip.busId || row.routeId !== trip.routeId) continue
           const take = Math.min(left, row.amount)
           row.amount -= take
           left -= take
+          if (ledger && row.amount <= 0) ledger.hasEmptyTickets = true
         }
-        s.txns = s.txns.filter((r) => !(r.head === 'ticket' && r.kind === 'income' && r.amount <= 0))
+        if (!ledger || ledger.hasEmptyTickets) {
+          s.txns = s.txns.filter((r) => !(r.head === 'ticket' && r.kind === 'income' && r.amount <= 0))
+        }
         pushTxn(s, {
           day: s.day,
           head: 'cancellation_fee',
@@ -1672,6 +1736,7 @@ export function bookingPass(s: GameState): { seatsSold: number } {
   let before = 0
   let after = 0
   const ctx = buildBookingCtx(s)
+  const ledger = new CancellationLedger()
   for (const id of s.openTripIds) {
     const trip = s.trips[id]
     if (!trip || trip.status !== 'open') continue
@@ -1702,7 +1767,7 @@ export function bookingPass(s: GameState): { seatsSold: number } {
       }
     }
     before += trip.sold
-    processCancellations(s, trip)
+    processTripCancellations(s, trip, ledger)
 
     const cap = trip.seatCount || trip.seats.length
     // If the coach is already full after cancellations, no new seats can be sold.

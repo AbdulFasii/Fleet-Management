@@ -788,7 +788,7 @@ export function SettingsPage() {
             info="Highlight odometer readings at or above this mark wherever a coach's kilometres are shown. Each brand can have its own milestone threshold."
           >
             {activeGroups(s).length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Brand Specific Limits
                 </div>
@@ -799,65 +799,48 @@ export function SettingsPage() {
                     <div
                       key={grp.id}
                       style={{
-                        padding: '10px 12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '8px 12px',
                         background: 'rgba(255, 255, 255, 0.03)',
                         borderRadius: 6,
                         border: '1px solid rgba(255, 255, 255, 0.07)',
                       }}
                     >
-                      <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
-                          <GroupBadge group={grp} />
-                          <b style={{ fontSize: '0.95rem' }}>{grp.name}</b>
-                        </div>
-                        <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
-                          <b style={{ minWidth: 100, textAlign: 'right' }}>
-                            {brandMark.toLocaleString('en-IN')} km
-                          </b>
-                          {isCustom ? (
-                            <span className="accent small" style={{ fontSize: '0.75rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(56, 189, 248, 0.15)' }}>
-                              Custom
-                            </span>
-                          ) : (
-                            <span className="dim small" style={{ fontSize: '0.75rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.05)' }}>
-                              Default
-                            </span>
-                          )}
-                        </div>
+                      <div className="flex" style={{ alignItems: 'center', gap: 8, minWidth: 160, flexShrink: 0 }}>
+                        <GroupBadge group={grp} />
+                        <b style={{ fontSize: '0.92rem', whiteSpace: 'nowrap' }}>{grp.name}</b>
                       </div>
 
-                      <div className="form-row" style={{ marginBottom: 6 }}>
-                        <label className="dim small" style={{ minWidth: 110 }}>Milestone Mark</label>
-                        <input
-                          type="range"
-                          min={50_000}
-                          max={2_000_000}
-                          step={25_000}
-                          value={brandMark}
-                          onChange={(e) => g.updateGroup(grp.id, { odoHighlightKm: Number(e.target.value) })}
-                          style={{ flex: 1, maxWidth: 280 }}
-                        />
-                      </div>
+                      <input
+                        type="range"
+                        min={50_000}
+                        max={2_000_000}
+                        step={25_000}
+                        value={brandMark}
+                        onChange={(e) => g.updateGroup(grp.id, { odoHighlightKm: Number(e.target.value) })}
+                        style={{ flex: 1, minWidth: 100 }}
+                        title={`Milestone mark for ${grp.name}`}
+                      />
 
-                      <div className="flex" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {[200_000, 300_000, 400_000, 500_000].map((km) => (
-                          <button
-                            key={km}
-                            className={`small ${isCustom && brandMark === km ? 'primary' : ''}`}
-                            onClick={() => g.updateGroup(grp.id, { odoHighlightKm: km })}
-                          >
-                            {km / 1_00_000}L km
-                          </button>
-                        ))}
-                        {isCustom && (
+                      <div className="flex" style={{ alignItems: 'center', gap: 8, minWidth: 135, justifyContent: 'flex-end', flexShrink: 0 }}>
+                        <b style={{ textAlign: 'right' }}>
+                          {brandMark.toLocaleString('en-IN')} km
+                        </b>
+                        {isCustom ? (
                           <button
                             className="small"
-                            style={{ marginLeft: 4, opacity: 0.8 }}
+                            style={{ padding: '1px 6px', fontSize: '0.72rem', opacity: 0.85 }}
                             onClick={() => g.updateGroup(grp.id, { odoHighlightKm: undefined })}
-                            title="Revert to company-wide default"
+                            title="Revert to company default"
                           >
-                            ↺ Revert to Default
+                            ↺
                           </button>
+                        ) : (
+                          <span className="dim small" style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.05)' }}>
+                            Default
+                          </span>
                         )}
                       </div>
                     </div>
@@ -870,8 +853,20 @@ export function SettingsPage() {
               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
                 {activeGroups(s).length > 0 ? 'Company Default (Fallback & Unbranded)' : 'Company Milestone Limit'}
               </div>
-              <div className="form-row">
-                <label>Default Highlight</label>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '8px 12px',
+                  background: 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 6,
+                  border: '1px solid rgba(255, 255, 255, 0.07)',
+                }}
+              >
+                <div style={{ minWidth: 160, flexShrink: 0, fontWeight: 600, fontSize: '0.92rem' }}>
+                  Default Highlight
+                </div>
                 <input
                   type="range"
                   min={50_000}
@@ -879,20 +874,12 @@ export function SettingsPage() {
                   step={25_000}
                   value={odoMark}
                   onChange={(e) => g.setOdoHighlightKm(Number(e.target.value))}
-                  style={{ flex: 1, maxWidth: 280 }}
+                  style={{ flex: 1, minWidth: 100 }}
+                  title="Company-wide default milestone mark"
                 />
-                <b style={{ minWidth: 100, textAlign: 'right' }}>{odoMark.toLocaleString('en-IN')} km</b>
-              </div>
-              <div className="flex" style={{ gap: 6 }}>
-                {[200_000, 300_000, 400_000, 500_000].map((km) => (
-                  <button
-                    key={km}
-                    className={`small ${odoMark === km ? 'primary' : ''}`}
-                    onClick={() => g.setOdoHighlightKm(km)}
-                  >
-                    {km / 1_00_000}L km
-                  </button>
-                ))}
+                <div className="flex" style={{ alignItems: 'center', gap: 8, minWidth: 135, justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <b style={{ textAlign: 'right' }}>{odoMark.toLocaleString('en-IN')} km</b>
+                </div>
               </div>
             </div>
 
@@ -1645,41 +1632,54 @@ export function SettingsPage() {
       {/* ---------------- POLICIES ---------------- */}
       {activeTab === 'policies' && (() => {
         const pick = <T extends string,>(label: string, tip: string, value: T, options: readonly (readonly [T, string])[], onChange: (v: T) => void) => (
-          <div className="form-row" title={tip}>
-            <label>{label}</label>
-            <Tabs inline tabs={options} value={value} onChange={onChange} />
+          <div style={{ marginBottom: 12 }}>
+            <div className="form-row" style={{ marginBottom: 4 }}>
+              <label>{label}</label>
+              <Tabs inline tabs={options} value={value} onChange={onChange} />
+            </div>
+            <div className="dim small" style={{ fontSize: '0.8rem', lineHeight: '1.35', color: 'var(--text-dim, #999)' }}>
+              {tip}
+            </div>
           </div>
         )
         const num = (label: string, tip: string, value: number, min: number, max: number, step: number, unit: string, onChange: (v: number) => void) => (
-          <div className="form-row" title={tip}>
-            <label>{label}</label>
-            <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: 180 }} />
-            <b>{value}{unit}</b>
+          <div style={{ marginBottom: 12 }}>
+            <div className="form-row" style={{ marginBottom: 4 }}>
+              <label>{label}</label>
+              <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width: 180 }} />
+              <b>{value}{unit}</b>
+            </div>
+            <div className="dim small" style={{ fontSize: '0.8rem', lineHeight: '1.35', color: 'var(--text-dim, #999)' }}>
+              {tip}
+            </div>
           </div>
         )
         return (
           <div className="grid-2">
-            <Panel title="Fares">
-              {num('Surge cap', 'The most a fare may rise above the base fare on ordinary days. Festival peaks follow their own rules.', cfg.surgeCapPct ?? 275, 100, 275, 5, '%', (v) => g.updatePlayerConfig({ surgeCapPct: v }))}
-              {num('Last-minute fare', 'When the last-minute cut is on, near-empty trips on their final day sell at this share of the normal fare.', cfg.lastMinuteFloorPct ?? 85, 50, 100, 5, '%', (v) => g.updatePlayerConfig({ lastMinuteFloorPct: v }))}
+            <Panel title="Fares" info="Dynamic pricing caps and last-minute clearance rules.">
+              {num('Surge cap', 'The most a fare may rise above the base fare on ordinary days. Festival peaks follow their own festive rules.', cfg.surgeCapPct ?? 275, 100, 275, 5, '%', (v) => g.updatePlayerConfig({ surgeCapPct: v }))}
+              {num('Last-minute fare', 'When the last-minute cut is on, near-empty trips on their final day sell at this discount share of the normal fare.', cfg.lastMinuteFloorPct ?? 85, 50, 100, 5, '%', (v) => g.updatePlayerConfig({ lastMinuteFloorPct: v }))}
             </Panel>
-            <Panel title="Network">
-              <label className="row gap" style={{ cursor: 'pointer' }} title="A new route starts at 60% of normal demand and reaches full demand after 90 days of service. A route nobody serves loses 0.5 points of maturity a day.">
+            <Panel title="Network" info="Route demand lifecycle and maturity ramp-up.">
+              <label className="row gap" style={{ cursor: 'pointer', marginBottom: 6 }}>
                 <input type="checkbox" checked={cfg.routeLifeCycle !== false} onChange={(e) => g.updatePlayerConfig({ routeLifeCycle: e.target.checked })} />
-                <span>New routes ramp up over 90 days</span>
+                <span style={{ fontWeight: 600 }}>New routes ramp up over 90 days</span>
               </label>
+              <div className="dim small" style={{ fontSize: '0.8rem', lineHeight: '1.35', color: 'var(--text-dim, #999)', marginTop: 4 }}>
+                A new route starts at 60% of normal demand and reaches full demand after 90 days of consistent service. A route nobody serves loses 0.5 points of maturity a day.
+              </div>
             </Panel>
-            <Panel title="Fleet">
-              {pick('Cover for breakdowns', 'Who lends a spare coach when a bus breaks down. Needs a workshop manager.', cfg.autoCoverPolicy ?? 'same_brand',
+            <Panel title="Fleet" info="Breakdown spare bus dispatch rules and fleet insurance tiers.">
+              {pick('Cover for breakdowns', 'Who lends a spare coach when a bus breaks down. Requires an appointed workshop manager.', cfg.autoCoverPolicy ?? 'same_brand',
                 [['off', 'None'], ['same_brand', 'Same brand'], ['any', 'Any brand']] as const, (v) => g.updatePlayerConfig({ autoCoverPolicy: v }))}
               {pick('Insurance', 'Basic costs 30% less and pays claims 15 points lower. Comprehensive costs 30% more and pays 7 points higher.', cfg.insuranceTier ?? 'standard',
                 [['basic', 'Basic'], ['standard', 'Standard'], ['comprehensive', 'Comprehensive']] as const, (v) => g.updatePlayerConfig({ insuranceTier: v }))}
             </Panel>
-            <Panel title="People">
-              {num('Training budget', 'Each ₹25,000 a month sends one crew member (lowest skill first) on a course: +1 skill and +2 morale.', Math.round((cfg.trainingBudgetPerMonth ?? 0) / 100 / 1000), 0, 200, 25, 'k/mo', (v) => g.updatePlayerConfig({ trainingBudgetPerMonth: rs(v * 1000) }))}
+            <Panel title="People" info="Crew continuous training allocation and morale development.">
+              {num('Training budget', 'Each ₹25,000 a month sends one crew member (lowest skill first) on a training course: +1 skill and +2 morale.', Math.round((cfg.trainingBudgetPerMonth ?? 0) / 100 / 1000), 0, 200, 25, 'k/mo', (v) => g.updatePlayerConfig({ trainingBudgetPerMonth: rs(v * 1000) }))}
             </Panel>
-            <Panel title="Cargo">
-              {num('SLA tolerance', 'A freight run later than this, or one that breaks down, costs 10% of its freight and some reputation.', cfg.slaToleranceMin ?? 120, 30, 240, 15, ' min', (v) => g.updatePlayerConfig({ slaToleranceMin: v }))}
+            <Panel title="Cargo" info="Logistics SLA tolerance buffers and delivery penalty thresholds.">
+              {num('SLA tolerance', 'A freight run arriving later than this buffer, or one that breaks down, forfeits 10% of freight revenue and impacts reputation.', cfg.slaToleranceMin ?? 120, 30, 240, 15, ' min', (v) => g.updatePlayerConfig({ slaToleranceMin: v }))}
             </Panel>
           </div>
         )
