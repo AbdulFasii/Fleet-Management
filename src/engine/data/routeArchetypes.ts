@@ -32,7 +32,6 @@ const EXPLICIT: Record<string, CorridorArchetype> = {
   'maa-kkm': 'pilgrim',
   'maa-rmd': 'pilgrim',
   'blr-udp': 'pilgrim',
-  'hyd-kkm': 'pilgrim',
   // leisure
   'maa-pdy': 'leisure',
   'blr-pdy': 'leisure',

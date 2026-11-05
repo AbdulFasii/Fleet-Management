@@ -168,7 +168,7 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'mum-idr': S(45, 320),
   'blr-qln': S(40, 240),
   'maa-pnq': S(15, 260),
-  'hyd-kkm': S(15, 200),
+  'pnq-nag': S(40, 260),
   'viz-ccu': S(20, 240),
 }
 
