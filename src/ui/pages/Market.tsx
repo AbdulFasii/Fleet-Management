@@ -275,13 +275,14 @@ export function MarketPage() {
             onChange={(e) => setSelectedBrand(e.target.value)}
             style={{ minWidth: 160 }}
           >
+            <option value="">Select brand…</option>
             {activeBrandList.map((grp) => (
               <option key={grp.id} value={grp.id}>
                 {grp.code} - {grp.name}
               </option>
             ))}
-            <option value="">Unassigned</option>
           </select>
+          {!selectedBrand && <span className="warn small">Pick a brand to order, lease or attach</span>}
         </label>
       </PageHeader>
 
@@ -356,7 +357,14 @@ export function MarketPage() {
                     <M v={price} />{subsidised && <span className="good"> EV-subsidy!</span>}
                   </td>
                   <td className="num">
-                    <button className="small" onClick={() => setBuying({ kind: 'new', id: m.id, price, title: `Order new ${modelTitle(m)}` })}>order</button>
+                    <button
+                      className="small"
+                      disabled={!selectedBrand}
+                      title={selectedBrand ? undefined : 'Select a brand at the top first'}
+                      onClick={() => setBuying({ kind: 'new', id: m.id, price, title: `Order new ${modelTitle(m)}` })}
+                    >
+                      order
+                    </button>
                   </td>
                 </tr>
               )
@@ -465,9 +473,12 @@ export function MarketPage() {
                       </select>
                       <button
                         className="small"
+                        disabled={!(leaseBrand[o.id] !== undefined ? leaseBrand[o.id] : selectedBrand)}
+                        title={(leaseBrand[o.id] !== undefined ? leaseBrand[o.id] : selectedBrand) ? undefined : 'Choose a brand for this coach first'}
                         onClick={() => {
                           const chosen = leaseBrand[o.id] !== undefined ? leaseBrand[o.id] : selectedBrand
-                          g.startLease(o.id, chosen || undefined)
+                          if (!chosen) return
+                          g.startLease(o.id, chosen)
                         }}
                       >
                         sign
@@ -523,16 +534,19 @@ export function MarketPage() {
                             value={attachBrand[o.id] !== undefined ? attachBrand[o.id] : selectedBrand}
                             onChange={(e) => setAttachBrand((prev) => ({ ...prev, [o.id]: e.target.value }))}
                           >
+                            <option value="">—</option>
                             {activeBrandList.map((b) => (
                               <option key={b.id} value={b.id}>{b.code}</option>
                             ))}
-                            <option value="">—</option>
                           </select>
                           <button
                             className="small"
+                            disabled={!(attachBrand[o.id] !== undefined ? attachBrand[o.id] : selectedBrand)}
+                            title={(attachBrand[o.id] !== undefined ? attachBrand[o.id] : selectedBrand) ? undefined : 'Choose a brand for this coach first'}
                             onClick={() => {
                               const chosen = attachBrand[o.id] !== undefined ? attachBrand[o.id] : selectedBrand
-                              g.signAttach(o.id, chosen || undefined)
+                              if (!chosen) return
+                              g.signAttach(o.id, chosen)
                             }}
                           >
                             attach
@@ -557,8 +571,10 @@ export function MarketPage() {
           onClose={() => setBuying(null)}
           onConfirm={(plan, bodyDesignId, orderedModelId) => {
             const gid = selectedBrand || undefined
-            if (buying.kind === 'new') g.orderNewBus(orderedModelId || buying.id, plan, gid, bodyDesignId)
-            else g.buyUsed(buying.id, plan, gid)
+            if (buying.kind === 'new') {
+              if (!gid) return g.toast('Select a brand before ordering a new coach.', 'bad')
+              g.orderNewBus(orderedModelId || buying.id, plan, gid, bodyDesignId)
+            } else g.buyUsed(buying.id, plan, gid)
           }}
         />
       )}

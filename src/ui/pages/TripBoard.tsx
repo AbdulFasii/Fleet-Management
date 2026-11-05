@@ -330,7 +330,7 @@ export function TripBoardPage() {
   const g = useGame()
   const [activeTab, setActiveTab] = useState<'timetable' | 'daily' | 'timeline' | 'history'>('timetable')
   const [routeFilter, setRouteFilter] = useState('all')
-  const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'high' | 'cmvr' | 'festival' | 'cargo'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'high' | 'cmvr' | 'festival' | 'cargo' | 'charter'>('all')
   const [repricing, setRepricing] = useState<string | null>(null)
   const [timelineDay, setTimelineDay] = useState<number>(s.day)
   const [showCargoBookingWindow, setShowCargoBookingWindow] = useState(false)
@@ -536,6 +536,8 @@ export function TripBoardPage() {
       if (statusFilter === 'cmvr') return cmvr.isBlocked || cmvr.needsHp
       if (statusFilter === 'festival') return isFest
       if (statusFilter === 'cargo') return isCargo
+      // Charters are not scheduled departures: the Charter filter shows the charters panel instead.
+      if (statusFilter === 'charter') return false
       return true
     })
   }, [dayTrips, statusFilter, s])
@@ -688,6 +690,7 @@ export function TripBoardPage() {
               ['cmvr', 'CMVR Alert'],
               ['festival', 'Festival Run'],
               ['cargo', 'Cargo'],
+              ['charter', 'Charter'],
             ] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -757,10 +760,17 @@ export function TripBoardPage() {
         </div>
       </div>
 
-      {/* Active Dedicated Charters & Tour Operations */}
+      {/* Active Dedicated Charters & Tour Operations: only under the Charter filter */}
       {(() => {
+        if (statusFilter !== 'charter' || (activeTab !== 'timetable' && activeTab !== 'daily')) return null
         const activeChtrs = (s.charterContracts ?? []).filter((c) => c.status === 'active' || c.status === 'booked')
-        if (activeChtrs.length === 0) return null
+        if (activeChtrs.length === 0) {
+          return (
+            <Panel flat style={{ marginBottom: 14 }} right={<Link to="/charters" className="small">Open Charters Desk →</Link>}>
+              <div className="dim">No charters running or booked.</div>
+            </Panel>
+          )
+        }
         return (
           <Panel
             title={
@@ -835,7 +845,7 @@ export function TripBoardPage() {
       {/* ========================================================================= */}
       {activeTab === 'timetable' && (
         <>
-          {filteredGroups.length === 0 ? (
+          {statusFilter === 'charter' ? null : filteredGroups.length === 0 ? (
             <Panel>
               <div className="dim pad24c">
                 {statusFilter !== 'all'
@@ -992,7 +1002,7 @@ export function TripBoardPage() {
       {/* ========================================================================= */}
       {/* TAB 2: DAILY DEPARTURES LIST (CHRONOLOGICAL)                              */}
       {/* ========================================================================= */}
-      {activeTab === 'daily' && (
+      {activeTab === 'daily' && statusFilter !== 'charter' && (
         <Panel
           title={`Daily Departures: ${fmtDateShort(activeTimelineDay)} (${filteredDayTrips.length} Runs)`}
           flat
@@ -1482,11 +1492,17 @@ export function TripBoardPage() {
                             <b><M v={netProfit} /></b>
                           </td>
                           <td className="num">
-                            <span className={pssClass}>
-                              {pss !== undefined ? `${pss.toFixed(1)}/10` : '—'}
-                            </span>
-                            {t.outcome?.reviewScore && (
-                              <div className="dim small">★ {t.outcome.reviewScore.toFixed(1)}</div>
+                            {isCargo ? (
+                              <span className="dim small" title="Freight trip has no passenger satisfaction score">—</span>
+                            ) : (
+                              <>
+                                <span className={pssClass}>
+                                  {pss !== undefined ? `${pss.toFixed(1)}/10` : '—'}
+                                </span>
+                                {typeof t.outcome?.reviewScore === 'number' && t.outcome.reviewScore > 0 ? (
+                                  <div className="dim small">★ {t.outcome.reviewScore.toFixed(1)}</div>
+                                ) : null}
+                              </>
                             )}
                           </td>
                           <td>
@@ -1573,8 +1589,8 @@ export function TripBoardPage() {
                                     ['Departure Slot', `${fmtClock(t)} (${t.direction === 'AB' ? 'Outbound' : 'Return'})`],
                                     ['Departure Date', `${fmtDateShort(t.day)} (${relDay})`],
                                     ['Punctuality Delay', delay <= 5 ? <span className="good">On Time</span> : <span className="warn">+{delay}m late</span>],
-                                    ['Passenger Satisfaction', <span className={pssClass}>{pss !== undefined ? `${pss.toFixed(1)} / 10 PSS` : '—'}</span>],
-                                    ['Customer Star Rating', t.outcome?.reviewScore ? <span className={ratingTone(t.outcome.reviewScore)}>★ {t.outcome.reviewScore.toFixed(1)} / 5.0</span> : '—'],
+                                    ['Passenger Satisfaction', isCargo ? <span className="dim">N/A (Freight)</span> : <span className={pssClass}>{pss !== undefined ? `${pss.toFixed(1)} / 10 PSS` : '—'}</span>],
+                                    ['Customer Star Rating', !isCargo && typeof t.outcome?.reviewScore === 'number' && t.outcome.reviewScore > 0 ? <span className={ratingTone(t.outcome.reviewScore)}>★ {t.outcome.reviewScore.toFixed(1)} / 5.0</span> : '—'],
                                     ['Dispatch Log Note', <span className="dim small" style={{ fontStyle: 'italic' }}>{t.outcome?.note ?? t.status}</span>],
                                   ]} />
                                 </div>
