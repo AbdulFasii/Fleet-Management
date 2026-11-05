@@ -22,7 +22,7 @@ import { BUS_MODELS, hybridSleeperCount } from '../data/busModels'
 import { busComfort } from '../data/bodyBuilders'
 import { ROUTES } from '../data/routes'
 import { corridorSupply } from '../data/corridorSupply'
-import { DOW_DEMAND, daysInMonth, dow, festivalRunEffect, seasonInfo, toCivil, clockMinutes, FESTIVALS } from '../core/calendar'
+import { DOW_DEMAND, daysInMonth, dow, festivalRunEffect, seasonInfo, toCivil, clockMinutes } from '../core/calendar'
 import { rngFor, rJitter } from '../core/rng'
 import type { Bus, BusClassId, BusModel, Channel, Company, GameState, RouteDef, Schedule, Trip, ID } from '../types'
 import { groupForTrip } from './groups'
@@ -32,6 +32,7 @@ import {
   corridorProfile,
   departureTimeFit,
   haulLayoutAppeal,
+  festivalPreSoldShare,
   hybridZoneFactors,
   isHomebound,
   ownSubstitutionWeight,
@@ -55,11 +56,13 @@ function clamp(n: number, lo: number, hi: number): number {
 /* ============================ booking curve ============================ */
 
 /** Normalised so balance edits are relative weights, not a fragile sum. */
-const CURVE: number[] = (() => {
+function normalizeCurve(weights: readonly number[]): number[] {
   let total = 0
-  for (const x of BAL.bookingCurve) total += x
-  return BAL.bookingCurve.map((x) => x / (total || 1))
-})()
+  for (const x of weights) total += x
+  return weights.map((x) => x / (total || 1))
+}
+const CURVE: number[] = normalizeCurve(BAL.bookingCurve)
+const FEST_CURVE: number[] = normalizeCurve(BAL.festivalBookingCurve)
 
 /* ========================= stage 1: corridor pool ========================= */
 
@@ -1193,8 +1196,8 @@ const ZERO_DEMAND: TripDemand = {
 export { elapsedBookingFrac }
 
 /** Hot trips get booked further out; quiet ones still sell a late slice. */
-function curveWeight(daysToDep: number, target: number): number {
-  const base = CURVE[Math.min(daysToDep, CURVE.length - 1)] ?? 0
+function curveWeight(daysToDep: number, target: number, curve: number[] = CURVE): number {
+  const base = curve[Math.min(daysToDep, curve.length - 1)] ?? 0
   const tilt = M.earlyBookingBoost * Math.max(0, target - M.earlyBookingLfRef)
   const lead = clamp((daysToDep - 3) / 7, -1, 1)
   return base * (1 + tilt * lead)
@@ -1219,10 +1222,8 @@ export function tripArrivals(
   const route = ROUTES[trip.routeId]
   const isHb = route ? isHomebound(route, trip.direction) : trip.direction === 'AB'
   const fest = festivalRunEffect(trip.day)
-  const isFestSurging = fest.name != null && (
-    (fest.phase === 'pre' && isHb) ||
-    ((fest.phase === 'post_first' || fest.phase === 'post_late') && !isHb)
-  )
+  const preSold = route ? festivalPreSoldShare(route, trip.direction, trip.day) : undefined
+  const isFestSurging = preSold !== undefined
 
   // Wire festival component of demandFactors into lambda headroom scaling
   const festDemandMult = isHb ? fest.homebound : fest.returning
@@ -1234,26 +1235,19 @@ export function tripArrivals(
   const headroom = Math.max(0, targetSeats - trip.sold)
   if (headroom <= 0) return ZERO_DEMAND
 
-  const paceSold = cap * effectiveTarget * elapsedBookingFrac(daysToDep)
-  let todaySlice = cap * lf.target * curveWeight(daysToDep, lf.target)
-
-  // Festival advance booking pace multiplier
-  if (isFestSurging) {
-    const f = FESTIVALS.find((x) => x.name === fest.name || x.id === fest.id)
-    const peak = f?.peak ?? 1.35
-    const paceMult = 1.35 + Math.min(0.25, Math.max(0, (peak - 1.35) * (0.25 / 1.45)))
-    if (daysToDep >= 3) {
-      todaySlice *= paceMult
-    } else if (daysToDep <= 1) {
-      todaySlice *= 0.75
-    }
-  }
+  // Normal departures sell late; festival surge departures follow a
+  // front-loaded curve on top of the share sold before the board opened.
+  const paceSold = cap * effectiveTarget * elapsedBookingFrac(daysToDep, preSold)
+  const curve = isFestSurging ? FEST_CURVE : CURVE
+  const todaySlice = cap * lf.target * (1 - (preSold ?? 0)) * curveWeight(daysToDep, lf.target, curve)
 
   // Behind the curve: close most of the deficit within a few days. The slice
   // multiple keeps a far-out day from dumping the whole gap at once, and
-  // headroom refuses anything past the target LF.
+  // headroom refuses anything past the target LF. A festival surge trip lands
+  // its pre-sold block in full on the day the board opens.
   const gap = Math.max(0, paceSold - trip.sold)
-  const catchUp = daysToDep === 0
+  const openingFestivalBook = isFestSurging && daysToDep === BAL.bookingWindowDays
+  const catchUp = daysToDep === 0 || openingFestivalBook
     ? Math.min(gap, headroom)
     : Math.min(
         gap * M.catchUpRate,

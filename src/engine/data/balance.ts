@@ -96,6 +96,21 @@ export const BAL = {
   cargoSubsidiaryShareBonus: 0.15,
   /** How hard a lane's freight book reacts to our posted rate. Above 1 = shippers walk. */
   cargoPriceElasticity: 1.3,
+  /**
+   * Parcel volume around festivals. Lift ramps up over `leadDays` before the
+   * date and is full for the last `fullLiftDays`; size scales with the
+   * festival's peak (Republic Day ~+10%, Diwali ~+25%). Markets close on the
+   * day and stay slow for `afterDays`.
+   */
+  cargoFestival: {
+    leadDays: 21,
+    fullLiftDays: 3,
+    liftMin: 0.10,
+    liftMax: 0.25,
+    dayOf: 0.55,
+    afterDays: 2,
+    after: 0.80,
+  },
   /** Weekday cargo (Sun..Sat). Offices ship Mon–Fri; Sat half; Sun quieter. */
   cargoDowMult: [0.62, 1.08, 1.02, 1.00, 1.04, 1.12, 0.78] as number[],
   /** Coolie loading charge at the origin dock, per kg handled (12 paise/kg). */
@@ -173,9 +188,10 @@ export const BAL = {
    * Calibration anchors for Indian private intercity AC services:
    *   - operator fleet LF averages 65-72%; strong brands hold the high 70s
    *   - lean-season Tue/Wed sleepers run 45-60%; festival dates sell out
-   *   - the 10-day board shows the book already on sale: a fair coach is
-   *     roughly 35-55% a week out and 55-75% inside two days. Off-peak and
-   *     overpriced trips stay thinner because their target LF is lower.
+   *   - the 7-day board sells late: a fair coach is roughly 15-25% sold
+   *     five days out and about half sold the day before; festival surge
+   *     trips open part-sold and book early. Off-peak and overpriced trips
+   *     stay thinner because their target LF is lower.
    *   - inside one corridor and window, fare substitution is sharp (share
    *     elasticity ~2) while the corridor's own pool barely moves on price
    */
@@ -482,20 +498,38 @@ export const BAL = {
    * Spread across the open booking window so a schedule created yesterday is
    * not an empty board. One weight per day-to-departure (index = days left;
    * the array length defines the window), normalised at load.
-   * Front-loaded 8-bucket curve: strong advance bookings at T-7/T-6 (~43% cumulative
-   * entering T-5, ~70% entering T-3, ~86% entering T-1) with a steady finish toward
-   * target, finishing with walk-up remnants at T-0/T-1 rather than an artificial late dump.
+   * Indian private intercity buses sell late: about 40% of seats go in the
+   * last day and a half (T-1 and day-of), with a small wave when the board
+   * first opens at T-7. Hot trips still tilt earlier (market.earlyBookingBoost).
    */
   bookingCurve: [
-    0.05, // T-0 walk-up remnant
+    0.20, // T-0 day-of
+    0.20, // T-1
+    0.14, // T-2
+    0.11, // T-3
+    0.09, // T-4
+    0.08, // T-5
+    0.08, // T-6
+    0.10, // T-7 board opens
+  ],
+  /**
+   * Festival surge trips (homebound before, return after) book early. Part
+   * of the book is already sold before the 7-day board opens (bookings made
+   * weeks ahead), and the rest follows this front-loaded curve.
+   */
+  festivalBookingCurve: [
+    0.05, // T-0 remnant
     0.07, // T-1
     0.08, // T-2
     0.09, // T-3
     0.12, // T-4
     0.14, // T-5
     0.18, // T-6
-    0.24, // T-7 first open day — advance wave
+    0.24, // T-7
   ],
+  /** Share of a festival surge trip's book sold before the board opens: by festival peak 1.35 → 2.8. */
+  festivalPreSoldMin: 0.20,
+  festivalPreSoldMax: 0.35,
   bookingWindowDays: 7,
   dailyCancelRate: 0.010, // ~5-7% cumulative cancellations across the window
   noShowRate: 0.025,
@@ -1384,19 +1418,30 @@ export function getClassRatingOccupancyRange(
   return getTableRange(table, qualityScore, dayType)
 }
 
+function curveTail(weights: readonly number[]): number[] {
+  let total = 0
+  for (const x of weights) total += x
+  const curve = weights.map((x) => x / (total || 1))
+  const tail = Array.from<number>({ length: curve.length + 1 })
+  tail[curve.length] = 0
+  for (let i = curve.length - 1; i >= 0; i--) tail[i] = curve[i]! + tail[i + 1]!
+  return tail
+}
 let _curveTail: number[] | null = null
+let _festCurveTail: number[] | null = null
 
-/** Fraction of eventual sales that belong on the book before today's slice. */
-export function elapsedBookingFrac(daysToDep: number): number {
-  if (!_curveTail) {
-    let total = 0
-    for (const x of BAL.bookingCurve) total += x
-    const curve = BAL.bookingCurve.map((x) => x / (total || 1))
-    const tail = Array.from<number>({ length: curve.length + 1 })
-    tail[curve.length] = 0
-    for (let i = curve.length - 1; i >= 0; i--) tail[i] = curve[i]! + tail[i + 1]!
-    _curveTail = tail
+/**
+ * Fraction of eventual sales that belong on the book before today's slice.
+ * Pass `festivalPreSold` (0-1) for a festival surge trip: that share was sold
+ * before the board opened and the rest follows the festival curve.
+ */
+export function elapsedBookingFrac(daysToDep: number, festivalPreSold?: number): number {
+  if (festivalPreSold !== undefined) {
+    if (!_festCurveTail) _festCurveTail = curveTail(BAL.festivalBookingCurve)
+    const i = Math.min(_festCurveTail.length - 1, Math.max(0, daysToDep + 1))
+    return festivalPreSold + (1 - festivalPreSold) * (_festCurveTail[i] ?? 0)
   }
+  if (!_curveTail) _curveTail = curveTail(BAL.bookingCurve)
   const i = Math.min(_curveTail.length - 1, Math.max(0, daysToDep + 1))
   return _curveTail[i] ?? 0
 }

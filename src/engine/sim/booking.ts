@@ -14,7 +14,7 @@ import { CHANNELS, CHANNEL_META, emptyChannelSold } from '../data/channels'
 import { buildSeats, preferenceOrder, seatProfile, seatZoneOfId } from './seatmap'
 import { AGG_ANY_SEAT, AGG_SEATER_SEAT, AGG_SLEEPER_SEAT, LIVE_SEAT_DAYS, hydrateTripSeats, packColdTripSeats } from './seatstate'
 import { tripArrivals, buildBookingCtx, hybridCabinShare, elapsedBookingFrac, channelWeights, tripLoadFactor, type LoadFactorEstimate } from './demand'
-import { hybridZoneFactors, isHomebound } from './corridor'
+import { festivalPreSoldShare, hybridZoneFactors, isHomebound } from './corridor'
 import { marketFare, resolveTripFare, roundFare, isReturnTrip } from './pricing'
 export { isReturnTrip } from './pricing'
 import {
@@ -1384,7 +1384,8 @@ function backfillGap(
   if (daysToDep < 0 || daysToDep >= BAL.bookingWindowDays) return null
   if (!s.schedules[trip.scheduleId]) return null
   if (est.target <= 0) return null
-  const frac = elapsedBookingFrac(daysToDep)
+  const route = ROUTES[trip.routeId]
+  const frac = elapsedBookingFrac(daysToDep, route ? festivalPreSoldShare(route, trip.direction, trip.day) : undefined)
   if (frac <= 0) return null
   const cap = seatCap(trip)
   const pace = Math.min(cap, Math.round(cap * est.target * frac))

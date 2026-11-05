@@ -15,7 +15,7 @@ import { CITIES, cityFreightProfile } from '../data/cities'
 import { isCargoModel } from '../data/busModels'
 import { ROUTES, routeName, canonicalRouteId } from '../data/routes'
 import { corridorSupply, realParcelKgPerDay } from '../data/corridorSupply'
-import { dow, festivalEffect, fmtDate, seasonInfo, ymKey } from '../core/calendar'
+import { FESTIVALS, dow, fmtDate, fromCivil, seasonInfo, toCivil, ymKey } from '../core/calendar'
 import { rngFor, rChance, rJitter, rPick, type Rng } from '../core/rng'
 import { nextId } from '../core/ids'
 import { rs, fmtCompact } from '../core/money'
@@ -278,14 +278,51 @@ export function cargoDowMult(day: number): number {
   return BAL.cargoDowMult[dow(day)] ?? 1
 }
 
+/**
+ * Parcels around a festival: shops restock, families send gifts and textiles
+ * move in the weeks before (bigger festivals lift more), then markets shut on
+ * the day itself and stay slow for a couple of days after.
+ */
+const cargoFestCache = new Map<number, number>()
+
+export function cargoFestivalMult(day: number): number {
+  const hit = cargoFestCache.get(day)
+  if (hit !== undefined) return hit
+  const m = computeCargoFestivalMult(day)
+  if (cargoFestCache.size > 2048) cargoFestCache.clear()
+  cargoFestCache.set(day, m)
+  return m
+}
+
+function computeCargoFestivalMult(day: number): number {
+  const cf = BAL.cargoFestival
+  const c = toCivil(day)
+  let lift = 0
+  let drop = 1
+  for (const f of FESTIVALS) {
+    for (const yy of [c.y - 1, c.y, c.y + 1]) {
+      const until = fromCivil(yy, f.month, f.day) - day // days until the festival date
+      const k = Math.min(1, Math.max(0, (f.peak - 1.35) / 1.45))
+      const peakLift = cf.liftMin + (cf.liftMax - cf.liftMin) * k
+      if (until >= 1 && until <= cf.leadDays) {
+        const ramp = until <= cf.fullLiftDays ? 1 : (cf.leadDays - until) / (cf.leadDays - cf.fullLiftDays)
+        lift = Math.max(lift, peakLift * ramp)
+      } else if (until === 0) {
+        drop = Math.min(drop, cf.dayOf)
+      } else if (until < 0 && -until <= cf.afterDays) {
+        drop = Math.min(drop, cf.after)
+      }
+    }
+  }
+  return drop < 1 ? drop : 1 + lift
+}
+
 export function cargoSeasonMult(day: number): number {
   const season = seasonInfo(day)
   let m = 1
   if (season.weatherRisk > 0) m *= 0.82
   else m *= season.demand > 1 ? 0.96 : 1
-  const fest = festivalEffect(day)
-  if (fest.name) m *= 0.88
-  return m
+  return m * cargoFestivalMult(day)
 }
 
 function brandShare(mgr: Staff | undefined, effSkill?: number): number {

@@ -12,6 +12,7 @@ import { BUS_MODELS } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { displayRouteHours } from '../data/routes'
 import { rngFor, rChance, rPick, type Rng } from '../core/rng'
+import { FESTIVALS, festivalRunEffect, type FestivalEffect } from '../core/calendar'
 import type { BusClassId, RouteDef } from '../types'
 
 const SLOTS = 48
@@ -41,6 +42,34 @@ export function isHomebound(route: RouteDef, direction: 'AB' | 'BA'): boolean {
   const a = CITIES[origin]?.metro ?? 0
   const b = CITIES[dest]?.metro ?? 0
   return a > b || (a === b && (origin === 'maa' || origin === 'blr' || origin === 'bom' || origin === 'del' || direction === 'AB'))
+}
+
+/**
+ * Pre-sold share of the book for a festival surge departure (homebound before
+ * a festival, return after it), or undefined for a normal departure.
+ */
+const festRunCache = new Map<number, { fest: FestivalEffect; peak: number }>()
+
+function festRunFor(depDay: number): { fest: FestivalEffect; peak: number } {
+  let hit = festRunCache.get(depDay)
+  if (!hit) {
+    const fest = festivalRunEffect(depDay)
+    const f = fest.name == null ? undefined : FESTIVALS.find((x) => x.id === fest.id || x.name === fest.name)
+    hit = { fest, peak: f?.peak ?? 1.35 }
+    if (festRunCache.size > 2048) festRunCache.clear()
+    festRunCache.set(depDay, hit)
+  }
+  return hit
+}
+
+export function festivalPreSoldShare(route: RouteDef, direction: 'AB' | 'BA', depDay: number): number | undefined {
+  const { fest, peak } = festRunFor(depDay)
+  if (fest.name == null) return undefined
+  const hb = isHomebound(route, direction)
+  const surging = (fest.phase === 'pre' && hb) || ((fest.phase === 'post_first' || fest.phase === 'post_late') && !hb)
+  if (!surging) return undefined
+  const k = Math.min(1, Math.max(0, (peak - 1.35) / 1.45))
+  return BAL.festivalPreSoldMin + (BAL.festivalPreSoldMax - BAL.festivalPreSoldMin) * k
 }
 
 /* ------------------------------ haul length ------------------------------ */

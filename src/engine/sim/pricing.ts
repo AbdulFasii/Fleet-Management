@@ -16,7 +16,7 @@ import { FESTIVALS, festivalEffect, dow } from '../core/calendar'
 import { rngFor } from '../core/rng'
 import type { Money } from '../core/money'
 import type { Bus, GameState, RouteDef, Schedule, ServiceTier, Trip, ID } from '../types'
-import { isHomebound, departureTimeFit } from './corridor'
+import { isHomebound, departureTimeFit, festivalPreSoldShare } from './corridor'
 
 /** Brand service-tier ticket multiplier vs corridor AC benchmark. */
 export function serviceTierFareMult(tier?: ServiceTier | null): number {
@@ -332,7 +332,7 @@ export function resolveTripFare(
   const target = (rangeMin + rangeMax) / 2
   const cap = trip.seatCount || trip.seats?.length || model.seats || 44
   const occ = cap > 0 ? (trip.sold || 0) / cap : 0
-  const pace = elapsedBookingFrac(daysToDep) * target * 0.7
+  const pace = elapsedBookingFrac(daysToDep, festivalPreSoldShare(route, trip.direction, trip.day)) * target * 0.7
   if (trip.sold > 0 && occ < pace && finalMult > time.factor) {
     finalMult = time.factor
   }

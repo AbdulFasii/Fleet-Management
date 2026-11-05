@@ -250,16 +250,18 @@ const avgSlpT1 = avg(sleeperPaces.t1)
 const avgHybT1 = avg(hybridPaces.t1)
 
 console.log(`\nAverage Booking Curve Results over 5 midweek departures:`)
-console.log(`  Week out (T-5): Sleeper ${Math.round(avgSlpT5 * 100)}% | Hybrid ${Math.round(avgHybT5 * 100)}% (target ~35-55%)`)
-console.log(`  Mid window (T-3): Sleeper ${Math.round(avgSlpT3 * 100)}% | Hybrid ${Math.round(avgHybT3 * 100)}% (target ~50-65%)`)
-console.log(`  Inside two days (T-1): Sleeper ${Math.round(avgSlpT1 * 100)}% | Hybrid ${Math.round(avgHybT1 * 100)}% (target ~55-75%)`)
+console.log(`  Week out (T-5): Sleeper ${Math.round(avgSlpT5 * 100)}% | Hybrid ${Math.round(avgHybT5 * 100)}% (target ~12-30%)`)
+console.log(`  Mid window (T-3): Sleeper ${Math.round(avgSlpT3 * 100)}% | Hybrid ${Math.round(avgHybT3 * 100)}% (target ~25-45%)`)
+console.log(`  Inside two days (T-1): Sleeper ${Math.round(avgSlpT1 * 100)}% | Hybrid ${Math.round(avgHybT1 * 100)}% (target ~45-70%)`)
 
-assert.ok(avgSlpT5 >= 0.35 && avgSlpT5 <= 0.55, `Average Sleeper T-5 (${avgSlpT5.toFixed(2)}) should be in 35-55% band`)
-assert.ok(avgHybT5 >= 0.35 && avgHybT5 <= 0.55, `Average Hybrid T-5 (${avgHybT5.toFixed(2)}) should be in 35-55% band`)
-assert.ok(avgSlpT3 >= 0.50 && avgSlpT3 <= 0.65, `Average Sleeper T-3 (${avgSlpT3.toFixed(2)}) should be in 50-65% band`)
-assert.ok(avgHybT3 >= 0.50 && avgHybT3 <= 0.65, `Average Hybrid T-3 (${avgHybT3.toFixed(2)}) should be in 50-65% band`)
-assert.ok(avgSlpT1 >= 0.55 && avgSlpT1 <= 0.75, `Average Sleeper T-1 (${avgSlpT1.toFixed(2)}) should be in 55-75% band`)
-assert.ok(avgHybT1 >= 0.55 && avgHybT1 <= 0.75, `Average Hybrid T-1 (${avgHybT1.toFixed(2)}) should be in 55-75% band`)
+// Indian private buses sell late: ~10% when the board opens at T-7, ~40% in
+// the last day and a half. Bands are the share of seats sold by that day.
+assert.ok(avgSlpT5 >= 0.12 && avgSlpT5 <= 0.30, `Average Sleeper T-5 (${avgSlpT5.toFixed(2)}) should be in 12-30% band`)
+assert.ok(avgHybT5 >= 0.12 && avgHybT5 <= 0.30, `Average Hybrid T-5 (${avgHybT5.toFixed(2)}) should be in 12-30% band`)
+assert.ok(avgSlpT3 >= 0.25 && avgSlpT3 <= 0.45, `Average Sleeper T-3 (${avgSlpT3.toFixed(2)}) should be in 25-45% band`)
+assert.ok(avgHybT3 >= 0.25 && avgHybT3 <= 0.45, `Average Hybrid T-3 (${avgHybT3.toFixed(2)}) should be in 25-45% band`)
+assert.ok(avgSlpT1 >= 0.45 && avgSlpT1 <= 0.70, `Average Sleeper T-1 (${avgSlpT1.toFixed(2)}) should be in 45-70% band`)
+assert.ok(avgHybT1 >= 0.45 && avgHybT1 <= 0.70, `Average Hybrid T-1 (${avgHybT1.toFixed(2)}) should be in 45-70% band`)
 
 console.log('\n======================================================')
 console.log('✓ ALL BOOKING CURVE SHAPE TESTS PASSED!')
