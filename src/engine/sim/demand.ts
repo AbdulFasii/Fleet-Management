@@ -965,22 +965,23 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   let effectiveAttr = attr
   if (frontRunInfo.frontRun) {
     const stance = getCorridorStance(s, route.id)
+    const fr = M.frontRun
     if (stance === 'undercut') {
       // Player matched price, defending passengers: rival front-runner loses appeal advantage
-      effectiveAttr *= 1.15
+      effectiveAttr *= fr.undercutLift
     } else if (stance === 'premium_hold') {
       // Player defends brand with comfort and quality
       const isHighQuality = (bus.qualityScore >= 4.0) || Boolean(s.company.primo)
       if (isHighQuality) {
-        effectiveAttr *= 1.08 // Premium passengers stay loyal
+        effectiveAttr *= fr.premiumHoldLift // Premium passengers stay loyal
       } else {
-        effectiveRivalAttr *= 1.20 // Lacking quality, rival takes share
+        effectiveRivalAttr *= fr.premiumHoldWeakRival // Lacking quality, rival takes share
       }
     } else if (stance === 'cargo_bundle') {
-      effectiveRivalAttr *= 1.10
+      effectiveRivalAttr *= fr.cargoBundleRival
     } else {
       // Neutral / uncountered: rival intercepts shoppers
-      effectiveRivalAttr *= 1.25
+      effectiveRivalAttr *= fr.uncounteredRival
     }
   }
 
@@ -1095,6 +1096,13 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   // the window's shoppers. The first coach is what the occupancy bands above
   // describe, so only the seats beyond it move the fill.
   target = target * supplyPressure
+
+  // Head-to-head: a lounge at either end lifts our appeal, and a rival
+  // front-running this departure takes shoppers unless our corridor stance
+  // answers it. Both move the fill by how far they shift our appeal against
+  // the rival's.
+  const competitiveMult = (effectiveAttr / attr) * (rivalAttr / effectiveRivalAttr)
+  target = target * competitiveMult
 
   // 7. Trip-to-trip wobble:
   const wobble = tripWobbleRate(s.seed, trip)

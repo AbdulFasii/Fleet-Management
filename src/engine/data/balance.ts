@@ -314,6 +314,19 @@ export const BAL = {
     supplyPressureMin: 0.40,
     /** A rival capacity flood lands on peak slots: its seats count this many times a window's share. */
     rivalFloodPeakConcentration: 2,
+    /**
+     * A rival departing 5-25 min ahead of our coach, by our corridor stance.
+     * `*Lift` raises our appeal; `*Rival` raises the rival's, so fill is
+     * divided by it. Uncountered costs ~10%, weak premium hold ~9%, cargo
+     * bundle ~5%; undercut (+15%) and a 4-star premium hold (+8%) win share.
+     */
+    frontRun: {
+      undercutLift: 1.15,
+      premiumHoldLift: 1.08,
+      premiumHoldWeakRival: 1.10,
+      cargoBundleRival: 1.05,
+      uncounteredRival: 1.11,
+    },
     /** Discounts stop adding fill past this multiple. */
     priceBoostMax: 1.35,
     /** How the per-corridor real-world swings compound on the target fill. */

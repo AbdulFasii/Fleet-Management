@@ -843,11 +843,13 @@ export function RoutesPage() {
         )
         const rawRivals = RIVALS[r.id] ?? ['SRS Travels', 'KPN Travels', 'VRL Travels']
 
+        const fr = BAL.market.frontRun
+        const pct = (x: number) => Math.round((x - 1) * 100)
         const STANCES: { id: CorridorStance; title: string; effect: string; detail: string }[] = [
-          { id: 'neutral', title: 'Neutral', effect: 'no counter-measures', detail: 'Standard timetable and pricing. A rival front-running your departure takes the shoppers.' },
-          { id: 'undercut', title: 'Undercut', effect: 'match rival fares · +15% booking defense', detail: 'Neutralises the rival front-runner at the cost of lower yield.' },
-          { id: 'premium_hold', title: 'Premium hold', effect: 'keep fares · needs 4.0★ coach or Primo', detail: 'Loyal high-yield passengers stay. Without a 4.0+ coach or Primo the rival gains +20% appeal; a rival wave also ends 2 days sooner each week.' },
-          { id: 'cargo_bundle', title: 'Cargo bundle', effect: '+30% parcel revenue on this route', detail: 'Freight earnings subsidise passenger seats. The rival still front-runs (+10% appeal).' },
+          { id: 'neutral', title: 'Neutral', effect: 'no counter-measures', detail: `Standard timetable and pricing. A rival front-running your departure gains +${pct(fr.uncounteredRival)}% appeal and takes shoppers.` },
+          { id: 'undercut', title: 'Undercut', effect: `match rival fares · +${pct(fr.undercutLift)}% booking defense`, detail: 'Neutralises the rival front-runner at the cost of lower yield.' },
+          { id: 'premium_hold', title: 'Premium hold', effect: 'keep fares · needs 4.0★ coach or Primo', detail: `Loyal high-yield passengers stay (+${pct(fr.premiumHoldLift)}%). Without a 4.0+ coach or Primo the rival gains +${pct(fr.premiumHoldWeakRival)}% appeal; a rival wave also ends 2 days sooner each week.` },
+          { id: 'cargo_bundle', title: 'Cargo bundle', effect: '+30% parcel revenue on this route', detail: `Freight earnings subsidise passenger seats. The rival still front-runs (+${pct(fr.cargoBundleRival)}% appeal).` },
         ]
         const threat = action && action.untilDay >= s.day ? action : undefined
 
