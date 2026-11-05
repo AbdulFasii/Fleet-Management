@@ -18,8 +18,40 @@ const IDB_KEY_IMAGES = 'coach_images'
 
 // In-memory caches for instant synchronous availability
 let memoryCacheDesigns: Record<string, BodyBuilder> | null = null
+/**
+ * True once the shared catalog has really been read (or written this session).
+ * Until then a save's own designs are authoritative: merging against the
+ * built-in defaults would undo renames and bring deleted designs back, and
+ * saving that merge would overwrite the real catalog.
+ */
+let sharedHydrated = false
 let memoryCacheImages: Record<string, string> = {}
 let lastCloudSync: string | null = null
+
+/** Design ids deleted on purpose, so a stale save cannot bring them back (per browser). */
+const LOCAL_KEY_DELETED = 'busgame_deleted_design_ids'
+
+function readDeletedIds(): Set<string> {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(LOCAL_KEY_DELETED) : null
+    const arr = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeDeletedIds(ids: Set<string>): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(LOCAL_KEY_DELETED, JSON.stringify([...ids]))
+  } catch {}
+}
+
+function designIds(builders: Record<string, BodyBuilder> | null | undefined): Set<string> {
+  const ids = new Set<string>()
+  for (const b of Object.values(builders ?? {})) for (const d of b.designs) ids.add(d.id)
+  return ids
+}
 
 export function getLastCloudSyncTime(): string | null {
   return lastCloudSync
@@ -58,6 +90,7 @@ if (isCloudImagesConfigured()) {
         const parsed = JSON.parse(rawDesigns)
         if (parsed && typeof parsed === 'object') {
           memoryCacheDesigns = parsed
+          sharedHydrated = true
           for (const b of Object.values(memoryCacheDesigns as Record<string, BodyBuilder>)) {
             for (const d of b.designs) {
               if (d.chassisNames && d.chassisNames.includes('1017')) {
@@ -216,6 +249,7 @@ export function applySharedToState(
   }
 
   if (stateBuilders) {
+    const deleted = readDeletedIds()
     for (const [builderId, b] of Object.entries(stateBuilders)) {
       if (!result[builderId]) {
         result[builderId] = JSON.parse(JSON.stringify(b))
@@ -239,6 +273,8 @@ export function applySharedToState(
         }
 
         const found = resBuilder.designs.find((x) => x.id === d.id)
+        // Deleted on purpose: a save that still lists it must not revive it.
+        if (!found && deleted.has(d.id)) continue
         if (!found) {
           // Custom design only present in this save
           const copy = JSON.parse(JSON.stringify(d))
@@ -285,7 +321,15 @@ export function getSharedBodyBuildersSync(): Record<string, BodyBuilder> | null 
 export function syncStateBodyBuildersWithShared(
   stateBuilders?: Record<string, BodyBuilder> | null,
 ): { bodyBuilders: Record<string, BodyBuilder>; changed: boolean } {
-  const currentShared = memoryCacheDesigns ?? cloneDefaultBodyBuilders()
+  if (!sharedHydrated) {
+    // The shared catalog has not loaded yet: keep this save's designs exactly
+    // as saved and write nothing back (see sharedHydrated).
+    return { bodyBuilders: stateBuilders ? attachSharedImages(stateBuilders) : cloneDefaultBodyBuilders(), changed: false }
+  }
+  // No shared catalog exists anywhere yet: the save's own designs are the
+  // starting point, not the built-in defaults.
+  const currentShared = memoryCacheDesigns
+    ?? (stateBuilders ? (JSON.parse(JSON.stringify(stateBuilders)) as Record<string, BodyBuilder>) : cloneDefaultBodyBuilders())
   const { bodyBuilders, sharedUpdated } = applySharedToState(stateBuilders, currentShared)
 
   memoryCacheDesigns = bodyBuilders
@@ -319,7 +363,19 @@ export async function saveSharedBodyDesigns(bodyBuilders: Record<string, BodyBui
       }
     }
   }
+  // Remember designs that were in the catalog and are gone now (deleted on
+  // purpose); forget any that came back.
+  if (memoryCacheDesigns) {
+    const before = designIds(memoryCacheDesigns)
+    const after = designIds(clone)
+    const deleted = readDeletedIds()
+    let dirty = false
+    for (const id of before) if (!after.has(id) && !deleted.has(id)) { deleted.add(id); dirty = true }
+    for (const id of after) if (deleted.delete(id)) dirty = true
+    if (dirty) writeDeletedIds(deleted)
+  }
   memoryCacheDesigns = clone
+  sharedHydrated = true
 
   // Save to IndexedDB as resilient local fallback in case cloud is unreachable or table not yet created
   try {
@@ -387,6 +443,7 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
       if (cloud && cloud.bodyBuilders && typeof cloud.bodyBuilders === 'object') {
         const attached = attachSharedImages(cloud.bodyBuilders)
         memoryCacheDesigns = attached
+        sharedHydrated = true
         lastCloudSync = cloud.updatedAt || new Date().toISOString()
         // Cease storing design data in local storage
         clearLocalBodyDesignsStorage()
@@ -408,6 +465,7 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
     }
     if (idbDesigns && typeof idbDesigns === 'object') {
       memoryCacheDesigns = attachSharedImages(idbDesigns)
+      sharedHydrated = true
       return memoryCacheDesigns
     }
   } catch {}
@@ -427,12 +485,15 @@ export async function loadSharedBodyDesigns(): Promise<Record<string, BodyBuilde
         const parsed = JSON.parse(raw)
         if (parsed && typeof parsed === 'object') {
           memoryCacheDesigns = attachSharedImages(parsed)
+          sharedHydrated = true
           return memoryCacheDesigns
         }
       }
     }
   } catch {}
 
+  // Every source has been tried: whatever we have (or nothing) is now authoritative.
+  sharedHydrated = true
   return memoryCacheDesigns ? attachSharedImages(memoryCacheDesigns) : null
 }
 
@@ -454,6 +515,7 @@ export async function pullSharedBodyDesignsFromCloud(): Promise<{
 
   const attached = attachSharedImages(cloud.bodyBuilders)
   memoryCacheDesigns = attached
+  sharedHydrated = true
   lastCloudSync = cloud.updatedAt || new Date().toISOString()
   clearLocalBodyDesignsStorage()
 
@@ -471,6 +533,7 @@ export async function publishSharedBodyDesignsToCloud(
   const res = await publishBodyCatalog(attached, onProgress)
   if (res.ok) {
     memoryCacheDesigns = res.bodyBuilders
+    sharedHydrated = true
     lastCloudSync = res.updatedAt || new Date().toISOString()
     clearLocalBodyDesignsStorage()
   }
@@ -507,6 +570,7 @@ export function importSharedDesignsJson(text: string): { ok: boolean; error?: st
     }
     const attached = attachSharedImages(builders)
     memoryCacheDesigns = attached
+    sharedHydrated = true
     saveSharedBodyDesigns(attached).catch(() => {})
     return { ok: true }
   } catch (err: any) {
