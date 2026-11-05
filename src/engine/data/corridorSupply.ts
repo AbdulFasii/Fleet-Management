@@ -169,7 +169,7 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'blr-qln': S(40, 240),
   'maa-pnq': S(15, 260),
   'hyd-kkm': S(15, 200),
-  'pnq-koc': S(15, 240),
+  'viz-ccu': S(20, 240),
 }
 
 /** Fallback for a route missing from the table: a thin tier-2 link. */

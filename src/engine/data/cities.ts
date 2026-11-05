@@ -68,6 +68,7 @@ export const CITIES: Record<string, City> = {
   klb: { id: 'klb', name: 'Kalaburagi', state: 'Karnataka', metro: 0.35, pickups: 3 },
   hpt: { id: 'hpt', name: 'Hosapete (Hampi)', state: 'Karnataka', metro: 0.28, pickups: 3 },
   wyd: { id: 'wyd', name: 'Wayanad (Kalpetta)', state: 'Kerala', metro: 0.25, pickups: 3 },
+  ccu: { id: 'ccu', name: 'Kolkata', state: 'West Bengal', metro: 0.9, pickups: 6 },
 }
 
 export function cityName(id: string): string {
@@ -131,6 +132,7 @@ export const CITY_FREIGHT: Record<string, CityFreightProfile> = {
   klb: { tier: 'commercial', shipIndex: 0.45, attractIndex: 0.40, mixBias: { agri: 0.45, hardware: 0.25, fmcg: 0.15, mixed: 0.10, textiles: 0.05 } },
   hpt: { tier: 'industrial', shipIndex: 0.50, attractIndex: 0.40, mixBias: { hardware: 0.45, mixed: 0.25, fmcg: 0.15, agri: 0.10, textiles: 0.05 } },
   wyd: { tier: 'commercial', shipIndex: 0.45, attractIndex: 0.40, mixBias: { agri: 0.55, fmcg: 0.20, mixed: 0.15, hardware: 0.05, textiles: 0.05 } },
+  ccu: { tier: 'metro', shipIndex: 0.90, attractIndex: 0.95, mixBias: { textiles: 0.35, fmcg: 0.30, mixed: 0.20, hardware: 0.10, agri: 0.05 } },
 }
 
 const DEFAULT_FREIGHT_PROFILE: CityFreightProfile = {

@@ -127,7 +127,7 @@ export const RIVALS: Record<string, string[]> = {
   'blr-qln': ['Kallada Travels', 'KSRTC (Kerala)', 'Greenline', 'SRS Travels'],
   'maa-pnq': ['VRL', 'KPN Travels', 'National Travels', 'SRS Travels'],
   'hyd-kkm': ['Orange Travels', 'KPN Travels', 'TSRTC', 'SETC'],
-  'pnq-koc': ['Kallada Travels', 'Greenline', 'VRL', 'Alhind Tours'],
+  'viz-ccu': ['Shyamoli Paribahan', 'Dolphin Travels', 'OSRTC', 'Greenline'],
 }
 
 const R = (
@@ -288,7 +288,7 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     // —— Round-to-100: ultra marathons ——
     R('maa-pnq', 1180, 19, 2200, 0.55, 0.6, false, 3000, 2.2, 20, 'Ultra up NH48 via Bengaluru, Hubballi and Kolhapur. Students and IT staff when trains are full; multi-coach rotation.'),
     R('hyd-kkm', 1200, 20, 2300, 0.55, 0.5, false, 2800, 2.2, 20, 'Cape ultra via Kurnool, Bengaluru, Madurai and Tirunelveli. Pilgrims and tourists; one coach covers a direction every two days.'),
-    R('pnq-koc', 1180, 20, 2300, 0.55, 0.5, true, 2800, 2.1, 20, 'Coastal ultra via Kolhapur, Goa, Mangaluru and Kozhikode. Kerala workers in Pune; Onam and Christmas peaks.'),
+    R('viz-ccu', 880, 17, 1850, 0.70, 0.50, false, 2200, 2.1, 15, 'Grand Eastern trunk along NH16 linking Visakhapatnam port and steel hub to Kolkata via Bhubaneswar. High-volume business, university and coastal holiday movement.'),
   ].map((r) => [r.id, r]),
 )
 
@@ -525,7 +525,7 @@ const VIA_CORRIDORS: [string, string, string[]][] = [
   ['blr', 'qln', ['slm', 'cbe', 'tcr', 'koc']],
   ['maa', 'pnq', ['blr', 'hbl', 'bgm', 'klp']],
   ['hyd', 'kkm', ['kno', 'blr', 'mdu', 'ten']],
-  ['pnq', 'koc', ['klp', 'goa', 'mlr', 'clt', 'tcr']],
+  ['viz', 'ccu', ['bbs']],
 ]
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
