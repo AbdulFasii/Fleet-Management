@@ -21,6 +21,7 @@ const EXPLICIT: Record<string, CorridorArchetype> = {
   'maa-hyd': 'tech',
   'hyd-pnq': 'tech',
   'mum-pnq': 'tech',
+  'blr-pnq': 'tech',
   // pilgrim
   'maa-tir': 'pilgrim',
   'blr-tir': 'pilgrim',
@@ -30,6 +31,8 @@ const EXPLICIT: Record<string, CorridorArchetype> = {
   'blr-mdu': 'pilgrim',
   'maa-kkm': 'pilgrim',
   'maa-rmd': 'pilgrim',
+  'blr-udp': 'pilgrim',
+  'hyd-kkm': 'pilgrim',
   // leisure
   'maa-pdy': 'leisure',
   'blr-pdy': 'leisure',
@@ -38,6 +41,8 @@ const EXPLICIT: Record<string, CorridorArchetype> = {
   'hyd-goa': 'leisure',
   'mlr-goa': 'leisure',
   'hbl-goa': 'leisure',
+  'mum-goa': 'leisure',
+  'pnq-goa': 'leisure',
   'maa-mys': 'leisure',
   // marathon (shorter than the 13h rule but run like one)
   'maa-ten': 'marathon',

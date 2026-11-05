@@ -9,7 +9,7 @@ import type {
   Staff,
 } from '../types'
 import { CHARTER_ROUTES, type CharterRouteDef } from '../data/charterRoutes'
-import { BUS_MODELS, isCharterModel } from '../data/busModels'
+import { BUS_MODELS, isCargoModel, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { BAL } from '../data/balance'
 import { CHARTER_DEMAND, CHARTER_DETENTION_SHARE, CHARTER_MIN_KM_PER_DAY, capCharterPrice, charterRatePerKm } from '../data/charterRates'
@@ -450,9 +450,13 @@ export function busHealthScore(bus: Bus): number {
 
 /** Drivers who can take a charter on this coach: posted to it, or not posted anywhere. Line drivers are never poached. */
 function charterDriverPool(s: GameState, bus: Bus): Staff[] {
-  return Object.values(s.staff).filter(
-    (st) => (st.role === 'driver' || st.role === 'co_driver') && (st.busId === bus.id || !st.busId),
-  )
+  return Object.values(s.staff).filter((st) => {
+    if (st.role !== 'driver' && st.role !== 'co_driver') return false
+    if (st.busId === bus.id || !st.busId) return true
+    const postedBus = s.buses[st.busId]
+    if (postedBus && !postedBus.scheduleId && postedBus.status === 'active') return true
+    return false
+  })
 }
 
 /** Why no driver can take this tour, or null when one can. Counts tours that overlap the same dates. */
@@ -480,8 +484,15 @@ function pickCharterDriver(s: GameState, bus: Bus, taken: Set<ID>): Staff | unde
 }
 
 /** Check if a bus satisfies inquiry requirements */
-export function canBusTakeContract(bus: Bus, contract: CharterContract, day?: number): { ok: boolean; reason?: string } {
-  if (bus.duty !== 'charter') return { ok: false, reason: 'Bus must be dedicated to charter duty' }
+export function canBusTakeContract(
+  bus: Bus,
+  contract: CharterContract,
+  day?: number,
+  allowIdleLineCoach = false,
+): { ok: boolean; reason?: string } {
+  if (bus.duty !== 'charter' && (!allowIdleLineCoach || bus.scheduleId || isCargoModel(bus.modelId))) {
+    return { ok: false, reason: 'Bus must be dedicated to charter duty' }
+  }
   if (bus.status !== 'active') return { ok: false, reason: `Bus status is ${bus.status}` }
   const checkDay = contract.endDay ?? day ?? 0
   if (bus.insuranceExpiryDay < checkDay || bus.fitnessExpiryDay < checkDay || bus.fitnessFailed) {
@@ -511,7 +522,11 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
   const bus = s.buses[busId]
   if (!bus) return 'Bus not found.'
 
-  const check = canBusTakeContract(bus, inq)
+  if (bus.duty !== 'charter' && !bus.scheduleId && bus.status === 'active' && !isCargoModel(bus.modelId)) {
+    bus.duty = 'charter'
+  }
+
+  const check = canBusTakeContract(bus, inq, undefined, true)
   if (!check.ok) return check.reason ?? 'Cannot assign bus'
 
   if (isBusBusyOnCharter(s, busId, inq.startDay, inq.endDay)) {
@@ -836,27 +851,61 @@ export function scoreBusForContract(bus: Bus, inq: CharterContract): number {
  * Evaluates available dedicated charter coaches, calculates direct operating expenses (Fuel, Bata, Tolls),
  * and automatically assigns the most profitable, best-matched coach for pipeline inquiries.
  */
-export function autoAssignBestCharters(s: GameState): number {
-  if (!s.charterInquiries || s.charterInquiries.length === 0) return 0
+export interface AutoAssignDetails {
+  assigned: number
+  bidsLost: number
+  inquiriesProcessed: number
+  reason?: string
+}
+
+export function autoAssignChartersWithDetails(s: GameState): AutoAssignDetails {
+  if (!s.charterInquiries || s.charterInquiries.length === 0) {
+    return { assigned: 0, bidsLost: 0, inquiriesProcessed: 0, reason: 'No open charter inquiries to assign.' }
+  }
   const manager = charterManagerOnDuty(s)
-  if (!manager) return 0
+  if (!manager) {
+    return { assigned: 0, bidsLost: 0, inquiriesProcessed: 0, reason: 'Appoint a Charter Manager first.' }
+  }
 
   sanitizeCharterData(s)
 
   let assignedCount = 0
-  const charterFleet = getCharterFleet(s)
+  let bidsLostCount = 0
   const inquiries = [...s.charterInquiries]
 
+  const dedicated = getCharterFleet(s)
+  const idleDepotCoaches = Object.values(s.buses ?? {}).filter(
+    (b) => b.duty !== 'charter' && b.status === 'active' && !b.scheduleId && !isCargoModel(b.modelId),
+  )
+  const candidateFleet = [...dedicated, ...idleDepotCoaches]
+
+  if (candidateFleet.length === 0) {
+    return { assigned: 0, bidsLost: 0, inquiriesProcessed: 0, reason: 'No coaches available in depot or charter fleet. Free a coach from route schedule or buy one.' }
+  }
+
+  const blockerReasons = new Set<string>()
+
   for (const inq of inquiries) {
-    const eligibleBuses = charterFleet.filter((bus) => {
-      const check = canBusTakeContract(bus, inq)
-      if (!check.ok) return false
-      return !isBusBusyOnCharter(s, bus.id, inq.startDay, inq.endDay) && !charterDriverShortfall(s, bus, inq)
+    const eligibleBuses = candidateFleet.filter((bus) => {
+      const check = canBusTakeContract(bus, inq, undefined, true)
+      if (!check.ok) {
+        if (check.reason) blockerReasons.add(check.reason)
+        return false
+      }
+      if (isBusBusyOnCharter(s, bus.id, inq.startDay, inq.endDay)) {
+        blockerReasons.add('Coach booked on overlapping dates')
+        return false
+      }
+      const shortfall = charterDriverShortfall(s, bus, inq)
+      if (shortfall) {
+        blockerReasons.add(shortfall)
+        return false
+      }
+      return true
     })
 
     if (eligibleBuses.length === 0) continue
 
-    // Find the bus that yields the highest net profit and best vehicle match
     let bestBus: Bus | null = null
     let bestProfit = -Infinity
 
@@ -873,11 +922,33 @@ export function autoAssignBestCharters(s: GameState): number {
 
     if (bestBus) {
       const err = acceptCharterInquiry(s, inq.id, bestBus.id)
-      if (!err) assignedCount++
+      if (!err) {
+        assignedCount++
+      } else if (err.includes('Lost the bid')) {
+        bidsLostCount++
+      }
     }
   }
 
-  return assignedCount
+  let finalReason: string | undefined
+  if (assignedCount === 0 && bidsLostCount === 0) {
+    if (blockerReasons.size > 0) {
+      finalReason = Array.from(blockerReasons).slice(0, 2).join('; ')
+    } else {
+      finalReason = 'No available charter coach meets profit margin threshold or inquiry requirements.'
+    }
+  }
+
+  return {
+    assigned: assignedCount,
+    bidsLost: bidsLostCount,
+    inquiriesProcessed: assignedCount + bidsLostCount,
+    reason: finalReason,
+  }
+}
+
+export function autoAssignBestCharters(s: GameState): number {
+  return autoAssignChartersWithDetails(s).assigned
 }
 
 /** Daily charter simulation tick */

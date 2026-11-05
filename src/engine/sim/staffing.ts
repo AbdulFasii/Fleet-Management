@@ -540,6 +540,7 @@ export function appointCharterManager(s: GameState, staffId: ID | undefined): st
   if (!staffId) {
     const prev = s.company.charterManagerId ? s.staff[s.company.charterManagerId] : undefined
     s.company.charterManagerId = undefined
+    if (s.company.charterConfig) s.company.charterConfig.autoAccept = false
     if (prev) pushLog(s, 'info', `${prev.name} is no longer Charter Operations manager.`)
     afterDeskHeadRelieved(s, 'charter')
     return null
@@ -550,6 +551,7 @@ export function appointCharterManager(s: GameState, staffId: ID | undefined): st
   clearDesk(s, staffId, 'charter')
   st!.busId = undefined
   s.company.charterManagerId = st!.id
+  if (s.company.charterConfig) s.company.charterConfig.autoAccept = true
   pushLog(
     s,
     'good',

@@ -69,7 +69,8 @@ for (const exp of expectedRoutes) {
   console.log(`  ✓ ${exp.id}: ${r.km}km, ${r.hours}h, rep ${r.unlockRep}, rivals: ${RIVALS[exp.id].join(', ')}, ${routeViaLabel(exp.id)}`)
 }
 
-for (const gone of ['hyd-amd', 'hyd-jai', 'maa-pnq', 'hyd-lko', 'blr-amd', 'maa-amd', 'blr-jai', 'blr-lko', 'hyd-del', 'blr-del', 'maa-del', 'koc-del']) {
+// Chennai–Pune came back (19h) with the round-to-100 corridors, inside the 24h cap.
+for (const gone of ['hyd-amd', 'hyd-jai', 'hyd-lko', 'blr-amd', 'maa-amd', 'blr-jai', 'blr-lko', 'hyd-del', 'blr-del', 'maa-del', 'koc-del']) {
   assert.strictEqual(ROUTES[gone], undefined, `${gone} must be removed`)
 }
 console.log('✓ Retired ultra-long corridors are gone.')

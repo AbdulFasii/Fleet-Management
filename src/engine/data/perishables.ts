@@ -34,6 +34,10 @@ export const PERISHABLE_ORIGINS: Record<string, PerishableOrigin> = {
   knr: { label: 'fish', share: 0.12, ...FISH_BAN },
   mlr: { label: 'fish', share: 0.15, ...FISH_BAN },
   trv: { label: 'fish', share: 0.10, ...FISH_BAN },
+  tut: { label: 'fish', share: 0.15, ...FISH_BAN },
+  udp: { label: 'jasmine & fish', share: 0.15, peakMonths: [3, 4, 5], peakMult: 1.3 },
+  klp: { label: 'vegetables & jaggery', share: 0.12 },
+  bgm: { label: 'vegetables', share: 0.12 },
 }
 
 /** Time premium on perishable freight over an ordinary parcel. */

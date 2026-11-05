@@ -151,6 +151,25 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'blr-dgl': S(40, 260),
   'cbe-dgl': S(25, 200),
   'try-dgl': S(15, 160),
+
+  // —— Round-to-100 corridors ——
+  'maa-kkd': S(25, 200),
+  'blr-bgm': S(45, 260),
+  'blr-udp': S(50, 220),
+  'mum-klp': S(60, 300),
+  'hyd-rjy': S(90, 280),
+  'hyd-nag': S(40, 300),
+  'pnq-goa': S(45, 200),
+  'mum-goa': S(120, 220),
+  'blr-pnq': S(70, 320),
+  'blr-ktm': S(45, 260),
+  'maa-ktm': S(35, 260),
+  'maa-tut': S(35, 280),
+  'mum-idr': S(45, 320),
+  'blr-qln': S(40, 240),
+  'maa-pnq': S(15, 260),
+  'hyd-kkm': S(15, 200),
+  'pnq-koc': S(15, 240),
 }
 
 /** Fallback for a route missing from the table: a thin tier-2 link. */

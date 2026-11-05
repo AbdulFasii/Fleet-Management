@@ -2079,7 +2079,14 @@ export const useGame = create<GameStore>()(
     }),
     resolveGrievance: (grievanceId, action) => get().intent((s) => crm.resolveGrievance(s, grievanceId, action)),
     appointAccountant: (staffId) => get().intent((s) => staffing.appointAccountant(s, staffId)),
-    appointCharterManager: (staffId) => get().intent((s) => staffing.appointCharterManager(s, staffId)),
+    appointCharterManager: (staffId) => get().intent((s) => {
+      const err = staffing.appointCharterManager(s, staffId)
+      if (err) return err
+      if (staffId) {
+        charterSim.autoAssignBestCharters(s)
+      }
+      return null
+    }),
     setCharterPricingStrategy: (strategy) => get().intent((s) => {
       const cfg = charterSim.getCharterConfig(s)
       cfg.pricingStrategy = strategy
@@ -2112,12 +2119,16 @@ export const useGame = create<GameStore>()(
     acceptCharterInquiry: (inquiryId, busId) => get().intent((s) => charterSim.acceptCharterInquiry(s, inquiryId, busId)),
     rejectCharterInquiry: (inquiryId) => get().intent((s) => charterSim.rejectCharterInquiry(s, inquiryId)),
     autoAssignCharters: () => get().intent((s) => {
-      const assigned = charterSim.autoAssignBestCharters(s)
-      if (assigned > 0) {
-        get().toast(`Assigned ${assigned} charter inquiry${assigned > 1 ? 's' : ''} to best matching vehicles.`, 'good')
+      const res = charterSim.autoAssignChartersWithDetails(s)
+      if (res.assigned > 0) {
+        get().toast(`Assigned ${res.assigned} charter inquiry${res.assigned > 1 ? 's' : ''} to best matching vehicles.`, 'good')
         return null
       }
-      return 'No eligible available charter coaches currently match open inquiries.'
+      if (res.bidsLost > 0) {
+        get().toast(`Processed ${res.bidsLost} charter inquiry${res.bidsLost > 1 ? 's' : ''}, but competitor bids won at current price rates.`, 'warn')
+        return null
+      }
+      return res.reason || 'No eligible available charter coaches currently match open inquiries.'
     }),
     appointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.appointDeskAssistant(s, desk, staffId)),
     unappointDeskAssistant: (desk, staffId) => get().intent((s) => staffing.unappointDeskAssistant(s, desk, staffId)),

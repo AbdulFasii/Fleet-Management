@@ -64,14 +64,16 @@ export function ChartersPage() {
     g.acceptCharterInquiry(id, busId)
   }
 
+  const candidateFleet = [...fleet, ...lineBuses]
+
   const eligible = (inq: CharterContract) =>
-    fleet.filter((b) => canBusTakeContract(b, inq).ok && !isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay) && !charterDriverShortfall(s, b, inq))
+    candidateFleet.filter((b) => canBusTakeContract(b, inq, undefined, true).ok && !isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay) && !charterDriverShortfall(s, b, inq))
 
   /** Why no coach fits: the first blocking reason per coach, so the player knows what to fix. */
   const blockers = (inq: CharterContract) =>
-    fleet
+    candidateFleet
       .map((b) => {
-        const check = canBusTakeContract(b, inq)
+        const check = canBusTakeContract(b, inq, undefined, true)
         if (!check.ok) return `${b.reg}: ${check.reason}`
         if (isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay)) return `${b.reg}: booked on those dates`
         const noDriver = charterDriverShortfall(s, b, inq)
@@ -242,8 +244,8 @@ export function ChartersPage() {
                               {options.length === 0 && (
                                 <div>
                                   <div className="muted">Why no coach fits</div>
-                                  {fleet.length === 0
-                                    ? <div className="dim">No charter coaches yet. Dedicate one in Fleet.</div>
+                                  {candidateFleet.length === 0
+                                    ? <div className="dim">No coaches in depot or charter fleet. Dedicate one or purchase in Market.</div>
                                     : blockers(inq).map((r) => <div key={r} className="warn">{r}</div>)}
                                 </div>
                               )}

@@ -109,6 +109,25 @@ export const RIVALS: Record<string, string[]> = {
   // South to North / West / East Prestige Marathons
   'blr-nag': ['VRL', 'Orange Travels', 'KSRTC Airavat', 'Hans Travels'],
   'maa-bbs': ['Morning Star', 'KPN Travels', 'OSRTC', 'Orange Travels'],
+
+  // Round-to-100 corridors
+  'maa-kkd': ['KPN Travels', 'Parveen', 'SETC', 'RATHIMEENA'],
+  'blr-bgm': ['VRL', 'SRS Travels', 'Sugama Tourists', 'KSRTC Airavat'],
+  'blr-udp': ['VRL', 'Sugama Tourists', 'KSRTC Airavat', 'SRS Travels'],
+  'mum-klp': ['Neeta Tours', 'MSRTC', 'VRL', 'National Travels'],
+  'hyd-rjy': ['Orange Travels', 'Morning Star', 'APSRTC', 'Kaveri Travels'],
+  'hyd-nag': ['Orange Travels', 'TSRTC', 'MSRTC', 'IntrCity SmartBus'],
+  'pnq-goa': ['Neeta Tours', 'VRL', 'MSRTC', 'Sea Bird'],
+  'mum-goa': ['Neeta Tours', 'VRL', 'Sea Bird', 'MSRTC'],
+  'blr-pnq': ['VRL', 'SRS Travels', 'National Travels', 'IntrCity SmartBus'],
+  'blr-ktm': ['Kallada Travels', 'KSRTC (Kerala)', 'Greenline', 'IntrCity SmartBus'],
+  'maa-ktm': ['Kallada Travels', 'KSRTC (Kerala)', 'KPN Travels', 'Greenline'],
+  'maa-tut': ['KPN Travels', 'Parveen', 'SETC', 'RATHIMEENA'],
+  'mum-idr': ['National Travels', 'VRL', 'IntrCity SmartBus', 'MSRTC'],
+  'blr-qln': ['Kallada Travels', 'KSRTC (Kerala)', 'Greenline', 'SRS Travels'],
+  'maa-pnq': ['VRL', 'KPN Travels', 'National Travels', 'SRS Travels'],
+  'hyd-kkm': ['Orange Travels', 'KPN Travels', 'TSRTC', 'SETC'],
+  'pnq-koc': ['Kallada Travels', 'Greenline', 'VRL', 'Alhind Tours'],
 }
 
 const R = (
@@ -247,6 +266,29 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('blr-dgl', 375, 8, 850, 0.75, 0.45, false, 1600, 2.2, 0, 'Direct interstate link on NH44 via Salem and Karur. Gateway corridor to Dindigul trade and Kodaikanal tourism.'),
     R('cbe-dgl', 165, 4, 420, 0.7, 0.35, false, 0, 2.0, 0, 'Western Tamil Nadu corridor connecting Manchester of South India to Dindigul via Pollachi and Palani.'),
     R('try-dgl', 100, 2, 280, 0.7, 0.5, false, 0, 2.0, 0, 'Rapid Central TN connector along NH83. Steady daytime merchant and student movement.'),
+
+    // —— Round-to-100: night hauls ——
+    R('maa-kkd', 430, 8, 950, 0.6, 0.35, false, 0, 2.0, 5, 'Chettinad overnight via Trichy. Hometown traffic and heritage weekends; Pongal sells out.'),
+    R('blr-bgm', 500, 9, 1050, 0.7, 0.4, false, 0, 2.2, 5, 'North Karnataka lifeline on NH48 via Hubballi. Workers and students heading home every Friday.'),
+    R('blr-udp', 400, 9, 1000, 0.7, 0.2, true, 0, 1.8, 5, 'Temple-town sleeper over Shiradi ghat via Mangaluru. Krishna Math pilgrims and coastal weekends.'),
+    R('mum-klp', 380, 8, 950, 0.75, 0.5, false, 0, 2.6, 10, 'Mumbai to the sugar belt via Pune on the expressway. Busy every night, packed before Diwali.'),
+    R('hyd-rjy', 400, 8, 950, 0.8, 0.5, false, 1400, 2.1, 5, 'Godavari corridor via Vijayawada. Dense Telugu hometown traffic; Sankranti is the big one.'),
+    R('hyd-nag', 500, 9, 1050, 0.65, 0.6, false, 2000, 2.3, 10, 'Commercial NH44 run into Vidarbha. Rail competes hard midweek; trade traffic holds it up.'),
+    R('pnq-goa', 450, 9, 1100, 0.7, 0.3, true, 1800, 2.0, 10, 'Weekend getaway via Kolhapur and Belagavi down the ghats. Friday out, Sunday back; New Year is gold.'),
+
+    // —— Round-to-100: night marathons ——
+    R('mum-goa', 590, 12, 1400, 0.85, 0.55, true, 1800, 2.2, 15, 'One of India\'s busiest sleeper routes, via Pune, Kolhapur and Belagavi. Huge leisure peaks; monsoon slows the ghats.'),
+    R('blr-pnq', 840, 15, 1800, 0.75, 0.55, false, 2600, 2.3, 15, 'IT-city marathon up NH48 via Hubballi, Belagavi and Kolhapur. Two drivers; Friday and Sunday flows.'),
+    R('blr-ktm', 600, 11, 1350, 0.75, 0.45, false, 2000, 2.0, 10, 'Central Kerala sleeper via Salem, Coimbatore and Thrissur. Onam and Christmas send it through the roof.'),
+    R('maa-ktm', 640, 12, 1400, 0.7, 0.45, false, 2000, 2.0, 10, 'Chennai to Kottayam via Coimbatore and the Palakkad gap. Students and workers; festival homebound spikes.'),
+    R('maa-tut', 600, 11, 1300, 0.7, 0.5, false, 0, 2.1, 5, 'Deep-south port overnight via Trichy and Madurai. Loyal hometown crowd; two drivers.'),
+    R('mum-idr', 590, 11, 1350, 0.7, 0.55, false, 2400, 2.4, 15, 'Trade marathon on NH52 into Madhya Pradesh. Merchants and students; steady all week.'),
+    R('blr-qln', 680, 12, 1500, 0.7, 0.5, false, 2000, 2.1, 10, 'Southern Kerala sleeper via Coimbatore, Thrissur and Kochi. Kollam\'s first private link to Bengaluru.'),
+
+    // —— Round-to-100: ultra marathons ——
+    R('maa-pnq', 1180, 19, 2200, 0.55, 0.6, false, 3000, 2.2, 20, 'Ultra up NH48 via Bengaluru, Hubballi and Kolhapur. Students and IT staff when trains are full; multi-coach rotation.'),
+    R('hyd-kkm', 1200, 20, 2300, 0.55, 0.5, false, 2800, 2.2, 20, 'Cape ultra via Kurnool, Bengaluru, Madurai and Tirunelveli. Pilgrims and tourists; one coach covers a direction every two days.'),
+    R('pnq-koc', 1180, 20, 2300, 0.55, 0.5, true, 2800, 2.1, 20, 'Coastal ultra via Kolhapur, Goa, Mangaluru and Kozhikode. Kerala workers in Pune; Onam and Christmas peaks.'),
   ].map((r) => [r.id, r]),
 )
 
@@ -467,6 +509,23 @@ const VIA_CORRIDORS: [string, string, string[]][] = [
   // South to North / West / East Marathons
   ['blr', 'nag', ['kno', 'hyd']],
   ['maa', 'bbs', ['nlr', 'vga', 'viz']],
+
+  // Round-to-100 corridors (no via where the road only passes towns we do not serve)
+  ['maa', 'kkd', ['try']],
+  ['blr', 'bgm', ['hbl']],
+  ['blr', 'udp', ['mlr']],
+  ['mum', 'klp', ['pnq']],
+  ['hyd', 'rjy', ['vga']],
+  ['pnq', 'goa', ['klp', 'bgm']],
+  ['mum', 'goa', ['pnq', 'klp', 'bgm']],
+  ['blr', 'pnq', ['hbl', 'bgm', 'klp']],
+  ['blr', 'ktm', ['slm', 'cbe', 'pkd', 'tcr']],
+  ['maa', 'ktm', ['slm', 'cbe', 'pkd', 'tcr']],
+  ['maa', 'tut', ['try', 'mdu']],
+  ['blr', 'qln', ['slm', 'cbe', 'tcr', 'koc']],
+  ['maa', 'pnq', ['blr', 'hbl', 'bgm', 'klp']],
+  ['hyd', 'kkm', ['kno', 'blr', 'mdu', 'ten']],
+  ['pnq', 'koc', ['klp', 'goa', 'mlr', 'clt', 'tcr']],
 ]
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)

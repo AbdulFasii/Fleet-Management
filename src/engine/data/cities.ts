@@ -57,6 +57,14 @@ export const CITIES: Record<string, City> = {
   amd: { id: 'amd', name: 'Ahmedabad', state: 'Gujarat', metro: 0.7, pickups: 5 },
   nag: { id: 'nag', name: 'Nagpur', state: 'Maharashtra', metro: 0.5, pickups: 4 },
   bbs: { id: 'bbs', name: 'Bhubaneswar', state: 'Odisha', metro: 0.45, pickups: 4 },
+  // Added with the round-to-100 corridors
+  idr: { id: 'idr', name: 'Indore', state: 'Madhya Pradesh', metro: 0.55, pickups: 4 },
+  klp: { id: 'klp', name: 'Kolhapur', state: 'Maharashtra', metro: 0.3, pickups: 3 },
+  bgm: { id: 'bgm', name: 'Belagavi', state: 'Karnataka', metro: 0.3, pickups: 3 },
+  tut: { id: 'tut', name: 'Thoothukudi', state: 'Tamil Nadu', metro: 0.25, pickups: 2 },
+  ktm: { id: 'ktm', name: 'Kottayam', state: 'Kerala', metro: 0.25, pickups: 3 },
+  udp: { id: 'udp', name: 'Udupi', state: 'Karnataka', metro: 0.2, pickups: 2 },
+  kkd: { id: 'kkd', name: 'Karaikudi', state: 'Tamil Nadu', metro: 0.15, pickups: 2 },
 }
 
 export function cityName(id: string): string {
@@ -110,6 +118,13 @@ export const CITY_FREIGHT: Record<string, CityFreightProfile> = {
   amd: { tier: 'metro', shipIndex: 0.90, attractIndex: 0.85, mixBias: { textiles: 0.45, hardware: 0.25, fmcg: 0.15, mixed: 0.10, agri: 0.05 } },
   nag: { tier: 'industrial', shipIndex: 0.70, attractIndex: 0.65, mixBias: { hardware: 0.40, fmcg: 0.30, mixed: 0.15, textiles: 0.10, agri: 0.05 } },
   bbs: { tier: 'commercial', shipIndex: 0.55, attractIndex: 0.60, mixBias: { agri: 0.35, fmcg: 0.30, mixed: 0.20, hardware: 0.10, textiles: 0.05 } },
+  idr: { tier: 'commercial', shipIndex: 0.65, attractIndex: 0.65, mixBias: { fmcg: 0.35, textiles: 0.20, mixed: 0.20, hardware: 0.15, agri: 0.10 } },
+  klp: { tier: 'agri', shipIndex: 0.50, attractIndex: 0.40, mixBias: { agri: 0.40, textiles: 0.20, hardware: 0.20, mixed: 0.15, fmcg: 0.05 } },
+  bgm: { tier: 'commercial', shipIndex: 0.45, attractIndex: 0.45, mixBias: { agri: 0.30, hardware: 0.25, mixed: 0.25, fmcg: 0.15, textiles: 0.05 } },
+  tut: { tier: 'port', shipIndex: 0.55, attractIndex: 0.45, mixBias: { mixed: 0.30, agri: 0.30, hardware: 0.20, fmcg: 0.15, textiles: 0.05 } },
+  ktm: { tier: 'commercial', shipIndex: 0.40, attractIndex: 0.50, mixBias: { agri: 0.40, fmcg: 0.25, mixed: 0.25, hardware: 0.05, textiles: 0.05 } },
+  udp: { tier: 'pilgrim', shipIndex: 0.25, attractIndex: 0.35, mixBias: { agri: 0.30, fmcg: 0.30, mixed: 0.30, hardware: 0.05, textiles: 0.05 } },
+  kkd: { tier: 'town', shipIndex: 0.20, attractIndex: 0.25, mixBias: { mixed: 0.35, agri: 0.30, fmcg: 0.20, textiles: 0.10, hardware: 0.05 } },
 }
 
 const DEFAULT_FREIGHT_PROFILE: CityFreightProfile = {
