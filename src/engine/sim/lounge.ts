@@ -4,7 +4,7 @@ import { CITIES } from '../data/cities'
 import { ROUTES, routeName } from '../data/routes'
 import { nextId } from '../core/ids'
 import { canAfford, capitalOut, earn, spend } from './finance'
-import { fmtCompact, rs } from '../core/money'
+import { fmtCompact } from '../core/money'
 import { pushLog } from './log'
 import { rngFor, rJitter } from '../core/rng'
 
@@ -199,8 +199,8 @@ export function getLoungeDemandBoost(s: GameState, routeId: string): number {
     }
   }
 
-  // Cap combined route lounge boost at +10%
-  return 1.0 + Math.min(0.10, boost)
+  // Cap combined route lounge boost at +5%
+  return 1.0 + Math.min(0.05, boost)
 }
 
 /**
@@ -273,7 +273,7 @@ export function dailyLoungePass(s: GameState): void {
     // Snack & drink sales: each waiting passenger spends on tea, coffee, snacks, water
     const avgSpend = Number(tierDef.avgSnackSpend) * (1 + pkg.spend)
     const grossSnackSales = waitingPax * avgSpend
-    const netSnackProfit = rs(Math.round(grossSnackSales * tierDef.snackMargin))
+    const netSnackProfit = Math.round(grossSnackSales * tierDef.snackMargin * 1)
 
     // Amenity running costs: per passenger (free tea) and fixed per day
     const compBevCost = waitingPax > 0 ? Math.round(waitingPax * pkg.perPax) : 0

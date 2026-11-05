@@ -12,6 +12,7 @@ import {
   getMonthlyRefundBreakdown,
   getMonthlyTicketBreakdown,
   getMonthlyFuelBreakdown,
+  getMonthlyCharterBreakdown,
 } from '../../engine/sim/finance'
 import type { MonthlySummary, Txn, TxnHead } from '../../engine/types'
 import { M, Panel, StatRow, Tabs, PageHeader } from '../bits'
@@ -22,6 +23,7 @@ const INCOME_LABELS: Partial<Record<TxnHead, string>> = {
   ticket: 'Ticket sales',
   cargo: 'Parcel & cargo',
   charter: 'Private & festival charters',
+  lounge_revenue: 'Passenger lounges cafe & snacks',
   advertising: 'Body advertising',
   cancellation_fee: 'Cancellation retained',
   insurance_claim: 'Insurance settlements',
@@ -83,6 +85,7 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
       ['training', 'Driver skill & safety training'],
       ['office_admin', 'Head office rent, IT & admin'],
       ['depot_rent', 'Depot & outstation yard rents'],
+      ['lounge_opex', 'Passenger lounge rents, power & attendant wages'],
       ['staff_welfare', 'Crew welfare, meals & medical cover'],
     ],
   },
@@ -163,6 +166,8 @@ function PnlPanel() {
   const cargoMtd = (s.curMonth.income.cargo ?? 0) + (s.curMonth.income.cargo_spot ?? 0)
   const curTicketBd = getMonthlyTicketBreakdown(s, s.curMonth)
   const hasCargoSplit = months.some((m) => (m.cargoCoachRevenue ?? 0) > 0 || (m.cargoTruckRevenue ?? 0) > 0)
+  const hasCharterSplit = months.some((m) => (m.income.charter ?? 0) > 0 || (m.charterPrivateRevenue ?? 0) > 0 || (m.charterFestivalRevenue ?? 0) > 0)
+  const hasLounges = (s.company.lounges?.length ?? 0) > 0 || months.some((m) => (m.income.lounge_revenue ?? 0) > 0 || (m.expense.lounge_opex ?? 0) > 0)
 
   const partnerId = s.company.fuelContract?.active ? s.company.fuelContract.partner : 'none'
   const partnerNames: Record<string, string> = {
@@ -322,6 +327,28 @@ function PnlPanel() {
               <span className="dim small">↳ Insurance Claim Settlements:</span>
               <b><M v={s.curMonth.income.insurance_claim ?? 0} /></b>
             </div>
+
+            {(s.curMonth.income.charter ?? 0) > 0 && (
+              <>
+                <div className="flex" style={{ justifyContent: 'space-between' }}>
+                  <span className="dim small">↳ Private Tour Charters:</span>
+                  <b><M v={getMonthlyCharterBreakdown(s, s.curMonth).privateTour} /></b>
+                </div>
+                <div className="flex" style={{ justifyContent: 'space-between' }}>
+                  <span className="dim small">↳ Festival & Seasonal Charters:</span>
+                  <b><M v={getMonthlyCharterBreakdown(s, s.curMonth).festival} /></b>
+                </div>
+              </>
+            )}
+
+            {hasLounges && (
+              <div className="flex" style={{ justifyContent: 'space-between' }}>
+                <span className="dim small">↳ Passenger Lounges Net P/L:</span>
+                <span className={((s.curMonth.income.lounge_revenue ?? 0) - (s.curMonth.expense.lounge_opex ?? 0)) >= 0 ? 'good' : 'bad'}>
+                  <b><M v={(s.curMonth.income.lounge_revenue ?? 0) - (s.curMonth.expense.lounge_opex ?? 0)} colored /></b>
+                </span>
+              </div>
+            )}
           </div>
         </Panel>
 
@@ -433,6 +460,43 @@ function PnlPanel() {
                       {row(name, (m) => (m.income.cargo ?? 0) + (m.income.cargo_spot ?? 0), 'good')}
                       {hasCargoSplit && row('  ↳ Coach luggage parcels', (m) => m.cargoCoachRevenue ?? 0, 'dim small')}
                       {hasCargoSplit && row('  ↳ Dedicated freight trucks', (m) => m.cargoTruckRevenue ?? 0, 'dim small')}
+                    </Fragment>
+                  )
+                }
+                if (head === 'charter') {
+                  return (
+                    <Fragment key="charter">
+                      {row(label!, (m) => m.income.charter ?? 0, 'good')}
+                      {hasCharterSplit && row('  ↳ Private tour charters', (m) => getMonthlyCharterBreakdown(s, m).privateTour, 'dim small')}
+                      {hasCharterSplit && row('  ↳ Festival & seasonal charters', (m) => getMonthlyCharterBreakdown(s, m).festival, 'dim small')}
+                    </Fragment>
+                  )
+                }
+                if (head === 'lounge_revenue') {
+                  return (
+                    <Fragment key="lounge_revenue">
+                      {row(label!, (m) => m.income.lounge_revenue ?? 0, 'good')}
+                      {hasLounges && (
+                        <tr key="lounge_rev_net">
+                          <td className="dim small" style={{ paddingLeft: 24, fontStyle: 'italic' }}>
+                            ↳ Net lounge margin (after rents, power & staff)
+                          </td>
+                          {months.map((m) => {
+                            const rev = m.income.lounge_revenue ?? 0
+                            const opex = m.expense.lounge_opex ?? 0
+                            const net = rev - opex
+                            return (
+                              <td key={m.ym} className="num faint small bold">
+                                {rev > 0 || opex > 0 ? (
+                                  <span className={net >= 0 ? 'good' : 'bad'}>
+                                    {net >= 0 ? '+' : ''}<M v={net} />
+                                  </span>
+                                ) : '—'}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )}
                     </Fragment>
                   )
                 }
@@ -557,6 +621,29 @@ function PnlPanel() {
                           </tr>
                         </>
                       )}
+                      {head === 'lounge_opex' && hasLounges && (
+                        <tr key="lounge_net" style={{ borderBottom: '1px dashed var(--border)' }}>
+                          <td className="small" style={{ paddingLeft: 24, fontWeight: 600, color: 'var(--text)' }}>
+                            ↳ Net passenger lounges profit / (loss)
+                          </td>
+                          {months.map((m) => {
+                            const rev = m.income.lounge_revenue ?? 0
+                            const opex = m.expense.lounge_opex ?? 0
+                            const net = rev - opex
+                            return (
+                              <td key={m.ym} className="num small bold">
+                                {rev > 0 || opex > 0 ? (
+                                  <span className={net >= 0 ? 'good' : 'bad'}>
+                                    <M v={net} colored />
+                                  </span>
+                                ) : (
+                                  <span className="faint">—</span>
+                                )}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      )}
                       {head === 'depreciation' && (
                         <tr key="tax_shield">
                           <td className="dim small" style={{ paddingLeft: 24, fontStyle: 'italic' }}>
@@ -605,7 +692,7 @@ function BooksPanel() {
       const sign = t.kind === 'income' || t.kind === 'capital_in' ? 1 : -1
       const v = sign * t.amount
       if (t.head === 'depreciation') continue
-      if (['bus_purchase', 'workshop_capex', 'app_capex', 'depot_capex', 'asset_sale', 'deposit'].includes(t.head)) row.inv += v
+      if (['bus_purchase', 'workshop_capex', 'app_capex', 'depot_capex', 'lounge_capex', 'asset_sale', 'deposit'].includes(t.head)) row.inv += v
       else if (['loan_disbursal', 'loan_principal', 'seed_capital', 'od_draw', 'od_repay'].includes(t.head)) row.fin += v
       else row.op += v
     }

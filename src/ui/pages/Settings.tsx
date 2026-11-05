@@ -29,7 +29,7 @@ import {
   type CoachLayoutKind,
 } from '../../engine/data/bodyBuilders'
 import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
-import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader, Fold } from '../bits'
+import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
 import { BrandHierarchyTree } from '../BrandHierarchyTree'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
 import { BrandGalleryModal } from '../BrandGalleryModal'
@@ -61,14 +61,14 @@ function nextExportName(): string {
 function BadgeColorPellets({
   value,
   onChange,
-  size = 26,
+  size = 18,
 }: {
   value: string
   onChange: (color: string) => void
   size?: number
 }) {
   return (
-    <div className="flex" style={{ gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+    <div className="flex" style={{ gap: 5, alignItems: 'center', flexWrap: 'wrap', maxWidth: 460 }}>
       {GROUP_PALETTE.map((color) => {
         const selected = value.toLowerCase() === color.toLowerCase()
         const light = isLightBadgeColor(color)
@@ -83,21 +83,22 @@ function BadgeColorPellets({
             style={{
               width: size,
               height: size,
-              borderRadius: 7,
+              borderRadius: Math.max(3, Math.round(size * 0.25)),
               background: `linear-gradient(145deg, ${color}ee, ${color})`,
               border: selected
                 ? '2px solid #fff'
                 : light
-                  ? '1px solid rgba(255,255,255,0.55)'
+                  ? '1px solid rgba(255,255,255,0.65)'
                   : '1px solid rgba(255,255,255,0.18)',
               boxShadow: selected
-                ? `0 0 0 2px ${color}, 0 2px 8px rgba(0,0,0,0.45)`
+                ? `0 0 0 2px ${color}, 0 2px 6px rgba(0,0,0,0.5)`
                 : light
                   ? 'inset 0 0 0 1px rgba(0,0,0,0.25), 0 1px 2px rgba(0,0,0,0.35)'
                   : 'inset 0 1px 0 rgba(255,255,255,0.22), 0 1px 2px rgba(0,0,0,0.35)',
               cursor: 'pointer',
               padding: 0,
-              transform: selected ? 'scale(1.08)' : undefined,
+              flexShrink: 0,
+              transform: selected ? 'scale(1.18)' : undefined,
               transition: 'transform 120ms ease, box-shadow 120ms ease',
             }}
           />
@@ -107,24 +108,6 @@ function BadgeColorPellets({
   )
 }
 
-/** One labelled drop-down for a brand standard. `none` clears the setting. */
-function StandardRow({ label, tip, value, options, onChange }: {
-  label: string
-  tip: string
-  value: number | undefined
-  options: readonly (readonly [number, string])[]
-  onChange: (v: number | undefined) => void
-}) {
-  return (
-    <label className="form-row" title={tip}>
-      <span className="muted" style={{ minWidth: 150 }}>{label}</span>
-      <select value={value ?? 0} onChange={(e) => onChange(Number(e.target.value) || undefined)}>
-        <option value={0}>none</option>
-        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-    </label>
-  )
-}
 
 export function SettingsPage() {
   const s = useGame((g) => g.state)!
@@ -689,145 +672,232 @@ export function SettingsPage() {
       {/* ========================================================================= */}
       {activeTab === 'fleet' && (
         <div className="grid-2" style={{ gap: 12 }}>
-          <Panel
-            title="Coach Speed Governor Policy"
-            info="Calibrate engine speed governors across your passenger and cargo fleet to balance fuel economy versus trip punctuality."
-          >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-              {([
-                ['eco', 'Eco-Cruise (70–75 km/h)', '+6% better diesel mileage · lower tyre wear · +10m trip duration'],
-                ['normal', 'Standard Highway (80–85 km/h)', 'Factory baseline fuel consumption & timetable punctuality'],
-                ['express', 'Express Fast-Track (90–95 km/h)', '-8% fuel economy · fast arrivals · +0.2★ passenger rating on long routes'],
-              ] as const).map(([val, label, tip]) => (
-                <button
-                  key={val}
-                  className={`small ${speedGov === val ? 'primary' : ''}`}
-                  style={{ textAlign: 'left', padding: '6px 10px', height: 'auto' }}
-                  onClick={() => g.updatePlayerConfig({ speedGovernor: val })}
-                >
-                  <div className="bold">{label}</div>
-                  <div className="dim small">{tip}</div>
-                </button>
-              ))}
-            </div>
-          </Panel>
-
-          <Panel
-            title="Fleet Maintenance & Service Triggers"
-            info="Operational rules for periodic vehicle servicing and tyre management."
-          >
-            <div className="mb12">
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                Preventative Service Alert Threshold: <b>{prevServicePct}% condition</b>
-              </label>
-              <Hint text={"Flags a coach and alerts your workshop manager when any subsystem health drops below this point."} />
-              <div style={{ display: 'flex', gap: 6 }}>
-                {[70, 75, 80, 85].map((pctVal) => (
-                  <button
-                    key={pctVal}
-                    className={`small ${prevServicePct === pctVal ? 'primary' : ''}`}
-                    onClick={() => g.updatePlayerConfig({ preventiveServiceThreshold: pctVal })}
-                  >
-                    {pctVal}%
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 12 }}>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                Tyre Replacement Policy
-              </label>
-              <div className="muted">Change tyres when remaining life drops below:</div>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                {[10_000, 15_000, 20_000, 25_000].map((kmVal) => (
-                  <button
-                    key={kmVal}
-                    className={`small ${tyreThresholdKm === kmVal ? 'primary' : ''}`}
-                    onClick={() => g.updatePlayerConfig({ tyreReplacementKmThreshold: kmVal })}
-                  >
-                    {kmVal / 1000}k km
-                  </button>
-                ))}
-              </div>
-
-              <div className="muted">Replacement tyre brand for automated bays:</div>
-              <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Panel
+              title="Coach Speed Governor Policy"
+              info="Calibrate engine speed governors across your passenger and cargo fleet to balance fuel economy versus trip punctuality."
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
                 {([
-                  ['oem', 'OEM Premium (Michelin)'],
-                  ['tier2', 'Tier-2 (Apollo / JK)'],
-                  ['retread', 'Retread Casing'],
-                ] as const).map(([bVal, bLabel]) => (
+                  ['eco', 'Eco-Cruise (70–75 km/h)', '+6% better diesel mileage · lower tyre wear · +10m trip duration'],
+                  ['normal', 'Standard Highway (80–85 km/h)', 'Factory baseline fuel consumption & timetable punctuality'],
+                  ['express', 'Express Fast-Track (90–95 km/h)', '-8% fuel economy · fast arrivals · +0.2★ passenger rating on long routes'],
+                ] as const).map(([val, label, tip]) => (
                   <button
-                    key={bVal}
-                    className={`small ${prefTyre === bVal ? 'primary' : ''}`}
-                    onClick={() => { g.updatePlayerConfig({ preferredTyreBrand: bVal }); g.setWorkshopTyreBrand(bVal === 'retread' ? 'tier2' : bVal) }}
+                    key={val}
+                    className={`small ${speedGov === val ? 'primary' : ''}`}
+                    style={{ textAlign: 'left', padding: '6px 10px', height: 'auto' }}
+                    onClick={() => g.updatePlayerConfig({ speedGovernor: val })}
                   >
-                    {bLabel}
+                    <div className="bold">{label}</div>
+                    <div className="dim small">{tip}</div>
                   </button>
                 ))}
               </div>
-            </div>
-          </Panel>
+            </Panel>
 
-          <Panel
-            title="Document Compliance Auto-Renewal"
-            info="Automates payment for RTO documents so buses are never impounded or grounded."
-          >
-            <div className="form-row">
-              <label>Fleet Paperwork Auto-Pay</label>
-              <label className="flex">
-                <input
-                  type="checkbox"
-                  checked={cfg.autoRenewDocs !== false || !!docsManagerOnDuty(s)}
-                  disabled={!!docsManagerOnDuty(s)}
-                  onChange={(e) => g.setAutoRenewDocs(e.target.checked)}
-                />
-                <span className={cfg.autoRenewDocs !== false || !!docsManagerOnDuty(s) ? 'good' : 'warn'}>
-                  {docsManagerOnDuty(s)
-                    ? 'Locked On — Supervised by Document Manager desk'
-                    : cfg.autoRenewDocs !== false
-                    ? 'On — Auto-renews PUC, Fitness, Road Tax & Permits'
-                    : 'Off — Papers lapse on due date'}
-                </span>
-              </label>
-            </div>
-            <div className="dim small" style={{ marginTop: 6 }}>
-              Renews commercial fitness ({fmtCompact(BAL.fitnessRenewalCost)}), PUC ({fmtCompact(BAL.pucCost)}),
-              and AITP/MV tax automatically within {BAL.docRenewLeadDays} days of expiry.
-            </div>
-          </Panel>
+            <Panel
+              title="Fleet Maintenance & Service Triggers"
+              info="Operational rules for periodic vehicle servicing and tyre management."
+            >
+              <div className="mb12">
+                <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Preventative Service Alert Threshold: <b>{prevServicePct}% condition</b>
+                </label>
+                <Hint text={"Flags a coach and alerts your workshop manager when any subsystem health drops below this point."} />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {[70, 75, 80, 85].map((pctVal) => (
+                    <button
+                      key={pctVal}
+                      className={`small ${prevServicePct === pctVal ? 'primary' : ''}`}
+                      onClick={() => g.updatePlayerConfig({ preventiveServiceThreshold: pctVal })}
+                    >
+                      {pctVal}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginBottom: 12 }}>
+                <label style={{ fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Tyre Replacement Policy
+                </label>
+                <div className="muted">Change tyres when remaining life drops below:</div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                  {[10_000, 15_000, 20_000, 25_000].map((kmVal) => (
+                    <button
+                      key={kmVal}
+                      className={`small ${tyreThresholdKm === kmVal ? 'primary' : ''}`}
+                      onClick={() => g.updatePlayerConfig({ tyreReplacementKmThreshold: kmVal })}
+                    >
+                      {kmVal / 1000}k km
+                    </button>
+                  ))}
+                </div>
+
+                <div className="muted">Replacement tyre brand for automated bays:</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {([
+                    ['oem', 'OEM Premium (Michelin)'],
+                    ['tier2', 'Tier-2 (Apollo / JK)'],
+                    ['retread', 'Retread Casing'],
+                  ] as const).map(([bVal, bLabel]) => (
+                    <button
+                      key={bVal}
+                      className={`small ${prefTyre === bVal ? 'primary' : ''}`}
+                      onClick={() => { g.updatePlayerConfig({ preferredTyreBrand: bVal }); g.setWorkshopTyreBrand(bVal === 'retread' ? 'tier2' : bVal) }}
+                    >
+                      {bLabel}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </Panel>
+
+            <Panel
+              title="Document Compliance Auto-Renewal"
+              info="Automates payment for RTO documents so buses are never impounded or grounded."
+            >
+              <div className="form-row">
+                <label>Fleet Paperwork Auto-Pay</label>
+                <label className="flex">
+                  <input
+                    type="checkbox"
+                    checked={cfg.autoRenewDocs !== false || !!docsManagerOnDuty(s)}
+                    disabled={!!docsManagerOnDuty(s)}
+                    onChange={(e) => g.setAutoRenewDocs(e.target.checked)}
+                  />
+                  <span className={cfg.autoRenewDocs !== false || !!docsManagerOnDuty(s) ? 'good' : 'warn'}>
+                    {docsManagerOnDuty(s)
+                      ? 'Locked On — Supervised by Document Manager desk'
+                      : cfg.autoRenewDocs !== false
+                      ? 'On — Auto-renews PUC, Fitness, Road Tax & Permits'
+                      : 'Off — Papers lapse on due date'}
+                  </span>
+                </label>
+              </div>
+              <div className="dim small" style={{ marginTop: 6 }}>
+                Renews commercial fitness ({fmtCompact(BAL.fitnessRenewalCost)}), PUC ({fmtCompact(BAL.pucCost)}),
+                and AITP/MV tax automatically within {BAL.docRenewLeadDays} days of expiry.
+              </div>
+            </Panel>
+          </div>
 
           <Panel
             title="Fleet Odometer Milestone Display"
-            info="Highlight odometer readings at or above this mark wherever a coach's kilometres are shown."
+            info="Highlight odometer readings at or above this mark wherever a coach's kilometres are shown. Each brand can have its own milestone threshold."
           >
-            <div className="form-row">
-              <label>Odometer Highlight</label>
-              <input
-                type="range"
-                min={50_000}
-                max={2_000_000}
-                step={25_000}
-                value={odoMark}
-                onChange={(e) => g.setOdoHighlightKm(Number(e.target.value))}
-                style={{ flex: 1, maxWidth: 280 }}
-              />
-              <b style={{ minWidth: 100, textAlign: 'right' }}>{odoMark.toLocaleString('en-IN')} km</b>
+            {activeGroups(s).length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Brand Specific Limits
+                </div>
+                {activeGroups(s).map((grp) => {
+                  const brandMark = grp.odoHighlightKm ?? odoMark
+                  const isCustom = grp.odoHighlightKm != null
+                  return (
+                    <div
+                      key={grp.id}
+                      style={{
+                        padding: '10px 12px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255, 255, 255, 0.07)',
+                      }}
+                    >
+                      <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
+                          <GroupBadge group={grp} />
+                          <b style={{ fontSize: '0.95rem' }}>{grp.name}</b>
+                        </div>
+                        <div className="flex" style={{ alignItems: 'center', gap: 8 }}>
+                          <b style={{ minWidth: 100, textAlign: 'right' }}>
+                            {brandMark.toLocaleString('en-IN')} km
+                          </b>
+                          {isCustom ? (
+                            <span className="accent small" style={{ fontSize: '0.75rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(56, 189, 248, 0.15)' }}>
+                              Custom
+                            </span>
+                          ) : (
+                            <span className="dim small" style={{ fontSize: '0.75rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.05)' }}>
+                              Default
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="form-row" style={{ marginBottom: 6 }}>
+                        <label className="dim small" style={{ minWidth: 110 }}>Milestone Mark</label>
+                        <input
+                          type="range"
+                          min={50_000}
+                          max={2_000_000}
+                          step={25_000}
+                          value={brandMark}
+                          onChange={(e) => g.updateGroup(grp.id, { odoHighlightKm: Number(e.target.value) })}
+                          style={{ flex: 1, maxWidth: 280 }}
+                        />
+                      </div>
+
+                      <div className="flex" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {[200_000, 300_000, 400_000, 500_000].map((km) => (
+                          <button
+                            key={km}
+                            className={`small ${isCustom && brandMark === km ? 'primary' : ''}`}
+                            onClick={() => g.updateGroup(grp.id, { odoHighlightKm: km })}
+                          >
+                            {km / 1_00_000}L km
+                          </button>
+                        ))}
+                        {isCustom && (
+                          <button
+                            className="small"
+                            style={{ marginLeft: 4, opacity: 0.8 }}
+                            onClick={() => g.updateGroup(grp.id, { odoHighlightKm: undefined })}
+                            title="Revert to company-wide default"
+                          >
+                            ↺ Revert to Default
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div style={{ marginTop: activeGroups(s).length > 0 ? 12 : 0 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 8 }}>
+                {activeGroups(s).length > 0 ? 'Company Default (Fallback & Unbranded)' : 'Company Milestone Limit'}
+              </div>
+              <div className="form-row">
+                <label>Default Highlight</label>
+                <input
+                  type="range"
+                  min={50_000}
+                  max={2_000_000}
+                  step={25_000}
+                  value={odoMark}
+                  onChange={(e) => g.setOdoHighlightKm(Number(e.target.value))}
+                  style={{ flex: 1, maxWidth: 280 }}
+                />
+                <b style={{ minWidth: 100, textAlign: 'right' }}>{odoMark.toLocaleString('en-IN')} km</b>
+              </div>
+              <div className="flex" style={{ gap: 6 }}>
+                {[200_000, 300_000, 400_000, 500_000].map((km) => (
+                  <button
+                    key={km}
+                    className={`small ${odoMark === km ? 'primary' : ''}`}
+                    onClick={() => g.setOdoHighlightKm(km)}
+                  >
+                    {km / 1_00_000}L km
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex" style={{ gap: 6 }}>
-              {[200_000, 300_000, 400_000, 500_000].map((km) => (
-                <button
-                  key={km}
-                  className={`small ${odoMark === km ? 'primary' : ''}`}
-                  onClick={() => g.setOdoHighlightKm(km)}
-                >
-                  {km / 1_00_000}L km
-                </button>
-              ))}
-            </div>
-            <div className="dim small" style={{ marginTop: 6 }}>
-              Coaches past this mark appear in <span className="warn">amber</span>; 25% past it in <span className="bad">red</span>.
+
+            <div className="dim small" style={{ marginTop: 12 }}>
+              Coaches past their brand's milestone appear in <span className="warn">amber</span>; 25% past it in <span className="bad">red</span>.
             </div>
           </Panel>
         </div>
@@ -1262,7 +1332,7 @@ export function SettingsPage() {
                                 <BadgeColorPellets
                                   value={group.color}
                                   onChange={(color) => g.updateGroup(group.id, { color })}
-                                  size={24}
+                                  size={18}
                                 />
                               </div>
 
@@ -1343,69 +1413,6 @@ export function SettingsPage() {
                           </div>
                         </div>
 
-                        <Fold title="Standards and targets" persistKey={`brand-std-${group.id}`}>
-                          {!isCargoBrand && (
-                            <>
-                              <StandardRow
-                                label="Fare floor"
-                                tip="Fares on this brand's services never go below this share of the normal market fare."
-                                value={group.farePolicy?.floorPct}
-                                options={[[80, '80%'], [90, '90%'], [100, '100%']]}
-                                onChange={(v) => g.updateGroup(group.id, { farePolicy: { ...group.farePolicy, floorPct: v } })}
-                              />
-                              <StandardRow
-                                label="Fare ceiling"
-                                tip="Fares never go above this share of the normal market fare, even on surge days."
-                                value={group.farePolicy?.ceilingPct}
-                                options={[[110, '110%'], [125, '125%'], [150, '150%'], [200, '200%']]}
-                                onChange={(v) => g.updateGroup(group.id, { farePolicy: { ...group.farePolicy, ceilingPct: v } })}
-                              />
-                              <StandardRow
-                                label="Driver skill promise"
-                                tip="Trips with a crew below this skill lose passenger satisfaction: 0.15 per point short, up to 1."
-                                value={group.minDriverSkill}
-                                options={[[4, '4+'], [5, '5+'], [6, '6+'], [7, '7+'], [8, '8+'], [9, '9+']]}
-                                onChange={(v) => g.updateGroup(group.id, { minDriverSkill: v })}
-                              />
-                              <label className="form-row" title="Every trip: coaches are cleaned after each trip (+10 cleanliness a day) for ₹120 per active coach a day.">
-                                <span className="muted" style={{ minWidth: 150 }}>Cleaning</span>
-                                <Tabs
-                                  inline
-                                  tabs={[['weekly', 'Usual'], ['every_trip', 'After every trip']] as const}
-                                  value={group.cleaningStandard ?? 'weekly'}
-                                  onChange={(v) => g.updateGroup(group.id, { cleaningStandard: v })}
-                                />
-                              </label>
-                              <StandardRow
-                                label="Coach age limit"
-                                tip="Coaches older than this show up as a task on the Dashboard."
-                                value={group.maxBusAgeYears}
-                                options={[[5, '5 years'], [8, '8 years'], [10, '10 years'], [12, '12 years'], [15, '15 years']]}
-                                onChange={(v) => g.updateGroup(group.id, { maxBusAgeYears: v })}
-                              />
-                            </>
-                          )}
-                          <StandardRow
-                            label="Marketing budget"
-                            tip="Spent every month. About +0.4 points of brand awareness per ₹1 lakh, up to +2 a month."
-                            value={group.marketingBudgetMonthly ? Math.round(group.marketingBudgetMonthly / 100) : undefined}
-                            options={[[25000, '₹25k'], [50000, '₹50k'], [100000, '₹1L'], [200000, '₹2L'], [500000, '₹5L']]}
-                            onChange={(v) => g.updateGroup(group.id, { marketingBudgetMonthly: v ? rs(v) : undefined })}
-                          />
-                          <StandardRow
-                            label="Monthly profit target"
-                            tip="Route profit over the last 30 days is checked each month end. Two misses in a row raise a task."
-                            value={group.profitTargetMonthly ? Math.round(group.profitTargetMonthly / 100) : undefined}
-                            options={[[100000, '₹1L'], [500000, '₹5L'], [1000000, '₹10L'], [2500000, '₹25L'], [5000000, '₹50L']]}
-                            onChange={(v) => g.updateGroup(group.id, { profitTargetMonthly: v ? rs(v) : undefined })}
-                          />
-                          {group.profitTargetMonthly ? (
-                            <div className="muted">
-                              Last month {group.lastMonthProfit !== undefined ? fmtCompact(group.lastMonthProfit) : '—'} against {fmtCompact(group.profitTargetMonthly)}
-                              {(group.targetMissMonths ?? 0) > 0 ? ` · missed ${group.targetMissMonths} in a row` : ''}
-                            </div>
-                          ) : null}
-                        </Fold>
 
                         {/* Amenities & fittings — passenger brands only */}
                         {!isCargoBrand && (
@@ -2689,7 +2696,7 @@ export function SettingsPage() {
             </div>
             <div className="form-row">
               <label>Badge Color</label>
-              <BadgeColorPellets value={newBrandColor} onChange={setNewBrandColor} size={28} />
+              <BadgeColorPellets value={newBrandColor} onChange={setNewBrandColor} size={18} />
             </div>
             {activeGroups(s).length > 0 && (
               <div className="form-row">

@@ -90,7 +90,7 @@ export function FleetPage() {
         tyresAttention++
       }
 
-      const odoMark = s.config?.odoHighlightKm ?? BAL.odoHighlightDefaultKm
+      const odoMark = (b.groupId ? s.groups?.[b.groupId]?.odoHighlightKm : undefined) ?? s.config?.odoHighlightKm ?? BAL.odoHighlightDefaultKm
       if (b.odometer >= odoMark) {
         odoAttention++
       }
@@ -111,7 +111,7 @@ export function FleetPage() {
       odoAttention,
       modelCounts,
     }
-  }, [buses, s.day, s.config?.odoHighlightKm])
+  }, [buses, s.day, s.config?.odoHighlightKm, s.groups])
 
   const cols: Col<Bus>[] = [
     {
@@ -220,7 +220,7 @@ export function FleetPage() {
       key: 'odo', label: 'Odometer', num: true, sort: (b) => b.odometer,
       render: (b) => {
         const km = Math.round(b.odometer)
-        const odoMark = s.config?.odoHighlightKm ?? BAL.odoHighlightDefaultKm
+        const odoMark = (b.groupId ? s.groups?.[b.groupId]?.odoHighlightKm : undefined) ?? s.config?.odoHighlightKm ?? BAL.odoHighlightDefaultKm
         const odoFar = km >= odoMark * 1.25
         const odoOver = km >= odoMark
         const cls = odoFar ? 'bad' : odoOver ? 'warn' : 'dim'

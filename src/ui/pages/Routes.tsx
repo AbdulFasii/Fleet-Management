@@ -18,7 +18,7 @@ import {
 } from '../../engine/data/routes'
 import { RIVALS_DATA, seedRouteShare } from '../../engine/data/rivals'
 import { calculateRoutePlayerShare } from '../../engine/sim/rivals'
-import { getCorridorStance, isTripFrontRun } from '../../engine/sim/rivalIntelligence'
+import { getCorridorStance, isTripFrontRun, personalityOf, rivalMemory } from '../../engine/sim/rivalIntelligence'
 import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
 import { fmtDateShort } from '../../engine/core/calendar'
@@ -457,7 +457,7 @@ export function RoutesPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span className="accent bold">{routeName(r.id)}</span>
                       <span
-                        className="pill small info"
+                        className="pill small"
                         style={{ fontSize: 10, padding: '0 4px' }}
                         title={haulBrief(r)}
                       >
@@ -465,12 +465,41 @@ export function RoutesPage() {
                       </span>
                       {r.ghat && <span className="warn" title="Ghat sections: hairpin curves, monsoon risk"> ⛰</span>}
                       {cat === 'interstate' ? (
-                        <span className="pill small info" style={{ fontSize: 10, padding: '0 4px' }} title="Inter-state corridor (requires AITP)">⇄ Inter-State</span>
+                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="Inter-state corridor (requires AITP)">⇄ Inter-State</span>
                       ) : cat === 'south_state' ? (
-                        <span className="pill small good" style={{ fontSize: 10, padding: '0 4px' }} title="South State internal corridor (State carriage)">South State</span>
+                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="South State internal corridor (State carriage)">South State</span>
                       ) : (
-                        <span className="pill small warn" style={{ fontSize: 10, padding: '0 4px' }} title="Northern & Western corridor">▲ North</span>
+                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="Northern & Western corridor">▲ North</span>
                       )}
+                      {(() => {
+                        const fromLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.from)
+                        const toLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.to)
+                        if (!fromLounge && !toLounge) return null
+                        return (
+                          <>
+                            {fromLounge && (
+                              <Link
+                                to="/lounges"
+                                className="pill small"
+                                style={{ fontSize: 10, padding: '0 4px', textDecoration: 'none' }}
+                                title={`Boarding Lounge in ${cityName(r.from)} (Tier ${fromLounge.tier}) — passenger waiting & snacks boost booking conversion`}
+                              >
+                                {cityName(r.from)} Lounge (T{fromLounge.tier})
+                              </Link>
+                            )}
+                            {toLounge && (
+                              <Link
+                                to="/lounges"
+                                className="pill small"
+                                style={{ fontSize: 10, padding: '0 4px', textDecoration: 'none' }}
+                                title={`Boarding Lounge in ${cityName(r.to)} (Tier ${toLounge.tier}) — return booking boost`}
+                              >
+                                {cityName(r.to)} Lounge (T{toLounge.tier})
+                              </Link>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                     <div className="small faint">{r.notes}</div>
                     {routeViaLabel(r.id) && (
@@ -478,36 +507,6 @@ export function RoutesPage() {
                         {routeViaLabel(r.id)}
                       </div>
                     )}
-                    {/* Boarding Lounge Presence */}
-                    {(() => {
-                      const fromLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.from)
-                      const toLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.to)
-                      if (!fromLounge && !toLounge) return null
-                      return (
-                        <div style={{ marginTop: 3, display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
-                          {fromLounge && (
-                            <Link
-                              to="/lounges"
-                              className="pill small good"
-                              style={{ fontSize: '0.68rem', padding: '1px 5px', textDecoration: 'none' }}
-                              title={`Boarding Lounge in ${cityName(r.from)} (Tier ${fromLounge.tier}) — passenger waiting & snacks boost booking conversion`}
-                            >
-                              {cityName(r.from)} Lounge (T{fromLounge.tier})
-                            </Link>
-                          )}
-                          {toLounge && (
-                            <Link
-                              to="/lounges"
-                              className="pill small good"
-                              style={{ fontSize: '0.68rem', padding: '1px 5px', textDecoration: 'none' }}
-                              title={`Boarding Lounge in ${cityName(r.to)} (Tier ${toLounge.tier}) — return booking boost`}
-                            >
-                              {cityName(r.to)} Lounge (T{toLounge.tier})
-                            </Link>
-                          )}
-                        </div>
-                      )
-                    })()}
                   </td>
                   <td className="small">{statesOnRoute(r).join(', ')}</td>
                   <td className="small">{r.interstate ? 'AITP' : 'State carriage'}</td>
@@ -674,7 +673,7 @@ export function RoutesPage() {
                     {(() => {
                       const boost = getLoungeDemandBoost(s, r.id)
                       if (boost > 1.0) {
-                        const pct = Math.round((boost - 1.0) * 100)
+                        const pct = ((boost - 1.0) * 100).toFixed(1).replace(/\.0$/, '')
                         return (
                           <div className="good small" style={{ marginTop: 2 }}>
                             Lounge lift: +{pct}% conversion
@@ -876,6 +875,32 @@ export function RoutesPage() {
                   </div>
                 </div>
               )}
+
+              <div>
+                <div className="muted mb8" title="Fixed by market position, then shaped by what each rival has learned from fighting you. State operators do not attack.">Rivals</div>
+                <table className="data">
+                  <thead>
+                    <tr><th>Operator</th><th>Style</th><th>Temper</th><th className="num">Grudge</th><th className="num">Attacks</th></tr>
+                  </thead>
+                  <tbody>
+                    {rawRivals
+                      .filter((n) => !n.includes('KSRTC') && !n.includes('TNSTC') && !n.includes('SETC'))
+                      .map((n) => {
+                        const p = personalityOf(s, n)
+                        const m = rivalMemory(s, p.id)
+                        return (
+                          <tr key={n}>
+                            <td><b>{n}</b></td>
+                            <td>{p.style === 'price' ? 'price wars' : p.style === 'timing' ? 'front-running' : 'capacity floods'}</td>
+                            <td className={p.aggression >= 0.65 ? 'bad' : p.aggression >= 0.4 ? 'warn' : 'good'}>{p.aggression >= 0.65 ? 'aggressive' : p.aggression >= 0.4 ? 'steady' : 'calm'}</td>
+                            <td className="num">{Math.round(m.grudge * 100)}%</td>
+                            <td className="num" title={`${m.defeats} failed, ${m.victories} worked`}>{m.actions}</td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
 
               <div>
                 <div className="muted mb8" title="If you hold 35%+ share or run 4+ daily departures, top rivals launch front-running and price-war waves">Your stance</div>

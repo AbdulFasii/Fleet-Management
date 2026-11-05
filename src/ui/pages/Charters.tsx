@@ -206,8 +206,9 @@ export function ChartersPage() {
                                   <table className="data" style={{ width: 'auto' }}>
                                     <tbody>
                                       <tr><td>Fuel · {cost.isElectric ? 'EV' : `${cost.fuelLitres}L @ ${cost.fuelKmpl.toFixed(1)} km/l`}</td><td className="num"><M v={cost.fuelCost} /></td></tr>
-                                      <tr><td>Driver bata · {cost.mealAllowanceActive ? 'meal allowance' : `${cost.driverCount} driver${cost.driverCount > 1 ? 's' : ''} × ${inq.durationDays}d`}</td><td className="num"><M v={cost.driverBata} /></td></tr>
-                                      <tr><td>FASTag tolls</td><td className="num"><M v={cost.tollCost} /></td></tr>
+                                      <tr><td>Driver outstation bata · {cost.driverCount} driver{cost.driverCount > 1 ? 's' : ''} × {inq.durationDays}d</td><td className="num"><M v={cost.driverBata} /></td></tr>
+                                      <tr><td>FASTag tolls & permits</td><td className="num"><M v={cost.tollCost} /></td></tr>
+                                      {cost.maintenanceCost > 0 && <tr><td>Maintenance & prep</td><td className="num"><M v={cost.maintenanceCost} /></td></tr>}
                                       <tr><td><b>Total</b></td><td className="num"><b><M v={cost.totalDirectCost} /></b></td></tr>
                                     </tbody>
                                   </table>
@@ -374,7 +375,7 @@ export function ChartersPage() {
                 {history.map((c) => {
                   const bus = c.busId ? s.buses[c.busId] : undefined
                   const rev = c.completedRevenue ?? c.payout
-                  const exp = c.completedExpenses ?? c.fuelCostEst + c.tollCostEst + c.driverBataEst
+                  const exp = c.completedExpenses ?? (c.fuelCostEst + c.tollCostEst + c.driverBataEst + (c.maintenanceCostEst ?? 0))
                   return (
                     <tr key={c.id}>
                       <td>

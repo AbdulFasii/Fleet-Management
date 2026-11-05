@@ -201,7 +201,7 @@ export function BusDetailPage() {
   const due = serviceDueKm(bus)
   const busy = bus.status !== 'active'
   const age = busAgeYears(s, bus)
-  const odoMark = s.config?.odoHighlightKm ?? 400_000
+  const odoMark = (bus.groupId ? s.groups?.[bus.groupId]?.odoHighlightKm : undefined) ?? s.config?.odoHighlightKm ?? 400_000
   const odoOver = bus.odometer >= odoMark
   const odoFar = bus.odometer >= odoMark * 1.25
 

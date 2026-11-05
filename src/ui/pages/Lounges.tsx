@@ -16,7 +16,6 @@ import {
   loungeAmenityIds,
   loungePackage,
   loungePackageOf,
-  loungeSeatingDef,
   tierAllows,
 } from '../../engine/data/loungeCatalog'
 import { getLoungeSchedulesHandled } from '../../engine/sim/lounge'
@@ -225,7 +224,7 @@ export function LoungesPage() {
             const cName = cityName(lounge.cityId)
             const isProfitable = lounge.yesterdayNetProfit >= 0
             const pkgOf = loungePackageOf(lounge, s.config?.passengerConfig)
-            const ams = loungeAmenityIds(lounge, s.config?.passengerConfig)
+            const tierName = lounge.tier === 'business' ? 'Executive' : lounge.tier === 'premium' ? 'Premium' : 'Express'
 
             return (
               <div
@@ -243,8 +242,8 @@ export function LoungesPage() {
               >
                 <div>
                   {/* Top Bar: Location & Badges */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
-                    <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lounge.locationName}</div>
                       <div className="small dim" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                         <span>{cName}</span>
@@ -256,9 +255,10 @@ export function LoungesPage() {
                       className={`pill small ${
                         lounge.tier === 'business' ? 'good' : lounge.tier === 'premium' ? 'primary' : 'dim'
                       }`}
-                      style={{ fontWeight: 600 }}
+                      style={{ fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}
+                      title={tierDef.label}
                     >
-                      {tierDef.label}
+                      {tierName}
                     </span>
                   </div>
 
@@ -272,12 +272,7 @@ export function LoungesPage() {
                     }}
                   >
                     <span className="pill small dim">{pkgOf.seats} seats</span>
-                    <span className="pill small dim">{loungeSeatingDef(lounge).label}</span>
                     <span className="pill small dim">{tierDef.sqft} sq ft</span>
-                    <span className="pill small good">+{(pkgOf.conversion * 100).toFixed(1)}% conversion</span>
-                    {ams.map((id) => (
-                      <span key={id} className="pill small info">{LOUNGE_AMENITIES.find((x) => x.id === id)?.label}</span>
-                    ))}
                     {lounge.tier !== 'express' && (
                       <span className="pill small primary" title="This lounge branch unlocks charter inquiries from this city!">
                         Tour & Charter Branch

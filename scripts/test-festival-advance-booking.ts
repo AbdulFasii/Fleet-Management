@@ -94,14 +94,14 @@ assignBus(g, sch.id, 'bus-ab')
 assignBus(g, sch.id, 'bus-ba')
 
 // Advance game to just before Diwali
-// Start date of g is ~April 2025. Diwali 2025 is fromCivil(2025, 11, 1).
-const diwaliDay = fromCivil(2025, 11, 1)
-const diwaliPreDay = diwaliDay - 1 // Oct 31, 2025 (pre)
-const diwaliFestDay = diwaliDay    // Nov 1, 2025 (festival_day)
+const startYear = toCivil(g.day).y
+const diwaliDay = fromCivil(startYear, 11, 1)
+const diwaliPreDay = diwaliDay - 1
+const diwaliFestDay = diwaliDay
 
-// Also test Independence Day 2025
-const indepDay = fromCivil(2025, 8, 15)
-const indepPreDay = indepDay - 1   // Aug 14, 2025 (pre)
+// Also test Independence Day
+const indepDay = fromCivil(startYear, 8, 15)
+const indepPreDay = indepDay - 1
 
 console.log(`Advancing to test windows...`)
 let diwaliT5Sold = 0
@@ -146,8 +146,8 @@ while (g.day <= diwaliDay + 1) {
     }
   }
 
-  // Measure a normal midweek departure T-5 in September (e.g. Wednesday Sept 17, 2025)
-  const normWed = fromCivil(2025, 9, 17)
+  // Measure a normal midweek departure T-5 in September (e.g. Wednesday in September)
+  const normWed = fromCivil(startYear, 9, 16)
   if (g.day === normWed - 5) {
     const t = Object.values(g.trips).find(tr => tr.scheduleId === sch.id && tr.day === normWed && tr.direction === 'AB')
     if (t) {

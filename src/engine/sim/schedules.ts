@@ -749,12 +749,12 @@ export function scheduleIsCargo(s: GameState, sch: Schedule): boolean {
   return buses.length > 0 && buses.every((b) => isCargoModel(b.modelId))
 }
 
-/** Hard cap on coaches for this schedule (= recommended fleet for daily service). */
+/** Hard cap on coaches for this schedule (= recommended fleet for daily service, min 2). */
 export function maxCoachesForSchedule(s: GameState, sch: Schedule): number {
   const route = ROUTES[sch.routeId] ?? ROUTES[canonicalRouteId(sch.routeId)]
   const cargo = scheduleIsCargo(s, sch)
   const paired = Boolean(sch.paired) && !cargo
-  return recommendedFleetSize(route, paired, s)
+  return Math.max(2, recommendedFleetSize(route, paired, s))
 }
 
 /**

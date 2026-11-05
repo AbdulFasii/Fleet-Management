@@ -73,10 +73,10 @@ console.log('Testing Passenger Waiting Areas & Lounge Operations...')
   // Before opening lounge: boost is 1.0 (0%)
   assert.equal(getLoungeDemandBoost(s, 'maa-cbe'), 1.0, 'No boost without lounge')
 
-  // Open Premium lounge in Coimbatore (+3.0%)
+  // Open Premium lounge in Coimbatore (+1.5%)
   openLounge(s, 'cbe', 'Gandhipuram Omni Bus Stand Hub', 'premium')
   const boost = getLoungeDemandBoost(s, 'maa-cbe')
-  assert.ok(Math.abs(boost - 1.03) < 0.0001, 'Premium lounge provides +3.0% route attractiveness boost')
+  assert.ok(Math.abs(boost - 1.015) < 0.0001, 'Premium lounge provides +1.5% route attractiveness boost')
 
   console.log('✓ Schedule counting and passenger demand boost passed.')
 }
@@ -159,10 +159,10 @@ console.log('Testing Passenger Waiting Areas & Lounge Operations...')
   assert.equal(openLounge(s, 'cbe', 'Gandhipuram', 'express', 'recliner', ['tea', 'wifi', 'rest']), null)
   const lounge = s.company.lounges![0]!
   assert.equal(cash0 - s.company.cash, Math.round(LOUNGE_TIERS.express.setupCost * 1.25), 'recliner fit-out costs 25% more')
-  assert.deepEqual(lounge.amenities, ['tea', 'wifi'], 'rest rooms need a business lounge, so they are dropped')
+  assert.deepEqual(lounge.amenities, ['tea', 'wifi'], 'rest rooms need a premium lounge, so they are dropped')
   const pkg = loungePackageOf(lounge, undefined)
   assert.equal(pkg.seats, Math.round(LOUNGE_TIERS.express.seats * 0.8), 'recliners seat fewer')
-  assert.ok(Math.abs(pkg.conversion - (0.015 + 0.004 + 0.002 + 0.001)) < 1e-9, 'conversion adds seating and amenity effects')
+  assert.ok(Math.abs(pkg.conversion - (0.0075 + 0.002 + 0.001 + 0.0005)) < 1e-9, 'conversion adds seating and amenity effects')
   assert.ok(Math.abs(getLoungeDemandBoost(s, 'maa-cbe') - (1 + pkg.conversion)) < 1e-9, 'route boost uses the package conversion')
   assert.ok(loungeServiceBonus(s, 'cbe') > 0.12, 'comfort lifts passenger satisfaction above the tier base')
 

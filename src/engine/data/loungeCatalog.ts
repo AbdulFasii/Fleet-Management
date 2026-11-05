@@ -15,7 +15,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyStaffWage: rs(500), // Front desk attendant (flat cut, ~₹15,000 / mo)
     avgSnackSpend: rs(22), // Tea, filter coffee, biscuits, packaged water
     snackMargin: 0.50, // 50% net profit margin on snack counter
-    demandBoostPct: 0.015, // +1.5% passenger booking conversion
+    demandBoostPct: 0.0075, // +0.75% passenger booking conversion (halved from +1.5%)
     maxDailyPaxCapacity: 150,
     desc: 'Compact air-conditioned boarding waiting room with cushioned seats, mobile charging stations, water dispenser, and snack counter. Ideal for high-turnover pickup points.',
     features: [
@@ -38,7 +38,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyStaffWage: rs(1_100), // 2 staff: desk attendant + hospitality (~₹33,000 / mo)
     avgSnackSpend: rs(38), // Espresso, fresh juices, packaged sandwiches, snacks
     snackMargin: 0.52, // 52% margin
-    demandBoostPct: 0.030, // +3.0% passenger booking conversion
+    demandBoostPct: 0.015, // +1.5% passenger booking conversion (halved from +3.0%)
     maxDailyPaxCapacity: 400,
     desc: 'Spacious 1,500 sq. ft. lounge featuring recliners, cafe counter, cloakroom, and dedicated Tour & Charter Booking Office. Unlocks private charter operations from this city.',
     features: [
@@ -62,7 +62,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyStaffWage: rs(2_200), // 3 staff: concierge, cafe manager & security (~₹66,000 / mo)
     avgSnackSpend: rs(65), // Full gourmet cafe menu, snacks, energy drinks, paid luggage cloaking
     snackMargin: 0.55, // 55% margin
-    demandBoostPct: 0.050, // +5.0% passenger booking conversion
+    demandBoostPct: 0.025, // +2.5% passenger booking conversion (halved from +5.0%)
     maxDailyPaxCapacity: 900,
     desc: 'Flagship executive transit lounge with leather recliners, quiet work pods, shower suite, cafe dining, and 24/7 security. Unlocks maximum passenger conversion and charter inquiries.',
     features: [
@@ -186,10 +186,10 @@ export interface LoungeSeatingDef {
 }
 
 export const LOUNGE_SEATING: Record<LoungeSeating, LoungeSeatingDef> = {
-  bench: { id: 'bench', label: 'Bench seating', seatMult: 1.25, comfort: -0.04, conv: -0.003, setupPct: -0.1, minTier: 'express' },
+  bench: { id: 'bench', label: 'Bench seating', seatMult: 1.25, comfort: -0.04, conv: -0.0015, setupPct: -0.1, minTier: 'express' },
   cushioned: { id: 'cushioned', label: 'Cushioned seats', seatMult: 1, comfort: 0, conv: 0, setupPct: 0, minTier: 'express' },
-  recliner: { id: 'recliner', label: 'Recliners', seatMult: 0.8, comfort: 0.08, conv: 0.004, setupPct: 0.25, minTier: 'express' },
-  pods: { id: 'pods', label: 'Recliners and work pods', seatMult: 0.65, comfort: 0.14, conv: 0.007, setupPct: 0.45, minTier: 'premium' },
+  recliner: { id: 'recliner', label: 'Recliners', seatMult: 0.8, comfort: 0.08, conv: 0.002, setupPct: 0.25, minTier: 'express' },
+  pods: { id: 'pods', label: 'Recliners and work pods', seatMult: 0.65, comfort: 0.14, conv: 0.0035, setupPct: 0.45, minTier: 'premium' },
 }
 export const LOUNGE_SEATING_ORDER: LoungeSeating[] = ['bench', 'cushioned', 'recliner', 'pods']
 
@@ -210,12 +210,12 @@ export interface LoungeAmenityDef {
 }
 
 export const LOUNGE_AMENITIES: LoungeAmenityDef[] = [
-  { id: 'tea', label: 'Free tea and coffee', daily: 0, perPax: rs(4), capture: 0.12, spend: 0, comfort: 0.08, conv: 0.002, minTier: 'express' },
-  { id: 'wifi', label: 'Wi-Fi and fast charging', daily: rs(50), perPax: 0, capture: 0, spend: 0, comfort: 0.05, conv: 0.001, minTier: 'express' },
-  { id: 'assist', label: 'Boarding alerts and assistance', daily: rs(30), perPax: 0, capture: 0, spend: 0, comfort: 0.07, conv: 0.002, minTier: 'express' },
-  { id: 'cctv', label: 'CCTV and luggage security', daily: rs(40), perPax: 0, capture: 0, spend: 0, comfort: 0.05, conv: 0.001, minTier: 'express' },
+  { id: 'tea', label: 'Free tea and coffee', daily: 0, perPax: rs(4), capture: 0.12, spend: 0, comfort: 0.08, conv: 0.001, minTier: 'express' },
+  { id: 'wifi', label: 'Wi-Fi and fast charging', daily: rs(50), perPax: 0, capture: 0, spend: 0, comfort: 0.05, conv: 0.0005, minTier: 'express' },
+  { id: 'assist', label: 'Boarding alerts and assistance', daily: rs(30), perPax: 0, capture: 0, spend: 0, comfort: 0.07, conv: 0.001, minTier: 'express' },
+  { id: 'cctv', label: 'CCTV and luggage security', daily: rs(40), perPax: 0, capture: 0, spend: 0, comfort: 0.05, conv: 0.0005, minTier: 'express' },
   { id: 'cafe', label: 'Full cafe menu', daily: rs(90), perPax: 0, capture: 0.03, spend: 0.2, comfort: 0.02, conv: 0, minTier: 'premium' },
-  { id: 'rest', label: 'Rest rooms and showers', daily: rs(120), perPax: 0, capture: 0.05, spend: 0, comfort: 0.06, conv: 0.003, minTier: 'business' },
+  { id: 'rest', label: 'Rest rooms and showers', daily: rs(120), perPax: 0, capture: 0.05, spend: 0, comfort: 0.06, conv: 0.0015, minTier: 'premium' },
 ]
 
 export const LOUNGE_AMENITY_PRESETS: { id: string; label: string; amenities: LoungeAmenityId[] }[] = [

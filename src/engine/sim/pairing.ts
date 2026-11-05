@@ -112,7 +112,7 @@ export function recommendedFleetSize(
   paired: boolean,
   s?: GameState,
 ): number {
-  if (!route) return paired ? 2 : 1
+  if (!route) return 2
   const hours = route.hours ?? 6
   const turnH = turnaroundMinutes(route, s) / 60
   const legDays = Math.max(1, Math.ceil((hours + turnH) / 24))
@@ -120,7 +120,8 @@ export function recommendedFleetSize(
   const maxCap = BAL.scheduleMaxCoaches ?? 4
   if (!paired) {
     // One-way still needs the coach home again before the next outbound → round-trip cycle.
-    return Math.max(1, Math.min(maxCap, roundTripDays))
+    // Allow at least 2 coaches so assigning a 2nd bus is never blocked; restrictions only start above 2.
+    return Math.max(2, Math.min(maxCap, roundTripDays))
   }
   // Daily both ways: one A-start pool and one B-start pool, each sized to the one-way cycle.
   return Math.max(2, Math.min(maxCap, 2 * legDays))

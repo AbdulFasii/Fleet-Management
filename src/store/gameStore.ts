@@ -1440,6 +1440,20 @@ function migrate(raw: unknown): GameState | null {
   }
 
   charterSim.sanitizeCharterData(s)
+
+  // Rescale existing lounge snack numbers down to 2% if inflated by previous formula
+  if (s.company?.lounges) {
+    for (const l of s.company.lounges) {
+      if (l.yesterdaySnackRevenue > 2_000_000) { // > ₹20,000 / day
+        l.yesterdaySnackRevenue = Math.round(l.yesterdaySnackRevenue * 0.02)
+        const totalOpex = (l.yesterdayRentExpense ?? 0) + (l.yesterdayElectricExpense ?? 0) + (l.yesterdayStaffExpense ?? 0)
+        l.yesterdayNetProfit = l.yesterdaySnackRevenue - totalOpex
+      }
+      if (l.lifetimeRevenue > 5_000_000) { // > ₹50,000
+        l.lifetimeRevenue = Math.round(l.lifetimeRevenue * 0.02)
+      }
+    }
+  }
   s.version = SAVE_VERSION
   return s
 }

@@ -68,7 +68,7 @@ export function daysInMonth(y: number, m: number): number {
   return fromCivil(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1, 1) - fromCivil(y, m, 1)
 }
 
-export const GAME_START_DAY = fromCivil(2025, 4, 1) // FY start, a Tuesday
+export const GAME_START_DAY = fromCivil(2015, 4, 1) // FY start, a Wednesday
 
 /** Departure clock: hour + optional 30-minute slot (missing min = :00). */
 export type DepClock = { depHour: number; depMin?: number }

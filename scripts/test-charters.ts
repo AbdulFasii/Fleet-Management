@@ -136,6 +136,7 @@ if (s.charterContracts?.[0]?.busId !== busId) {
 const initialHistoryCount = s.charterHistory?.length ?? 0
 for (let i = 0; i < 5; i++) {
   advanceDay(s)
+  if ((s.charterHistory?.length ?? 0) > initialHistoryCount) break
 }
 
 console.log('6. After 5 days advance:')

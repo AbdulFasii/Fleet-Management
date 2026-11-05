@@ -11,7 +11,7 @@ import type {
 import { CHARTER_ROUTES, type CharterRouteDef } from '../data/charterRoutes'
 import { BUS_MODELS, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
-import { BAL, driverBataForKm } from '../data/balance'
+import { BAL } from '../data/balance'
 import { nextId } from '../core/ids'
 import { fmtCompact, rs } from '../core/money'
 import { rngFor, rInt, rPick, rChance } from '../core/rng'
@@ -101,6 +101,7 @@ export interface CharterCostBreakdown {
   driverBata: Money
   driverCount: number
   mealAllowanceActive: boolean
+  maintenanceCost: Money
   totalDirectCost: Money
   netProfit: Money
   marginPct: number
@@ -134,17 +135,22 @@ export function calculateCharterBusCosts(
     fuelCost = Math.round(fuelLitres * dieselPaise)
   }
 
-  // 2. FASTag Tolls (matching dispatch.ts ₹3.00/km)
-  const tollCost = rs(Math.round(km * 3.0))
+  // 2. FASTag Tolls & Interstate Tourist Permits (₹3.50/km tolls + ₹800/day commercial entry permits)
+  const tollCost = rs(Math.round(km * 3.5)) + rs(days * 800)
 
-  // 3. Driver Bata (matching dispatch.ts driverBataForKm & meal allowance)
+  // 3. Driver Outstation Bata (outstation lodging & tour allowance per driver)
   const driverCount = (km > 500 || days > 2) ? 2 : 1
-  const dailyKm = Math.max(150, Math.round(km / days))
-  const dailyBataPerDriver = driverBataForKm(dailyKm)
-  const mealAllowanceActive = Boolean(s.config?.mealAllowance)
-  const driverBata = mealAllowanceActive ? 0 : dailyBataPerDriver * driverCount * days
+  const driverBata = rs(days * driverCount * 1200)
 
-  const totalDirectCost = fuelCost + tollCost + driverBata
+  // 4. Maintenance wear, tyres, cleaning & vehicle standing retention allocation
+  const minBillingKm = days * 250
+  const shortfallKm = Math.max(0, minBillingKm - km)
+  const maintenanceCost =
+    rs(Math.round(km * 5.0)) + // Running wear on tyres, engine oil, brakes
+    rs(days * 400) + // Pre-trip & post-trip coach wash and sanitation
+    rs(shortfallKm * 6) // Opportunity cost & holding reserve for un-run minimum days
+
+  const totalDirectCost = fuelCost + tollCost + driverBata + maintenanceCost
   const netProfit = Math.max(0, contract.payout - totalDirectCost)
   const marginPct = contract.payout > 0 ? Math.round((netProfit / contract.payout) * 100) : 0
 
@@ -156,7 +162,8 @@ export function calculateCharterBusCosts(
     tollCost,
     driverBata,
     driverCount,
-    mealAllowanceActive,
+    mealAllowanceActive: false,
+    maintenanceCost,
     totalDirectCost,
     netProfit,
     marginPct,
@@ -174,30 +181,35 @@ export function calculateCharterQuote(
   fuelCostEst: Money
   tollCostEst: Money
   driverBataEst: Money
+  maintenanceCostEst: Money
   netProfitEst: Money
 } {
   const km = route.roundTripKm
   const days = Math.max(1, route.durationDays)
-  // Standard Indian omnibus hire: minimum 300 km billing per day
-  const billableKm = Math.max(km, days * 300)
 
   // Calibrated real-world market rates per km for private bus rental in South India
-  let ratePerKm = 52
+  let ratePerKm = 40
   if (route.preferredCoachKind === 'sleeper') {
-    ratePerKm = 66
+    ratePerKm = 48
   } else if (route.preferredCoachKind === 'semi') {
-    ratePerKm = 52
+    ratePerKm = 40
   } else if (route.preferredCoachKind === 'seater') {
-    ratePerKm = 46
-  } else if (route.preferredCoachKind === 'van') {
     ratePerKm = 34
+  } else if (route.preferredCoachKind === 'van') {
+    ratePerKm = 26
   }
 
-  // Base contract payout
-  const baseKmPricePaise = rs(billableKm * ratePerKm)
-  // Allowance for driver outstation bata and tolls included in omnibus hire package
-  const baseTollPaise = rs(Math.round(km * 3.0))
-  const baseBataPaise = rs(days * 1000)
+  // Base contract payout:
+  // Actual running km at full rate + detention charge on shortfall km below 250 km/day
+  const minBillingKm = days * 250
+  const shortfallKm = Math.max(0, minBillingKm - km)
+  const detentionRate = Math.round(ratePerKm * 0.45)
+  const baseKmPricePaise = rs(km * ratePerKm + shortfallKm * detentionRate)
+
+  // Base toll, tourist permit, and driver outstation bata package
+  const baseTollPaise = rs(Math.round(km * 3.5)) + rs(days * 800)
+  const driverCount = (km > 500 || days > 2) ? 2 : 1
+  const baseBataPaise = rs(days * driverCount * 1200)
   const basePricePaise = baseKmPricePaise + baseTollPaise + baseBataPaise
 
   // Strategy adjustment
@@ -219,6 +231,7 @@ export function calculateCharterQuote(
       fuelCostEst: costs.fuelCost,
       tollCostEst: costs.tollCost,
       driverBataEst: costs.driverBata,
+      maintenanceCostEst: costs.maintenanceCost,
       netProfitEst: costs.netProfit,
     }
   }
@@ -228,6 +241,7 @@ export function calculateCharterQuote(
     fuelCostEst: 0,
     tollCostEst: 0,
     driverBataEst: 0,
+    maintenanceCostEst: 0,
     netProfitEst: 0,
   }
 }
@@ -295,6 +309,7 @@ export function generateCharterInquiries(s: GameState): void {
       fuelCostEst: 0,
       tollCostEst: 0,
       driverBataEst: 0,
+      maintenanceCostEst: 0,
       netProfitEst: 0,
       startDay,
       endDay,
@@ -395,6 +410,7 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
   inq.fuelCostEst = costs.fuelCost
   inq.tollCostEst = costs.tollCost
   inq.driverBataEst = costs.driverBata
+  inq.maintenanceCostEst = costs.maintenanceCost
   inq.netProfitEst = costs.netProfit
 
   // Deposit: part of the fee is collected up front
@@ -403,6 +419,7 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
     const deposit = Math.round((inq.payout * depositPct) / 100)
     if (deposit > 0) {
       earn(s, 'charter', deposit, { busId: bus.id, note: `Charter deposit: ${inq.title} (${inq.clientName})` })
+      s.curMonth.charterPrivateRevenue = (s.curMonth.charterPrivateRevenue ?? 0) + deposit
       inq.depositPaid = deposit
     }
   }
@@ -470,23 +487,37 @@ function completeCharterContract(s: GameState, contract: CharterContract): void 
     busId: contract.busId,
     note: `Charter Payout: ${contract.title} (${contract.clientName})`,
   })
+  s.curMonth.charterPrivateRevenue = (s.curMonth.charterPrivateRevenue ?? 0) + balance
   contract.completedRevenue = payout
 
-  // Settle direct costs (fuel, fastag tolls, driver daily bata)
-  const totalCost = contract.fuelCostEst + contract.tollCostEst + contract.driverBataEst
+  // Settle direct costs (fuel, fastag tolls & permits, driver daily bata, maintenance & prep)
+  const maintCost = contract.maintenanceCostEst ?? 0
+  const totalCost = contract.fuelCostEst + contract.tollCostEst + contract.driverBataEst + maintCost
   spend(s, 'fuel', contract.fuelCostEst, {
     busId: contract.busId,
     note: `Charter Fuel: ${contract.title} (${contract.roundTripKm} km)`,
   })
   spend(s, 'toll', contract.tollCostEst, {
     busId: contract.busId,
-    note: `Charter Toll: ${contract.title}`,
+    note: `Charter Toll & Permits: ${contract.title}`,
   })
   spend(s, 'bata', contract.driverBataEst, {
     busId: contract.busId,
     note: `Charter Driver Bata: ${contract.title}`,
   })
+  if (maintCost > 0) {
+    spend(s, 'maintenance', maintCost, {
+      busId: contract.busId,
+      note: `Charter Wear & Prep: ${contract.title}`,
+    })
+  }
   contract.completedExpenses = totalCost
+
+  const driver = contract.driverId ? s.staff[contract.driverId] : undefined
+  if (driver) {
+    driver.fatigue = Math.min(100, Math.max(driver.fatigue, 35))
+    driver.lastTripDay = s.day
+  }
 
   const netProfit = payout - totalCost
 
@@ -585,24 +616,66 @@ export function sanitizeCharterData(s: GameState): void {
   const sanitizeItem = (item: CharterContract) => {
     const route = CHARTER_ROUTES.find((r) => r.title === item.title)
     const bus = item.busId ? s.buses[item.busId] : undefined
-    if (item.payout > rs(350_000) || item.payout <= 0 || Number.isNaN(item.payout)) {
-      if (route) {
-        const q = calculateCharterQuote(s, route, item.pricingStrategy || 'market', bus)
+    if (route) {
+      const q = calculateCharterQuote(s, route, item.pricingStrategy || 'market', bus)
+      if (item.payout > rs(120_000) || item.payout <= 0 || Number.isNaN(item.payout) || !item.maintenanceCostEst) {
         item.payout = q.payout
-      } else {
-        item.payout = rs(40_000)
       }
+    } else if (item.payout > rs(120_000) || item.payout <= 0 || Number.isNaN(item.payout)) {
+      item.payout = rs(25_000)
     }
     if (bus) {
       const costs = calculateCharterBusCosts(s, item, bus)
       item.fuelCostEst = costs.fuelCost
       item.tollCostEst = costs.tollCost
       item.driverBataEst = costs.driverBata
+      item.maintenanceCostEst = costs.maintenanceCost
       item.netProfitEst = costs.netProfit
     }
   }
   for (const inq of s.charterInquiries ?? []) sanitizeItem(inq)
   for (const c of s.charterContracts ?? []) sanitizeItem(c)
+
+  // Recalibrate completed history contracts so profit margins match South India market economics (28-35%)
+  for (const h of s.charterHistory ?? []) {
+    const route = CHARTER_ROUTES.find((r) => r.title === h.title)
+    if (route) {
+      const q = calculateCharterQuote(s, route, h.pricingStrategy || 'market')
+      if (h.payout > q.payout * 1.35) {
+        h.payout = q.payout
+        if (h.completedRevenue) h.completedRevenue = q.payout
+      }
+    }
+    const bus = h.busId ? s.buses[h.busId] : undefined
+    if (bus) {
+      const costs = calculateCharterBusCosts(s, h, bus)
+      h.fuelCostEst = costs.fuelCost
+      h.tollCostEst = costs.tollCost
+      h.driverBataEst = costs.driverBata
+      h.maintenanceCostEst = costs.maintenanceCost
+      h.completedExpenses = costs.totalDirectCost
+      h.netProfitEst = costs.netProfit
+    } else {
+      const estCosts = Math.round(h.payout * 0.70)
+      if (!h.completedExpenses || h.completedExpenses < estCosts * 0.8) {
+        h.completedExpenses = estCosts
+      }
+    }
+  }
+
+  // Update lifetime charter stats to reconcile with history
+  if (s.charterStats && s.charterHistory && s.charterHistory.length > 0) {
+    let totRev = 0
+    let totProfit = 0
+    for (const h of s.charterHistory) {
+      const rev = h.completedRevenue ?? h.payout
+      const exp = h.completedExpenses ?? (h.fuelCostEst + h.tollCostEst + h.driverBataEst + (h.maintenanceCostEst ?? 0))
+      totRev += rev
+      totProfit += Math.max(0, rev - exp)
+    }
+    s.charterStats.totalRevenue = totRev
+    s.charterStats.totalProfit = totProfit
+  }
 }
 
 /** Score a bus for how well it matches a contract's passenger sizing and preferences */
@@ -730,6 +803,7 @@ export function dailyCharterPass(s: GameState): void {
       }
       c.driverId = driver.id
       driver.lastTripDay = s.day
+      driver.fatigue = Math.min(100, driver.fatigue + 14)
       c.status = 'active'
       c.currentDayProgress = 1
       pushLog(
@@ -746,7 +820,7 @@ export function dailyCharterPass(s: GameState): void {
       c.currentDayProgress += 1
       const tourDriver = c.driverId ? s.staff[c.driverId] : undefined
       if (tourDriver) {
-        tourDriver.fatigue = Math.min(100, tourDriver.fatigue + 8)
+        tourDriver.fatigue = Math.min(100, tourDriver.fatigue + 18)
         tourDriver.lastTripDay = s.day // on the road: no overnight reset
       }
 

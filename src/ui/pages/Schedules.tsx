@@ -1345,6 +1345,7 @@ export function SchedulesPage() {
 
     for (const sch of Object.values(s.schedules)) {
       if (!ROUTES[sch.routeId]) continue
+      if (!scheduleMatchesBrand(sch)) continue
       const canon = canonicalRouteId(sch.routeId)
       const entry = map.get(canon)
       if (!entry) continue
@@ -1403,7 +1404,7 @@ export function SchedulesPage() {
       }
     }
     return result
-  }, [s.schedules, s.permits, s.groups, s.day, routeOptions])
+  }, [s.schedules, s.permits, s.groups, s.day, routeOptions, brandFilter])
 
   const filteredRoutes = useMemo(() => {
     let ids = routeOptions
@@ -1413,12 +1414,13 @@ export function SchedulesPage() {
         if (!sm) return false
         if (brandFilter === 'none') {
           // Route has at least one unassigned service, or is permit-only with no services yet
-          if (sm.services === 0) return true
-          return Object.values(s.schedules).some(
-            (sch) => canonicalRouteId(sch.routeId) === rid && ROUTES[sch.routeId] && !sch.groupId,
+          const hasAnySchedule = Object.values(s.schedules).some(
+            (sch) => canonicalRouteId(sch.routeId) === rid && ROUTES[sch.routeId],
           )
+          if (!hasAnySchedule) return true
+          return sm.services > 0
         }
-        return sm.groups.some((grp) => grp.id === brandFilter)
+        return sm.services > 0
       })
     }
     if (railSearch.trim()) {

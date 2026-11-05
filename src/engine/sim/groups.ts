@@ -6,29 +6,59 @@ import { pushLog } from './log'
 
 /** Distinct brand badge hues — spaced so neighbouring pellets read differently. */
 export const GROUP_PALETTE = [
+  // Blues & Teals (7)
   '#1e3a8a', // Navy
   '#2563eb', // Royal Blue
-  '#0ea5e9', // Sky
+  '#0ea5e9', // Sky Blue
+  '#38bdf8', // Ice Blue
   '#06b6d4', // Cyan
   '#0f766e', // Deep Teal
+  '#14b8a6', // Teal
+
+  // Greens (6)
+  '#14532d', // Dark Forest Green
+  '#15803d', // Racing Green
   '#10b981', // Emerald
   '#22c55e', // Bright Green
-  '#14532d', // Dark Green
-  '#65a30d', // Lime Olive
-  '#ca8a04', // Gold
-  '#ea580c', // Orange
+  '#84cc16', // Lime
+  '#65a30d', // Olive
+
+  // Golds & Light Yellows (7)
+  '#fef08a', // Pale Light Yellow
+  '#fde047', // Sunshine Light Yellow
+  '#facc15', // Canary Yellow
+  '#eab308', // Warm Gold
+  '#d4af37', // Metallic Gold
+  '#ca8a04', // Antique Gold
   '#b45309', // Bronze
-  '#92400e', // Brown
+
+  // Oranges, Saffrons & Browns (5)
+  '#f97316', // Saffron Orange
+  '#ea580c', // Tangerine
+  '#fb923c', // Peach
+  '#92400e', // Amber Brown
+  '#78350f', // Espresso Brown
+
+  // Reds, Maroons & Pinks (7)
+  '#ef4444', // Red
   '#dc2626', // Crimson
   '#7f1d1d', // Burgundy
+  '#4c0519', // Wine
   '#be123c', // Rose
+  '#f43f5e', // Coral
   '#c026d3', // Magenta
+
+  // Purples & Violets (3)
   '#a855f7', // Purple
   '#7c3aed', // Violet
-  '#4338ca', // Indigo
-  '#c0c7d1', // Silver
+  '#4338ca', // Deep Indigo
+
+  // Silvers & Neutrals (5)
+  '#e2e8f0', // Light Silver
+  '#cbd5e1', // Silver
+  '#94a3b8', // Metallic Silver
   '#111111', // Black
-  '#f5f5f5', // White
+  '#ffffff', // White
 ]
 
 /** Light badge fills need dark text / a visible edge on the dark UI. */
@@ -39,7 +69,7 @@ export function isLightBadgeColor(color: string): boolean {
   const g = parseInt(hex.slice(2, 4), 16)
   const b = parseInt(hex.slice(4, 6), 16)
   // Relative luminance (sRGB-ish)
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.72
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.62
 }
 
 /** Passenger brands first, then cargo; stable name/code within each band. */
@@ -186,6 +216,7 @@ export function updateGroup(
   if (!g.brandingPic) delete g.brandingPic
   if (!g.parentGroupId) delete g.parentGroupId
   if (g.gallery && g.gallery.length === 0) delete g.gallery
+  if (patch.odoHighlightKm === undefined && 'odoHighlightKm' in patch) delete g.odoHighlightKm
   return null
 }
 

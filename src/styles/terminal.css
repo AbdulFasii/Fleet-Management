@@ -459,6 +459,7 @@ table.data tr.group-row td:first-child { padding-left: 16px; }
 
 .pill {
   display: inline-block;
+  white-space: nowrap;
   font-size: 10px;
   padding: 0 6px;
   border: 1px solid var(--border);

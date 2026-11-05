@@ -34,7 +34,6 @@ import {
   canChassisBeRebodied,
   quoteRebody,
   quotePowertrainOverhaul,
-  quoteLuxuryRetrofit,
 } from '../../engine/sim/maintenance'
 import { fmtCompact, rs } from '../../engine/core/money'
 import { CITIES, cityName } from '../../engine/data/cities'
@@ -89,12 +88,12 @@ export function WorkshopPage() {
   const [serviceFilter, setServiceFilter] = useState<'all' | 'overhaul' | 'service_b' | 'service_a' | 'tyres' | 'gps'>('all')
   const [overhaulFilter, setOverhaulFilter] = useState<'candidates' | 'all' | 'semi_sleeper' | 'low_condition' | 'in_progress'>('candidates')
   const [overhaulStudioBus, setOverhaulStudioBus] = useState<Bus | null>(null)
-  const [overhaulTab, setOverhaulTab] = useState<'rebody' | 'powertrain' | 'luxury'>('rebody')
+  const [overhaulTab, setOverhaulTab] = useState<'rebody' | 'powertrain'>('rebody')
   const [selectedBuilderId, setSelectedBuilderId] = useState<string>('')
   const [selectedDesignId, setSelectedDesignId] = useState<string>('')
   const [selectedLayoutKind, setSelectedLayoutKind] = useState<CoachLayoutKind>('sleeper')
 
-  const openOverhaulStudio = (bus: Bus, tab?: 'rebody' | 'powertrain' | 'luxury') => {
+  const openOverhaulStudio = (bus: Bus, tab?: 'rebody' | 'powertrain') => {
     setOverhaulStudioBus(bus)
     const model = BUS_MODELS[bus.modelId]
     const canRebody = model ? canChassisBeRebodied(model) : false
@@ -268,7 +267,10 @@ export function WorkshopPage() {
     return buses.filter((b) => {
       if (b.ownership !== 'owned') return false
       const age = busAgeYears(s, b)
-      return age >= 2.5 || b.odometer >= 200_000 || b.condition.engine < 75 || b.condition.body < 75
+      const canRebody = canChassisBeRebodied(BUS_MODELS[b.modelId])
+      const lowPowertrain = b.condition.engine < 75 || b.condition.gearbox < 75
+      const lowBody = canRebody && (b.condition.body ?? 100) < 75
+      return age >= 2.5 || b.odometer >= 200_000 || lowPowertrain || lowBody
     })
   }, [buses, s.day])
 
@@ -277,7 +279,10 @@ export function WorkshopPage() {
     if (overhaulFilter === 'candidates') {
       return owned.filter((b) => {
         const age = busAgeYears(s, b)
-        return age >= 2.5 || b.odometer >= 200_000 || b.condition.engine < 75 || b.condition.body < 75
+        const canRebody = canChassisBeRebodied(BUS_MODELS[b.modelId])
+        const lowPowertrain = b.condition.engine < 75 || b.condition.gearbox < 75
+        const lowBody = canRebody && (b.condition.body ?? 100) < 75
+        return age >= 2.5 || b.odometer >= 200_000 || lowPowertrain || lowBody
       })
     }
     if (overhaulFilter === 'semi_sleeper') {
@@ -287,7 +292,12 @@ export function WorkshopPage() {
       })
     }
     if (overhaulFilter === 'low_condition') {
-      return owned.filter((b) => b.condition.engine < 70 || b.condition.gearbox < 70 || b.condition.body < 70)
+      return owned.filter((b) => {
+        const canRebody = canChassisBeRebodied(BUS_MODELS[b.modelId])
+        const lowPowertrain = b.condition.engine < 25 || b.condition.gearbox < 25
+        const lowBody = canRebody && (b.condition.body ?? 100) < 25
+        return lowPowertrain || lowBody
+      })
     }
     if (overhaulFilter === 'in_progress') {
       return owned.filter((b) => b.status === 'workshop' && b.workshopJob && (
@@ -405,7 +415,14 @@ export function WorkshopPage() {
                     </span>
                   }
                 >
-                  <table className="data">
+                  <table className="data" style={{ tableLayout: 'fixed', width: '100%' }}>
+                    <colgroup>
+                      <col style={{ width: 55 }} />
+                      <col style={{ width: 300 }} />
+                      <col />
+                      <col style={{ width: 110 }} />
+                      <col style={{ width: 65 }} />
+                    </colgroup>
                     <thead>
                       <tr><th>Bay</th><th>Mechanic</th><th>Job</th><th>Owner</th><th className="num">Left</th></tr>
                     </thead>
@@ -416,11 +433,12 @@ export function WorkshopPage() {
                         return (
                           <tr key={bay.index}>
                             <td className="accent"><b>#{bay.index}</b></td>
-                            <td className="nowrap">
+                            <td className="nowrap" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {vacant ? (
                                 freeMechanics.length > 0 ? (
                                   <select
                                     value=""
+                                    style={{ maxWidth: '100%' }}
                                     onChange={(e) => { if (e.target.value) g.appointBayMechanic(e.target.value, bay.globalBayIndex) }}
                                   >
                                     <option value="">+ appoint mechanic</option>
@@ -439,7 +457,7 @@ export function WorkshopPage() {
                                 </>
                               )}
                             </td>
-                            <td>
+                            <td style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                               {vacant || onLeave ? (
                                 <span className="dim">{vacant ? 'idle' : 'mechanic on leave'}</span>
                               ) : bay.job ? (
@@ -452,7 +470,9 @@ export function WorkshopPage() {
                                 <span className="good">ready</span>
                               )}
                             </td>
-                            <td>{bay.job ? <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} /> : <span className="dim">—</span>}</td>
+                            <td style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {bay.job ? <OwnershipCell ownership={bay.job.ownership} attachShare={bay.job.attach?.ownerShare} /> : <span className="dim">—</span>}
+                            </td>
                             <td className="num">{bay.job ? <b className="accent">{Math.max(0, (bay.job.workshopUntilDay ?? s.day) - s.day)}d</b> : <span className="dim">—</span>}</td>
                           </tr>
                         )
@@ -673,7 +693,7 @@ export function WorkshopPage() {
                     <tr>
                       <th>Coach</th>
                       <th>Layout</th>
-                      <th className="num" title="Engine / gearbox condition">Engine / box</th>
+                      <th className="num" title="Engine / gearbox condition, plus coach body condition">Health</th>
                       <th>Spec</th>
                       <th className="num">Upgrade</th>
                     </tr>
@@ -697,9 +717,14 @@ export function WorkshopPage() {
                             <span className="muted"> {m?.seats} {isSleeper ? 'berths' : 'seats'}</span>
                           </td>
                           <td className="num nowrap">
-                            <span className={tone(bus.condition.engine)}>{Math.round(bus.condition.engine)}%</span>
+                            <span className={tone(bus.condition.engine)} title={`Engine: ${Math.round(bus.condition.engine)}%`}>{Math.round(bus.condition.engine)}%</span>
                             {' / '}
-                            <span className={tone(bus.condition.gearbox)}>{Math.round(bus.condition.gearbox)}%</span>
+                            <span className={tone(bus.condition.gearbox)} title={`Gearbox: ${Math.round(bus.condition.gearbox)}%`}>{Math.round(bus.condition.gearbox)}%</span>
+                            {canRebody && (bus.condition.body ?? 100) < 25 && (
+                              <span className={`pill small ml6 ${tone(bus.condition.body ?? 100)}`} title={`Coach body condition: ${Math.round(bus.condition.body ?? 100)}% (eligible for Re-body)`}>
+                                Body {Math.round(bus.condition.body ?? 100)}%
+                              </span>
+                            )}
                           </td>
                           <td className="nowrap">
                             <b>{busComfort(s, bus).toFixed(1)}★</b>
@@ -717,8 +742,7 @@ export function WorkshopPage() {
                                 ) : (
                                   <span className="pill dim small" title="Factory monocoque van: cannot be re-bodied">monocoque</span>
                                 )}{' '}
-                                <button className={`small ${!canRebody ? 'primary' : ''}`} onClick={() => openOverhaulStudio(bus, 'powertrain')} title="Engine and gearbox rebuild: +10% fuel economy, half the breakdown risk">Powertrain</button>{' '}
-                                <button className="small" onClick={() => openOverhaulStudio(bus, 'luxury')} title="Touchscreens, fast chargers and air suspension: +2.0 comfort">Luxury</button>
+                                <button className={`small ${!canRebody ? 'primary' : ''}`} onClick={() => openOverhaulStudio(bus, 'powertrain')} title="Engine and gearbox rebuild: +10% fuel economy, half the breakdown risk">Powertrain</button>
                               </>
                             )}
                           </td>
@@ -1016,8 +1040,7 @@ export function WorkshopPage() {
 
         const quote =
           overhaulTab === 'rebody' ? quoteRebody(s, bus, currentDesign?.id)
-          : overhaulTab === 'powertrain' ? quotePowertrainOverhaul(s, bus)
-          : quoteLuxuryRetrofit(s, bus)
+          : quotePowertrainOverhaul(s, bus)
         const affordable = s.company.cash >= quote.cost
         const idle = bus.status === 'active'
         const blocked =
@@ -1028,14 +1051,12 @@ export function WorkshopPage() {
           : !idle ? 'Coach not active'
           : overhaulTab === 'rebody' && blocker ? 'Requirements not met'
           : overhaulTab === 'rebody' ? 'Start re-body'
-          : overhaulTab === 'powertrain' ? 'Start rebuild'
-          : 'Start retrofit'
+          : 'Start rebuild'
         const pct = (v: number) => `${Math.round(v)}%`
 
         const confirm = () => {
           if (overhaulTab === 'rebody') g.rebodyBus(bus.id, selectedDesignId, selectedLayoutKind)
-          else if (overhaulTab === 'powertrain') g.overhaulPowertrain(bus.id)
-          else g.retrofitLuxuryAmenities(bus.id)
+          else g.overhaulPowertrain(bus.id)
           setOverhaulStudioBus(null)
         }
 
@@ -1071,7 +1092,6 @@ export function WorkshopPage() {
                 tabs={[
                   ['rebody', 'Re-body'],
                   ['powertrain', 'Powertrain'],
-                  ['luxury', 'Luxury'],
                 ] as const}
                 value={overhaulTab}
                 onChange={setOverhaulTab}
@@ -1132,17 +1152,6 @@ export function WorkshopPage() {
                     <tr><td>Gearbox</td><td className={bus.condition.gearbox >= 75 ? 'good' : 'warn'}>{pct(bus.condition.gearbox)}</td><td className="good">98%</td></tr>
                     <tr><td>Breakdown risk</td><td>normal wear</td><td className="good">halved</td></tr>
                     <tr><td>Fuel economy</td><td>{bus.powertrainOverhaulDay ? '+10% (rebuilt)' : 'stock'}</td><td className="good">+10%</td></tr>
-                  </tbody>
-                </table>
-              )}
-
-              {overhaulTab === 'luxury' && (
-                <table className="data" title="Seatback touchscreens, 45W Type-C chargers at every seat, and pneumatic air suspension">
-                  <thead><tr><th /><th>Now</th><th>After</th></tr></thead>
-                  <tbody>
-                    <tr><td>Comfort</td><td>{busComfort(s, bus).toFixed(1)}★</td><td className="good">+2.0★</td></tr>
-                    <tr><td>Suspension</td><td>{pct(bus.condition.suspension)}</td><td className="good">95%</td></tr>
-                    <tr><td>Passenger reviews</td><td>standard</td><td className="good">+15% PSS bonus</td></tr>
                   </tbody>
                 </table>
               )}

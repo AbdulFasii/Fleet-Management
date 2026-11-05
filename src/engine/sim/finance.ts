@@ -237,6 +237,8 @@ export function emptyMonth(ym: string): MonthlySummary {
     cargoTruckRevenue: 0,
     cargoCoachKg: 0,
     cargoTruckKg: 0,
+    charterPrivateRevenue: 0,
+    charterFestivalRevenue: 0,
     refundBreakdown: { passenger: 0, crm: 0, busCancel: 0 },
     ticketBreakdown: {
       gross: 0,
@@ -586,6 +588,47 @@ export function getMonthlyFuelBreakdown(s: GameState, m: MonthlySummary): Monthl
     cashback,
     net,
   }
+}
+
+export interface MonthlyCharterBreakdown {
+  total: Money
+  privateTour: Money
+  festival: Money
+}
+
+export function getMonthlyCharterBreakdown(s: GameState, m: MonthlySummary): MonthlyCharterBreakdown {
+  const total = m.income.charter ?? 0
+  let privateTour = m.charterPrivateRevenue ?? 0
+  let festival = m.charterFestivalRevenue ?? 0
+
+  if (privateTour === 0 && festival === 0 && total > 0) {
+    // Reconstruct breakdown from ledger transactions in that month
+    for (const t of (s.txns ?? [])) {
+      if (t.head === 'charter' && t.kind === 'income' && ymKey(t.day) === m.ym) {
+        const note = t.note ?? ''
+        if (note.includes('Charter deposit') || note.includes('Charter Payout') || (!t.routeId && note.includes('('))) {
+          privateTour += t.amount
+        } else {
+          festival += t.amount
+        }
+      }
+    }
+    // If historical transactions were pruned or not classified, check charterHistory
+    if (privateTour === 0 && festival === 0) {
+      for (const h of (s.charterHistory ?? [])) {
+        if (h.startDay && ymKey(h.startDay) === m.ym) {
+          privateTour += (h.completedRevenue ?? h.payout)
+        }
+      }
+      privateTour = Math.min(total, privateTour)
+      festival = Math.max(0, total - privateTour)
+      if (privateTour === 0 && festival === 0) {
+        privateTour = total
+      }
+    }
+  }
+
+  return { total, privateTour, festival }
 }
 
 /**

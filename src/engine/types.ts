@@ -784,6 +784,10 @@ export interface MonthlySummary {
   cargoCoachKg?: number
   /** Kilograms hauled on dedicated cargo vehicles. */
   cargoTruckKg?: number
+  /** Revenue earned by dedicated private charters (booked via Charters desk). */
+  charterPrivateRevenue?: Money
+  /** Revenue earned by festival & seasonal route charters. */
+  charterFestivalRevenue?: Money
 }
 
 export interface RouteLayoutStats {
@@ -1152,6 +1156,7 @@ export interface CharterContract {
   fuelCostEst: Money
   tollCostEst: Money
   driverBataEst: Money
+  maintenanceCostEst?: Money
   netProfitEst: Money
   busId?: ID
   driverId?: ID
@@ -1667,6 +1672,8 @@ export interface BusGroup {
   minDriverSkill?: number
   /** Coaches older than this are flagged for replacement. */
   maxBusAgeYears?: number
+  /** Coach odometer milestone display limit in km. Coaches past this mark appear amber, 25% past in red. */
+  odoHighlightKm?: number
   /** Weekly: the usual cleaning. Every trip: clean after each trip for a daily cost per coach. */
   cleaningStandard?: 'weekly' | 'every_trip'
   /** Spent every month; lifts brand awareness. */

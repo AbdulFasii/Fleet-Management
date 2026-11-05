@@ -462,6 +462,7 @@ export function executeCharterContract(
     busId: bus.id,
     routeId: route.id,
   })
+  s.curMonth.charterFestivalRevenue = (s.curMonth.charterFestivalRevenue ?? 0) + q.fee
 
   // 2. Spend realistic direct operating costs for the return charter journey
   spend(s, 'fuel', q.fuelCost, {

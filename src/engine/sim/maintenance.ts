@@ -662,6 +662,19 @@ export function canChassisBeRebodied(modelOrId: import('../types').BusModel | st
 /** Sanitize invalid re-body jobs on factory monocoque vans / mini-buses */
 export function sanitizeInvalidRebodyJobs(s: GameState): void {
   for (const bus of Object.values(s.buses ?? {})) {
+    // Repair legacy uninitialized or zero subsystem conditions
+    if (bus.condition) {
+      if (!bus.condition.body || bus.condition.body === 0) {
+        bus.condition.body = Math.max(50, Math.round(bus.condition.engine || 90))
+      }
+      if (!bus.condition.ac || bus.condition.ac === 0) {
+        bus.condition.ac = Math.max(50, Math.round(bus.condition.engine || 90))
+      }
+      if (!bus.condition.electrical || bus.condition.electrical === 0) {
+        bus.condition.electrical = Math.max(50, Math.round(bus.condition.engine || 90))
+      }
+    }
+
     const model = BUS_MODELS[bus.modelId]
     if (model && !canChassisBeRebodied(model)) {
       if (bus.status === 'workshop' && bus.workshopJob && bus.workshopJob.toLowerCase().includes('re-body')) {
