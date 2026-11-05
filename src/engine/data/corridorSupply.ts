@@ -153,8 +153,8 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'try-dgl': S(15, 160),
 
   // —— Round-to-100 corridors ——
-  'maa-kkd': S(25, 200),
-  'blr-bgm': S(45, 260),
+  'maa-hpt': S(30, 240),
+  'blr-klb': S(40, 260),
   'blr-udp': S(50, 220),
   'mum-klp': S(60, 300),
   'hyd-rjy': S(90, 280),
@@ -163,8 +163,8 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'mum-goa': S(120, 220),
   'blr-pnq': S(70, 320),
   'blr-ktm': S(45, 260),
-  'maa-ktm': S(35, 260),
-  'maa-tut': S(35, 280),
+  'maa-qln': S(35, 260),
+  'maa-wgl': S(35, 260),
   'mum-idr': S(45, 320),
   'blr-qln': S(40, 240),
   'maa-pnq': S(15, 260),

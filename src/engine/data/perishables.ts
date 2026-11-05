@@ -37,6 +37,10 @@ export const PERISHABLE_ORIGINS: Record<string, PerishableOrigin> = {
   tut: { label: 'fish', share: 0.15, ...FISH_BAN },
   udp: { label: 'jasmine & fish', share: 0.15, peakMonths: [3, 4, 5], peakMult: 1.3 },
   klp: { label: 'vegetables & jaggery', share: 0.12 },
+  qln: { label: 'cashew & fish', share: 0.16, ...FISH_BAN },
+  klb: { label: 'pulses & vegetables', share: 0.12 },
+  wgl: { label: 'chillies & vegetables', share: 0.14 },
+  hpt: { label: 'fruit & vegetables', share: 0.12 },
   bgm: { label: 'vegetables', share: 0.12 },
 }
 
