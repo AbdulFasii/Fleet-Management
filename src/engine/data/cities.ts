@@ -67,7 +67,7 @@ export const CITIES: Record<string, City> = {
   kkd: { id: 'kkd', name: 'Karaikudi', state: 'Tamil Nadu', metro: 0.15, pickups: 2 },
   klb: { id: 'klb', name: 'Kalaburagi', state: 'Karnataka', metro: 0.35, pickups: 3 },
   hpt: { id: 'hpt', name: 'Hosapete (Hampi)', state: 'Karnataka', metro: 0.28, pickups: 3 },
-  wgl: { id: 'wgl', name: 'Warangal', state: 'Telangana', metro: 0.45, pickups: 4 },
+  wyd: { id: 'wyd', name: 'Wayanad (Kalpetta)', state: 'Kerala', metro: 0.25, pickups: 3 },
 }
 
 export function cityName(id: string): string {
@@ -130,7 +130,7 @@ export const CITY_FREIGHT: Record<string, CityFreightProfile> = {
   kkd: { tier: 'town', shipIndex: 0.20, attractIndex: 0.25, mixBias: { mixed: 0.35, agri: 0.30, fmcg: 0.20, textiles: 0.10, hardware: 0.05 } },
   klb: { tier: 'commercial', shipIndex: 0.45, attractIndex: 0.40, mixBias: { agri: 0.45, hardware: 0.25, fmcg: 0.15, mixed: 0.10, textiles: 0.05 } },
   hpt: { tier: 'industrial', shipIndex: 0.50, attractIndex: 0.40, mixBias: { hardware: 0.45, mixed: 0.25, fmcg: 0.15, agri: 0.10, textiles: 0.05 } },
-  wgl: { tier: 'commercial', shipIndex: 0.55, attractIndex: 0.55, mixBias: { agri: 0.40, textiles: 0.25, fmcg: 0.20, mixed: 0.10, hardware: 0.05 } },
+  wyd: { tier: 'commercial', shipIndex: 0.45, attractIndex: 0.40, mixBias: { agri: 0.55, fmcg: 0.20, mixed: 0.15, hardware: 0.05, textiles: 0.05 } },
 }
 
 const DEFAULT_FREIGHT_PROFILE: CityFreightProfile = {
