@@ -53,7 +53,7 @@ s.buses['b2'] = {
 
 // Create paired schedule as in user's image:
 // 1st trip: 09:00 Seasonal (festivals)
-// 2nd trip: 21:30 Daily
+// 2nd trip: 21:00 Daily
 const sch: Schedule = {
   id: 'sch_paired',
   name: 'Chennai-Madurai Paired',
@@ -62,7 +62,9 @@ const sch: Schedule = {
   depHour: 9,
   depMin: 0,
   returnDepHour: 21,
-  returnDepMin: 30,
+  // 21:00, not 21:30: an 8h run back at 21:30 lands 05:30 and the coach is only
+  // ready at 09:30 after turnaround, too late for the next 09:00 festival leg.
+  returnDepMin: 0,
   farePaise: 80000,
   active: true,
   paired: true,
@@ -193,9 +195,14 @@ s.openTripIds.push(fakeKey)
 // Run generateTrips (which triggers pruneInvalidSeasonalTrips and regenerates legitimate trips)
 generateTrips(s)
 
-assert.equal(s.trips[fakeKey]?.depHour, 21, 'Stale 09:00 trip was pruned and replaced by legitimate 21:30 trip')
-assert.equal(s.trips[fakeKey]?.depMin, 30, 'DepMin must be 30')
-console.log('✓ Stale invalid seasonal 09:00 trip was pruned and replaced with valid 21:30 departure')
+// The stale 09:00 leg is gone (b1 may run the other direction that day, so its
+// replacement need not reuse the same trip id), and b1's departure that day is
+// the daily 21:00 return clock.
+const stale = s.trips[fakeKey]
+assert(!stale || stale.status !== 'open' || stale.depHour === 21, 'Stale 09:00 trip was pruned')
+const b1That = Object.values(s.trips).filter((x) => x.busId === 'b1' && x.day === nonFestDay1 && x.status === 'open')
+assert(b1That.length === 1 && b1That[0]!.depHour === 21 && (b1That[0]!.depMin ?? 0) === 0, 'b1 runs its one daily 21:00 leg that day')
+console.log('✓ Stale invalid seasonal 09:00 trip was pruned; the coach runs its daily 21:00 leg')
 
 console.log('\n======================================================================')
 console.log('🎉 ALL PAIRED SEASONAL + DAILY ALTERNATE DAY TESTS PASSED PERFECTLY!')

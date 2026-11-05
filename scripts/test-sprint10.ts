@@ -114,6 +114,11 @@ console.log(`✓ All 14 new event deck definitions registered in EVENTS (total d
 
 // Check 2: Flood closes only ghat routes
 console.log('\n[Check 2] Flood disruption closes only ghat routes...')
+// Closures on corridors we hold no permit for are trimmed the same day (they
+// cannot affect us), so hold permits on every ghat route to see them.
+for (const r of Object.values(ROUTES)) {
+  if (r.ghat && !s.permits[r.id]) s.permits[r.id] = { routeId: r.id, status: 'active', appliedDay: s.day - 5, expiryDay: s.day + 20_000 } as never
+}
 s.forcedEventId = 'flood_disruption'
 advanceDay(s)
 

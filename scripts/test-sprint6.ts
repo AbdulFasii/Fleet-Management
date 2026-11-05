@@ -1,7 +1,7 @@
 import { newGame } from '../src/engine/newGame'
 import { ROUTES } from '../src/engine/data/routes'
 import { BAL } from '../src/engine/data/balance'
-import { fromCivil } from '../src/engine/core/calendar'
+import { fromCivil, isFestivalDay } from '../src/engine/core/calendar'
 import { seasonOpen } from '../src/engine/core/calendar'
 import {
   statesOnRoute,
@@ -9,6 +9,7 @@ import {
   permitPass,
   createSchedule,
   assignBus,
+  unassignBus,
 } from '../src/engine/sim/schedules'
 import { festivalAssignPass, festivalTeardownPass } from '../src/engine/sim/festival'
 import { generateTrips } from '../src/engine/sim/booking'
@@ -189,7 +190,7 @@ if (granted && s.permits[testRouteId].seasonal?.status === 'active') {
 }
 
 // Check 4: Return-only festival is rejected
-console.log('\n[Check 4] Return-only festival combination rejected...')
+console.log('\n[Check 4] Return-only festival combination accepted...')
 const resReturnOnly = createSchedule(s, {
   routeId: testRouteId,
   depHour: 21,
@@ -203,10 +204,11 @@ const resReturnOnly = createSchedule(s, {
   returnDuty: 'festival',
 })
 
-if ('error' in resReturnOnly && resReturnOnly.error.includes('Return-only festival is not permitted')) {
-  console.log('✓ Return-only festival combination correctly rejected')
+// Return-only festival services are supported now (see test-return-only-seasonal).
+if (!('error' in resReturnOnly)) {
+  console.log('✓ Return-only festival combination accepted')
 } else {
-  console.error('FAIL: Expected return-only festival rejection, got:', resReturnOnly)
+  console.error('FAIL: Expected return-only festival to be accepted, got:', resReturnOnly)
   process.exit(1)
 }
 
@@ -292,12 +294,15 @@ if (!('id' in resBothFest)) {
 }
 const bothFestSchId = resBothFest.id
 
-// Hand-assigning bus to both-festival schedule should be BLOCKED
+// Hand-assigning a coach to a both-festival schedule is allowed now (the old
+// "auto-assign only" block was removed from assignBus).
 const assignBothFestErr = assignBus(s, bothFestSchId, 'b2')
-if (assignBothFestErr && assignBothFestErr.includes('auto-assign idle buses')) {
-  console.log('✓ Hand-assigning bus to both-festival schedule correctly blocked:', assignBothFestErr)
+if (assignBothFestErr === null) {
+  console.log('✓ Hand-assigning bus to both-festival schedule accepted')
+  // Put it back: the auto-park check below expects b2 idle.
+  unassignBus(s, bothFestSchId, 'b2')
 } else {
-  console.error('FAIL: Expected hand-assign to be blocked on both-festival, got:', assignBothFestErr)
+  console.error('FAIL: Expected hand-assign to be accepted on both-festival, got:', assignBothFestErr)
   process.exit(1)
 }
 
@@ -334,14 +339,17 @@ s.trips = {}
 s.openTripIds = []
 
 generateTrips(s)
-const nonFestTrips = Object.values(s.trips).filter((t) => t.scheduleId === mixedSchId)
-const nonFestOut = nonFestTrips.find((t) => t.direction === 'AB')
-const nonFestRet = nonFestTrips.find((t) => t.direction === 'BA')
+// Off-season only the daily leg runs, at its own clock in both directions (the
+// coach alternates ends); nothing departs at the festival outbound clock.
+const msch = s.schedules[mixedSchId]!
+const nonFestTrips = Object.values(s.trips).filter((t) => t.scheduleId === mixedSchId && !isFestivalDay(t.day))
+const atFestClock = nonFestTrips.filter((t) => t.depHour === msch.depHour && (t.depMin ?? 0) === (msch.depMin ?? 0))
+const atDailyClock = nonFestTrips.filter((t) => t.depHour === msch.returnDepHour)
 
-if (!nonFestOut && nonFestRet) {
-  console.log(`✓ On non-festival day (${nonFestSummerDay}), festival outbound was SKIPPED (0 AB trips) and return daily was GENERATED (${nonFestRet.day})!`)
+if (atFestClock.length === 0 && atDailyClock.length > 0) {
+  console.log(`✓ Off-season (${nonFestSummerDay}+): festival ${msch.depHour}:00 leg SKIPPED, daily ${msch.returnDepHour}:00 leg runs (${atDailyClock.length} departures)`)
 } else {
-  console.error('FAIL: Expected 0 festival outbound trips and >0 return trips on non-festival day, found:', { outbound: !!nonFestOut, return: !!nonFestRet })
+  console.error('FAIL: Expected no festival-clock trips and daily-clock trips off-season, found:', { festClock: atFestClock.length, dailyClock: atDailyClock.length })
   process.exit(1)
 }
 

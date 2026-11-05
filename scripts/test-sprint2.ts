@@ -1,4 +1,5 @@
 import { newGame } from '../src/engine/newGame'
+import { toCivil } from '../src/engine/core/calendar'
 import { renewPuc, fitGps, retestFitness, dailyMaintenancePass } from '../src/engine/sim/maintenance'
 import { dailyCheckpostPass } from '../src/engine/sim/checkpost'
 import { appointDocsManager, hire, refreshHiringPool } from '../src/engine/sim/staffing'
@@ -101,7 +102,7 @@ function testSprint2() {
 
   // 6. Fitness failed RTO rule (> 10y and < 40% mechanicals)
   const { s: s6, bus: bus6 } = setupGameWithBus(106)
-  bus6.mfgYear = 2010 // > 10 years old (current year is 2025+)
+  bus6.mfgYear = toCivil(s6.day).y - 12 // > 10 years old at the game date
   bus6.condition.brakes = 35 // < 40%
   const retestErr = retestFitness(s6, bus6.id)
   assert(retestErr !== null && retestErr.includes('still under 40%'), 'Retest fails when mechanical condition < 40%')

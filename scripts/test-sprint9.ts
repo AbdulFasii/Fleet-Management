@@ -1,3 +1,4 @@
+import { canonicalRouteId } from '../src/engine/data/routes'
 import { newGame } from '../src/engine/newGame'
 import { RIVALS_DATA } from '../src/engine/data/rivals'
 import { DISTRESS_EVENTS } from '../src/engine/sim/eventsDistress'
@@ -22,8 +23,10 @@ for (const id of expectedRivalIds) {
 }
 console.log(`✓ All 8 named rivals initialized with live stats (e.g. VRL comfort: ${s.world.rivals['vrl'].comfort}, KSRTC: ${s.world.rivals['ksrtc'].name})`)
 
-const blrMaaShare = s.world.share?.['blr-maa']
-if (blrMaaShare && blrMaaShare.player > 0 && Object.keys(blrMaaShare.byRival).length >= 3) {
+// Shares are kept under the canonical corridor id, and the player's share is
+// seat-based, so a new game with no coaches on the road starts at 0%.
+const blrMaaShare = s.world.share?.[canonicalRouteId('blr-maa')]
+if (blrMaaShare && blrMaaShare.player >= 0 && Object.keys(blrMaaShare.byRival).length >= 3) {
   const sum = blrMaaShare.player + Object.values(blrMaaShare.byRival).reduce((a, b) => a + b, 0)
   console.log(`✓ blr-maa corridor shares initialized: Player: ${blrMaaShare.player}%, Rivals: ${JSON.stringify(blrMaaShare.byRival)} (Sum: ${sum}%)`)
   if (sum !== 100) {
@@ -47,7 +50,10 @@ if (distressLotDef && !distressLotDef.canFire(s)) {
 
 // Check 3: Daily rival drift on active corridor
 console.log('\n[Check 3] Daily rival share drift & history...')
-const initialPlayerShare = s.world.share['blr-maa'].player
+// New games start with no coach, so seed a player share for the corridor the
+// daily drift works on (it skips corridors where the player has none).
+s.world.share[canonicalRouteId('blr-maa')]!.player = 10
+const initialPlayerShare = s.world.share[canonicalRouteId('blr-maa')]!.player
 
 // Run 5 daily rival passes
 for (let d = 1; d <= 5; d++) {
@@ -55,16 +61,16 @@ for (let d = 1; d <= 5; d++) {
   dailyRivalPass(s, () => 0.5)
 }
 
-const driftedShare = s.world.share['blr-maa'].player
-const sumAfterDrift = driftedShare + Object.values(s.world.share['blr-maa'].byRival).reduce((a, b) => a + b, 0)
+const driftedShare = s.world.share[canonicalRouteId('blr-maa')]!.player
+const sumAfterDrift = driftedShare + Object.values(s.world.share[canonicalRouteId('blr-maa')]!.byRival).reduce((a, b) => a + b, 0)
 console.log(`✓ After 5 days drift, player share moved from ${initialPlayerShare}% to ${driftedShare}% (corridor total: ${sumAfterDrift}%)`)
 if (sumAfterDrift !== 100) {
   console.error('FAIL: Shares did not renormalize to 100 after drift!')
   process.exit(1)
 }
 
-const historyLen = s.world.shareHistory?.['blr-maa']?.length ?? 0
-console.log(`✓ Recorded ${historyLen} history entries in world.shareHistory['blr-maa']`)
+const historyLen = s.world.shareHistory?.[canonicalRouteId('blr-maa')]?.length ?? 0
+console.log(`✓ Recorded ${historyLen} history entries in world.shareHistory`)
 if (historyLen !== 5) {
   console.error(`FAIL: Expected 5 history entries, got: ${historyLen}`)
   process.exit(1)
@@ -72,9 +78,9 @@ if (historyLen !== 5) {
 
 // Check 4: Share history cap 180 entries
 console.log('\n[Check 4] Share history cap 180 days in retainDay...')
-s.world.shareHistory['blr-maa'] = Array.from({ length: 220 }, (_, i) => ({ day: s.day - 220 + i, player: 25 }))
+s.world.shareHistory[canonicalRouteId('blr-maa')] = Array.from({ length: 220 }, (_, i) => ({ day: s.day - 220 + i, player: 25 }))
 retainDay(s)
-const cappedLen = s.world.shareHistory['blr-maa'].length
+const cappedLen = s.world.shareHistory[canonicalRouteId('blr-maa')].length
 if (cappedLen === 180) {
   console.log(`✓ shareHistory correctly capped to 180 entries (was 220, now ${cappedLen})`)
 } else {
@@ -156,19 +162,22 @@ const testTrip: Trip = {
   status: 'open',
 }
 
-s.world.share['blr-maa'].player = 10
+s.world.share[canonicalRouteId('blr-maa')]!.player = 10
 const lfLowShare = tripLoadFactor(s, testTrip, 0).target
 
-s.world.share['blr-maa'].player = 35
+s.world.share[canonicalRouteId('blr-maa')]!.player = 35
 const lfHighShare = tripLoadFactor(s, testTrip, 0).target
 
 console.log(`LF at 10% share: ${(lfLowShare * 100).toFixed(1)}%`)
 console.log(`LF at 35% share: ${(lfHighShare * 100).toFixed(1)}%`)
 
-if (lfHighShare > lfLowShare * 1.3) {
-  console.log('✓ Demand target load factor scales directly with corridor market share')
+// Occupancy follows the seats actually in the departure window (our coaches vs
+// the corridor's private supply), not the displayed share figure, so editing
+// the share number alone must not move a trip's target.
+if (Math.abs(lfHighShare - lfLowShare) < 1e-9) {
+  console.log('✓ Demand target follows seats in the window, not the displayed share figure')
 } else {
-  console.error(`FAIL: Expected high share LF (${lfHighShare}) to be substantially higher than low share LF (${lfLowShare})`)
+  console.error(`FAIL: Displayed share should not move the target (10%: ${lfLowShare}, 35%: ${lfHighShare})`)
   process.exit(1)
 }
 

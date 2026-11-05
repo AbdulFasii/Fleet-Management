@@ -12,16 +12,16 @@ s.company.cash = 10_000_000 // ₹10L
 
 // Create schedule
 const res = createSchedule(s, {
-  name: 'Madurai Night',
   routeId: 'mdu-maa',
   depHour: 21,
   depMin: 0,
-  farePaise: 80000,
+  baseFare: 80000, // ₹800 in paise (the old `farePaise` field never existed, leaving the fare NaN)
+  autoPrice: true,
+  cancellation: 'standard',
+  redDeal: false,
   paired: true,
   returnDepHour: 21,
   returnDepMin: 0,
-  active: true,
-  busIds: [],
 })
 const schId = typeof res === 'string' ? res : (res as any).id
 
@@ -90,14 +90,8 @@ console.log('Advancing days until breakdown occurs...')
 let sawBreakdown = false
 
 for (let d = 1; d <= 30; d++) {
-  // Ensure open trips have passengers booked so breakdown generates refund
-  for (const t of Object.values(s.trips)) {
-    if (t.status === 'open' && t.sold === 0) {
-      t.sold = 25
-      t.revenue = 2000000
-    }
-  }
-
+  // Real bookings carry the revenue a breakdown refunds (forcing sold/revenue
+  // on open trips desynced them from the seat book).
   try {
     advanceDay(s)
   } catch (err: any) {

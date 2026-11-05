@@ -347,6 +347,13 @@ export function canonicalRouteId(id: string): string {
   if (id === 'dgl-blr' || id === 'blr-dgl') return 'blr-dgl'
   if (id === 'dgl-cbe' || id === 'cbe-dgl') return 'cbe-dgl'
   if (id === 'dgl-try' || id === 'try-dgl') return 'try-dgl'
+  // Any other corridor named in the reverse order (e.g. 'cbe-maa') resolves to
+  // the defined id, keeping a path suffix such as '-ecr'.
+  if (!ROUTES[id]) {
+    const [a, b, ...rest] = id.split('-')
+    const reversed = [b, a, ...rest].join('-')
+    if (ROUTES[reversed]) return reversed
+  }
   return id
 }
 

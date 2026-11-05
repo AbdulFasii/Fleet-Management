@@ -290,6 +290,20 @@ export function planMarathonLegs(
     const outOk = outDuty === 'daily' || (outDuty === 'festival' && isFestivalDay(d))
     const retOk = retDuty === 'daily' || (retDuty === 'festival' && isFestivalDay(d))
 
+    // Only one of the two legs runs today (a festival leg is off-season): like
+    // the short-haul planner, that leg's clock serves both termini, so coaches
+    // at either end keep working instead of waiting at the wrong city.
+    if (outOk !== retOk) {
+      const clock = outOk ? out : ret
+      const abs = d * 1440 + clockMinutes(clock)
+      const slot: 1 | 2 = outOk || !sch.paired ? 1 : 2
+      const atA = pickAt('A', abs)
+      if (atA) plans.push(commit(atA, d, 'AB', clock, abs, slot, false))
+      const atB = pickAt('B', abs)
+      if (atB) plans.push(commit(atB, d, 'BA', clock, abs, slot, false))
+      continue
+    }
+
     // Independent departure slots at both termini:
     // Outbound from City A at outClock, Return from City B at retClock.
     // Ready coaches depart as soon as their haul + layover rest completes.
@@ -755,9 +769,16 @@ function generateTripsForDay(
       const turnMin = turnaroundMinutes(route, s)
       const end = start + Math.round(route.hours * 60) + turnMin
       if (busyClash(busy, runner.id, start, end, id)) {
-        if (s.trips[id]?.status === 'open') {
-          s.trips[id].busId = runner.id
-          setBusy(busy, id, runner.id, start, end)
+        const ex = s.trips[id]
+        if (ex?.status === 'open') {
+          if (ex.depHour === leg.depHour && (ex.depMin ?? 0) === leg.depMin) {
+            ex.busId = runner.id
+            setBusy(busy, id, runner.id, start, end)
+          } else {
+            // A departure left over from an earlier plan at another clock: this
+            // leg cannot run now, and keeping it would double-book the coach.
+            releaseClashedTrip(s, ex)
+          }
         }
         continue
       }
@@ -773,6 +794,17 @@ function generateTripsForDay(
       }
     }
   })
+}
+
+function releaseClashedTrip(s: GameState, t: Trip): void {
+  clearTripBookings(s, t, 'departure released: coach not ready for this clock')
+  t.status = 'cancelled'
+  t.outcome = {
+    delayMin: 0, breakdown: false, accident: false,
+    fuelCost: 0, tollCost: 0, tripCosts: 0, cargoRevenue: 0,
+    reviewScore: 0, pss: 0, note: 'Cancelled: coach not ready for this departure after a timetable change',
+  }
+  s.openTripIds = s.openTripIds.filter((id) => id !== t.id)
 }
 
 /** Prunes open trips that belong to seasonal slots on non-festival dates or beyond the 3-day booking window. */

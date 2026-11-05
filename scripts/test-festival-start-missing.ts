@@ -3,7 +3,7 @@ import { ROUTES } from '../src/engine/data/routes'
 import { createSchedule, assignBus } from '../src/engine/sim/schedules'
 import { generateTrips } from '../src/engine/sim/booking'
 import { pairReturnClock, earliestReturn } from '../src/engine/sim/pairing'
-import { fromCivil, isFestivalDay } from '../src/engine/core/calendar'
+import { FESTIVALS, fromCivil, isFestivalDay } from '../src/engine/core/calendar'
 import type { Bus } from '../src/engine/types'
 
 const s = newGame('Test', 'seth', 'maa-mdu', 42)
@@ -94,8 +94,13 @@ if (retClock.dayOffset !== 0) {
 console.log('✓ Turnaround calculation correctly recognizes same-day return (dayOffset: 0)')
 
 // Let's set game date to 11 Aug (3 days before festival on Aug 14) and run generateTrips
-const aug14Day = fromCivil(2026, 8, 14)
-s.day = fromCivil(2026, 8, 11)
+// Window dates come from the festival calendar (Independence Day: 3 days
+// before to 2 after), not hard-coded: aug14Day is the window's first day.
+const indep = FESTIVALS.find((f) => f.id === 'independence')!
+const festDate = fromCivil(2026, indep.month, indep.day)
+const aug14Day = festDate - indep.pre
+const windowEnd = festDate + indep.post
+s.day = aug14Day - 3
 generateTrips(s)
 
 console.log('\n--- Verifying trips across Festival Start Boundary (Aug 14 = Day', aug14Day, ') ---')
@@ -134,10 +139,11 @@ if (aug14Evening.length !== 2) {
 console.log('✓ Aug 14 (Festival Day 1) has BOTH 09:00 trips AND 21:xx 2nd trips (no missing 2nd trip!)')
 
 // Check end of festival transition (Aug 16 = last festival day, Aug 17 = first normal day)
-s.day = aug14Day + 1
+// Festival legs open 3 days before departure, so look from 2 days before the window ends.
+s.day = windowEnd - 2
 generateTrips(s)
-const aug16Trips = tripsForDay(aug14Day + 2)
-const aug17Trips = tripsForDay(aug14Day + 3)
+const aug16Trips = tripsForDay(windowEnd)
+const aug17Trips = tripsForDay(windowEnd + 2) // after the one-day post pad
 if (aug16Trips.length !== 4) {
   throw new Error(`FAIL: Expected 4 trips on Aug 16 (last festival day), got ${aug16Trips.length}`)
 }

@@ -31,7 +31,9 @@ const res = createSchedule(s, {
   depMin: 0,
   farePaise: 80000,
   paired: true,
-  returnDepHour: 22,
+  // 21:00, not 22:00: an 8h run back at 22:00 lands 06:00 and the coach is only
+  // ready at 10:00 after turnaround, too late for the next 09:00 festival leg.
+  returnDepHour: 21,
   returnDepMin: 0,
   outboundDuty: 'festival',
   returnDuty: 'daily',
@@ -99,22 +101,22 @@ if (s.buses['b2']?.parkedCityId !== 'mdu') {
 }
 console.log('✓ Bus 2 successfully assigned and stationed at', s.buses['b2']!.parkedCityId)
 
-// 4. Verify departures on non-season day: only daily slot (22:00) runs both ways
-console.log('\n[Check 4] Verifying departures on non-season day: only daily slot (22:00) runs both ways...')
+// 4. Verify departures on non-season day: only daily slot (21:00) runs both ways
+console.log('\n[Check 4] Verifying departures on non-season day: only daily slot (21:00) runs both ways...')
 const testDay = s.day + 2
 const dayTrips = Object.values(s.trips).filter((t) => t.scheduleId === schId && t.day === testDay)
 const slot1Up = dayTrips.find((t) => t.direction === 'AB' && t.depHour === 9)
 const slot1Down = dayTrips.find((t) => t.direction === 'BA' && t.depHour === 9)
-const slot2Up = dayTrips.find((t) => t.direction === 'AB' && t.depHour >= 22)
-const slot2Down = dayTrips.find((t) => t.direction === 'BA' && t.depHour >= 22)
+const slot2Up = dayTrips.find((t) => t.direction === 'AB' && t.depHour >= 21)
+const slot2Down = dayTrips.find((t) => t.direction === 'BA' && t.depHour >= 21)
 
 if (slot1Up || slot1Down) {
   throw new Error('09:00 seasonal slot must NOT run on non-festival day!')
 }
 if (!slot2Up || !slot2Down) {
-  throw new Error(`Missing simultaneous departures at 22:00: Up=${Boolean(slot2Up)}, Down=${Boolean(slot2Down)}`)
+  throw new Error(`Missing simultaneous departures at 21:00: Up=${Boolean(slot2Up)}, Down=${Boolean(slot2Down)}`)
 }
-console.log('✓ On non-season day: 09:00 seasonal slot is absent, 22:00 daily runs on both ways')
+console.log('✓ On non-season day: 09:00 seasonal slot is absent, 21:00 daily runs on both ways')
 
 // 5. Verify festival day seasonal tracking flags
 console.log('\n[Check 5] Verifying festival day runs both slots in both directions...')

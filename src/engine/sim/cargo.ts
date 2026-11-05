@@ -15,6 +15,7 @@ import { CITIES, cityFreightProfile } from '../data/cities'
 import { isCargoModel } from '../data/busModels'
 import { ROUTES, routeName, canonicalRouteId } from '../data/routes'
 import { corridorSupply, realParcelKgPerDay } from '../data/corridorSupply'
+import { PERISHABLE_RATE_PREMIUM, perishableShare, reachesMorningMarket } from '../data/perishables'
 import { FESTIVALS, dow, fmtDate, fromCivil, seasonInfo, toCivil, ymKey } from '../core/calendar'
 import { rngFor, rChance, rJitter, rPick, type Rng } from '../core/rng'
 import { nextId } from '../core/ids'
@@ -1484,6 +1485,9 @@ export interface CargoAllocation {
   contractRevenue: number
   spotRevenue: number
   walkupRevenue: number
+  /** Part of the walk-in load that was perishable produce (in walkupKg too). */
+  perishableKg?: number
+  perishableRevenue?: number
 }
 
 export interface CargoDepartureRef {
@@ -1623,6 +1627,7 @@ export function allocateCargoForTrip(
   const out: CargoAllocation = {
     kg: 0, revenue: 0, contractKg: 0, spotKg: 0, walkupKg: 0,
     contractRevenue: 0, spotRevenue: 0, walkupRevenue: 0,
+    perishableKg: 0, perishableRevenue: 0,
   }
   pool.state.departuresServed += 1
   if (capKg <= 0) return out
@@ -1645,6 +1650,12 @@ export function allocateCargoForTrip(
   const truckRate = truckRatePerKg100Km(s)
   const parcelRate = parcelRatePerKg100Km(s)
   const walkRate = isCargo ? truckRate : parcelRate
+
+  // Perishable produce on this lane only boards a departure that reaches the
+  // morning wholesale market, and pays a time premium when it does.
+  const tripNow = s.trips[tripId]
+  const perShare = perishableShare(cargoOriginId(route, pool.direction), cargoDestId(route, pool.direction), toCivil(s.day).m)
+  const fitsMarket = tripNow ? reachesMorningMarket(tripNow.depHour, tripNow.depMin ?? 0, route.hours) : false
 
   const take = (budget: number, want: number, ratePer100: number, fragile: boolean): { kg: number; pay: number; budget: number } => {
     const got = Math.max(0, Math.min(budget, Math.round(want)))
@@ -1726,10 +1737,30 @@ export function allocateCargoForTrip(
 
   const drawWalk = (kind: 'parcel' | 'bulk', budget: number): number => {
     if (budget <= 0) return budget
-    const bookLeft = kind === 'bulk'
+    let bookLeft = kind === 'bulk'
       ? Math.max(0, pool.state.bulkBookKg - pool.state.bulkLoadedKg)
       : Math.max(0, pool.state.parcelBookKg - pool.state.parcelLoadedKg)
     if (bookLeft <= 0) return budget
+    if (kind === 'parcel' && perShare > 0) {
+      const perKg = Math.round(Math.min(budget, bookLeft) * perShare)
+      if (fitsMarket) {
+        const per = take(budget, perKg, walkRate * (1 + PERISHABLE_RATE_PREMIUM), false)
+        if (per.kg > 0) {
+          out.walkupKg += per.kg
+          out.walkupRevenue += per.pay
+          out.perishableKg = (out.perishableKg ?? 0) + per.kg
+          out.perishableRevenue = (out.perishableRevenue ?? 0) + per.pay
+          pool.state.parcelLoadedKg += per.kg
+          budget = per.budget
+          bookLeft -= per.kg
+        }
+      } else {
+        // Produce will not board a departure that misses the morning market;
+        // it waits for one that makes it.
+        bookLeft = Math.max(0, bookLeft - perKg)
+      }
+      if (budget <= 0 || bookLeft <= 0) return budget
+    }
     const res = take(budget, bookLeft, walkRate, false)
     if (res.kg <= 0) return budget
     out.walkupKg += res.kg

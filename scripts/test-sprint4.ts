@@ -46,7 +46,7 @@ console.log('--- Testing Sprint 4 Realism: Depots, Yards, and Time Decay ---')
 
 // 1. Test overflow above depotSlots charges ₹300 per extra bus
 {
-  const s = newGame(1001, 'malik', 'delhi', 'express')
+  const s = newGame('Sprint 4', 'malik', 'del-jai', 1001)
   s.company.homeCityId = 'delhi'
   s.depotSlots = 2
 
@@ -71,7 +71,7 @@ console.log('--- Testing Sprint 4 Realism: Depots, Yards, and Time Decay ---')
 
 // 2. Test outstation parking fee and leasing yard stops the fee
 {
-  const s = newGame(1002, 'malik', 'maa_blr', 'express')
+  const s = newGame('Sprint 4', 'malik', 'maa-blr', 1002)
   s.company.homeCityId = 'maa' // Chennai
   s.depotSlots = 10
   s.buses['b_mum'] = createTestBus('b_mum', 'mum') // Mumbai outstation
@@ -109,7 +109,7 @@ console.log('--- Testing Sprint 4 Realism: Depots, Yards, and Time Decay ---')
 
 // 3. Test time decay over 10 days (comparing at home vs outstation uncovered)
 {
-  const s = newGame(1003, 'malik', 'delhi', 'express')
+  const s = newGame('Sprint 4', 'malik', 'del-jai', 1003)
   s.company.homeCityId = 'delhi'
   const bHome = createTestBus('b_home', 'delhi')
   const bAway = createTestBus('b_away', 'mum')
@@ -139,7 +139,7 @@ console.log('--- Testing Sprint 4 Realism: Depots, Yards, and Time Decay ---')
 
 // 4. Turnaround no longer adds +30m for missing yard
 {
-  const s = newGame(1004, 'malik', 'maa', 'express')
+  const s = newGame('Sprint 4', 'malik', 'maa-blr', 1004)
   s.company.homeCityId = 'maa'
   const route = { km: 350, to: 'blr', hours: 6 }
   const turnWithNoYard = turnaroundMinutes(route, s)

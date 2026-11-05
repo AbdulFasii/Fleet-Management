@@ -60,17 +60,13 @@ function testSprint3() {
   assert(bus1.frontTyreKm === 190_000, 'Front tyre km untouched by rear change')
   assert(s1.company.cash < cashBefore, 'Cash deducted for rear retreads')
 
-  // 4. Workshop bay discipline & explicit outside confirm
+  // 4. Workshop bay discipline: no own bay means an outside garage
   const { s: s2, bus: bus2 } = setupGameWithBus(202)
   // s2 has 0 bays built/staffed initially
   assert(freeStaffedBays(s2) === 0, '0 free staffed bays initially')
-  const inHouseErr = serviceBus(s2, bus2.id, 'a')
-  assert(inHouseErr === 'No free staffed bay — send outside?', 'In-house service rejected when 0 free bays: ' + inHouseErr)
-  assert(bus2.status === 'active', 'Bus remains active when in-house service cannot start')
-
-  // Confirming outside service succeeds and marks bus outsideGarage
-  const outsideRes = serviceBus(s2, bus2.id, 'a', { outside: true })
-  assert(outsideRes === null, 'Explicit outside service succeeds')
+  // With no bay of our own, a service goes to an outside garage (no prompt).
+  const outsideRes = serviceBus(s2, bus2.id, 'a')
+  assert(outsideRes === null, 'Service with no own bay goes outside: ' + outsideRes)
   assert(bus2.status === 'workshop', 'Bus enters workshop status')
   assert(bus2.outsideGarage === true, 'bus.outsideGarage is true')
   assert(freeStaffedBays(s2) === 0, 'Outside garage job does not consume internal bays')
