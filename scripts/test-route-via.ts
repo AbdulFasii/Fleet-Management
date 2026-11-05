@@ -104,7 +104,7 @@ check(
   'marathon brief explains the two-driver rule',
 )
 check(
-  /19:30/.test(haulBrief(ROUTES['maa-cbe']!)),
+  /20:00–23:30/.test(haulBrief(ROUTES['maa-cbe']!)),
   'night-haul brief names the prime departure window',
 )
 check(

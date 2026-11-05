@@ -9,6 +9,7 @@ import {
   getRouteCategory,
   haulTitle,
   haulBrief,
+  haulBriefFor,
   routeViaLabel,
   routeViaNames,
   routeMatchesCategory,
@@ -327,13 +328,20 @@ export function RoutesPage() {
               value={hoursFilter}
               onChange={(e) => setHoursFilter(e.target.value)}
               style={{ fontSize: 11, padding: '2px 6px' }}
+              title={[
+                haulBriefFor('day'),
+                haulBriefFor('mid'),
+                haulBriefFor('overnight'),
+                haulBriefFor('marathon'),
+                haulBriefFor('ultra'),
+              ].join('\n\n')}
             >
               <option value="all">All Durations</option>
-              <option value="<6">Day hop (&lt; 6 hrs)</option>
-              <option value="6-8">Mid-haul (6 – 8 hrs)</option>
-              <option value="8-10">Night haul (8 – 10 hrs)</option>
-              <option value="10-16">Marathon night haul (10 – 16 hrs)</option>
-              <option value=">16">Ultra marathon (&gt; 16 hrs)</option>
+              <option value="<6" title={haulBriefFor('day')}>Day hop (&lt; 6 hrs)</option>
+              <option value="6-8" title={haulBriefFor('mid')}>Mid-haul (6 – 8 hrs)</option>
+              <option value="8-10" title={haulBriefFor('overnight')}>Night haul (8 – 10 hrs)</option>
+              <option value="10-16" title={haulBriefFor('marathon')}>Marathon night haul (10 – 16 hrs)</option>
+              <option value=">16" title={haulBriefFor('ultra')}>Ultra marathon (&gt; 16 hrs)</option>
             </select>
           </div>
 

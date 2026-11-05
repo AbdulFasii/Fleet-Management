@@ -10,7 +10,7 @@
 import { BAL } from '../data/balance'
 import { BUS_MODELS } from '../data/busModels'
 import { CITIES } from '../data/cities'
-import { displayRouteHours } from '../data/routes'
+import { displayRouteHours, haulStyleOfHours, inPrimeWindow, HAUL_WINDOWS, type HaulStyle } from '../data/routes'
 import { rngFor, rChance, rPick, type Rng } from '../core/rng'
 import { FESTIVALS, festivalRunEffect, type FestivalEffect } from '../core/calendar'
 import type { BusClassId, RouteDef } from '../types'
@@ -75,7 +75,6 @@ export function festivalPreSoldShare(route: RouteDef, direction: 'AB' | 'BA', de
 /* ------------------------------ haul length ------------------------------ */
 
 export type HaulKind = 'day' | 'mid' | 'overnight'
-
 export function haulKind(hours: number): HaulKind {
   const h = displayRouteHours(hours)
   if (h >= 8) return 'overnight'
@@ -145,27 +144,29 @@ export interface DepartureTimeFit {
 }
 
 /**
- * Departure-clock appeal based on route haul duration:
- * - Overnight haul (>=7.5h): Prime night (19:30-23:30) is the golden window (~1.20x).
- *   Morning daytime (05:30-12:00) burns the entire working day in transit, with low passenger demand
- *   (~0.35x: 20-30% on normal days, ~50-60% during festivals).
- * - Day haul (<=6.0h): Morning (06:00-10:00) and evening (16:00-20:00) are prime commuter peaks (~1.20x).
- *   Dead of night (23:00-06:00) is low (~0.32x).
- * - Mid-haul (6.0h-7.5h): Evening is prime (~1.18x), morning is moderate (~0.75x), midday/night lower.
+ * Departure-clock appeal based on route haul duration. The prime windows come
+ * from HAUL_WINDOWS (routes.ts) so tooltips and the model never disagree:
+ * - Day hop: 08:00-12:00 and 18:00-22:00 (~1.20x). Dead of night is low (~0.32x).
+ * - Mid-haul: 18:00-00:00 (~1.18x), morning is moderate (~0.78x), midday/night lower.
+ * - Night haul 20:00-23:30, marathon 18:00-23:30, ultra 16:00-22:00 (~1.20x, +0.05 for sleepers).
+ *   Morning daytime (05:30-12:00) burns the whole working day in transit (~0.35x).
  */
 export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, cls?: BusClassId): DepartureTimeFit {
   const h = depHour + (depMin === 30 ? 0.5 : 0)
   const hours = route.hours
+  const style = haulStyleOfHours(hours)
+  const prime = inPrimeWindow(style, h)
 
   if (hours >= 7.5) {
     // Overnight haul (8h - 24h)
-    // Night prime 19:30 - 23:30 is the gold standard
-    if (h >= 19.5 && h <= 23.5) {
+    if (prime) {
       const clsBonus = cls && familyOf(cls) === 'sleeper' ? 0.05 : 0
       return { appeal: 1.20 + clsBonus, isPeak: true, isOffPeak: false }
     }
-    // Evening shoulder 17:00 - 19:30 or Late night 23:30 - 01:00
-    if ((h >= 17 && h < 19.5) || (h > 23.5 || h <= 1.0)) {
+    // Shoulder: two hours before the prime window, or late night after it until 01:00
+    const primeFrom = Math.min(...HAUL_WINDOWS[style].map((w) => w[0]))
+    const primeTo = Math.max(...HAUL_WINDOWS[style].map((w) => w[1]))
+    if ((h >= primeFrom - 2 && h < primeFrom) || (h > primeTo || h <= 1.0)) {
       return { appeal: 0.95, isPeak: false, isOffPeak: false }
     }
     // Dead of night 01:00 - 05:30
@@ -179,28 +180,30 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
       const clsAdj = cls && familyOf(cls) === 'sleeper' ? -0.03 : 0
       return { appeal: dayPenalty + clsAdj, isPeak: false, isOffPeak: true }
     }
-    // Afternoon 12:00 - 17:00: Awkward late night arrival
+    // Afternoon: awkward late night arrival
     return { appeal: 0.55, isPeak: false, isOffPeak: true }
   } else if (hours <= 6.0) {
-    // Day haul (under 6h)
-    // Morning peak 06:00 - 10:00 & Evening peak 16:00 - 20:00
-    if ((h >= 6.0 && h <= 10.0) || (h >= 16.0 && h <= 20.0)) {
+    // Day haul (under 6h): 08:00 - 12:00 and 18:00 - 22:00 are prime
+    if (prime) {
       return { appeal: 1.20, isPeak: true, isOffPeak: false }
     }
-    // Midday 10:00 - 16:00
-    if (h > 10.0 && h < 16.0) {
+    // Early morning 06:00 - 08:00 still catches the commuter run-up
+    if (h >= 6.0 && h < 8.0) {
+      return { appeal: 0.95, isPeak: false, isOffPeak: false }
+    }
+    // Midday / afternoon 12:00 - 18:00
+    if (h > 12.0 && h < 18.0) {
       return { appeal: 0.90, isPeak: false, isOffPeak: false }
     }
-    // Night 20:00 - 23:00
-    if (h > 20.0 && h <= 23.0) {
+    // Night 22:00 - 23:00
+    if (h > 22.0 && h <= 23.0) {
       return { appeal: 0.75, isPeak: false, isOffPeak: false }
     }
     // Dead of night 23:00 - 06:00
     return { appeal: 0.32, isPeak: false, isOffPeak: true }
   } else {
-    // Mid-haul (6.0h - 7.5h, e.g. blr-maa 6.5h)
-    // Evening 17:00 - 23:00 is prime
-    if (h >= 17.0 && h <= 23.0) {
+    // Mid-haul (6.0h - 7.5h, e.g. blr-maa 6.5h): 18:00 - 00:00 is prime
+    if (prime) {
       return { appeal: 1.18, isPeak: true, isOffPeak: false }
     }
     // Early morning 05:30 - 08:30 (reaches by 12:00-15:00)
@@ -211,11 +214,11 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
     if (h > 8.5 && h <= 14.0) {
       return { appeal: 0.52, isPeak: false, isOffPeak: true }
     }
-    // Afternoon 14:00 - 17:00
-    if (h > 14.0 && h < 17.0) {
+    // Afternoon 14:00 - 18:00
+    if (h > 14.0 && h < 18.0) {
       return { appeal: 0.82, isPeak: false, isOffPeak: false }
     }
-    // Dead of night 23:00 - 05:30
+    // Dead of night 00:00 - 05:30
     return { appeal: 0.30, isPeak: false, isOffPeak: true }
   }
 }
@@ -225,23 +228,28 @@ export function classHourAppeal(cls: BusClassId, depHour: number, depMin: number
   const f = BAL.classHourFit
   const h = depHour + (depMin === 30 ? 0.5 : 0)
   const hw = haulWeights(hours)
+  // "Night" for coach-type fit follows the band's prime window; day hops keep 19:00 - 23:30.
+  const style = haulStyleOfHours(hours)
+  const wins = HAUL_WINDOWS[style]
+  const nightFrom = style === 'day' ? 19 : Math.min(...wins.map((w) => w[0]))
+  const nightTo = style === 'day' ? 23.5 : Math.min(23.5, Math.max(...wins.map((w) => w[1])))
   if (familyOf(cls) === 'sleeper') {
     // A 16h run leaving at 15:00 still sleeps; a 4h noon hop never does.
     const pull = 1 - 0.75 * hw.long
-    if (h >= 19 && h <= 23.5) return 1 + (f.sleeperNight - 1) * (1 - 0.5 * hw.short)
+    if (h >= nightFrom && h <= nightTo) return 1 + (f.sleeperNight - 1) * (1 - 0.5 * hw.short)
     if (h >= 8 && h < 16) return 1 + (f.sleeperDay - 1) * pull
     if (h >= 16 && h < 19) return f.sleeperEvening + 0.04 * hw.long
     return 1 + (f.sleeperOther - 1) * pull
   }
   if (familyOf(cls) === 'hybrid') {
-    if (h >= 19 && h <= 23.5) return f.hybridNight
+    if (h >= nightFrom && h <= nightTo) return f.hybridNight
     if ((h >= 5.5 && h <= 10.5) || (h >= 15.5 && h < 19)) {
       return hw.short > 0.5 ? f.hybridShoulder : blendHaul(hours, f.hybridShoulder, 0.90, 0.75)
     }
     if (h >= 10.5 && h < 15.5) return f.hybridMidday
     return f.hybridLateNight
   }
-  if (h >= 19 && h <= 23.5) return f.semiNight
+  if (h >= nightFrom && h <= nightTo) return f.semiNight
   if ((h >= 5.5 && h <= 10.5) || (h >= 15.5 && h <= 20.5)) {
     return hw.short > 0.5 ? f.semiDay : blendHaul(hours, f.semiDay, 0.88, 0.72)
   }
@@ -334,10 +342,13 @@ function rPickWeighted<T>(rng: Rng, items: readonly T[], weights: readonly numbe
 }
 
 /** Clock-band demand weight for this corridor type, wrapping past midnight. */
-function bandWeight(kind: HaulKind, hour: number): number {
+function bandWeight(kind: HaulKind, hour: number, style: HaulStyle): number {
+  // The band's prime window (HAUL_WINDOWS) is where shoppers actually want to leave.
+  if (inPrimeWindow(style, hour)) return 1.0
+  // Outside it the legacy clock table still shapes the shoulders, but never above half weight.
   for (const [from, to, w] of BAL.depDensity[kind]) {
-    if (hour >= from && hour < to) return w
-    if (to > 24 && hour + 24 >= from && hour + 24 < to) return w
+    if (hour >= from && hour < to) return Math.min(w, 0.5)
+    if (to > 24 && hour + 24 >= from && hour + 24 < to) return Math.min(w, 0.5)
   }
   return 0.05
 }
@@ -407,8 +418,12 @@ export function corridorProfile(seed: number, route: RouteDef): CorridorProfile 
 
   let peaksMin: number[]
   let widthH: number
+  const style = haulStyleOfHours(route.hours)
+  const wins = HAUL_WINDOWS[style]
+  // Peak candidates come straight from the band's prime window(s); a 24:00 end is capped at 23:30.
+  const winBand = (w: [number, number]) => halfHourBand(w[0], Math.min(w[1], 23.5))
   if (kind === 'overnight') {
-    const band = halfHourBand(18, 23.5)
+    const band = winBand(wins[0]!)
     const p1 = rPick(rng, band)
     peaksMin = [p1]
     if (rChance(rng, 0.42)) {
@@ -417,15 +432,15 @@ export function corridorProfile(seed: number, route: RouteDef): CorridorProfile 
     }
     widthH = 1.35 + rng() * 1.0 // broad evening hump — peak still wins
   } else if (kind === 'day') {
-    const morning = halfHourBand(5.5, 10)
-    const evening = halfHourBand(15.5, 20.5)
+    const morning = winBand(wins[0]!)
+    const evening = winBand(wins[1]!)
     const mode = rng()
     if (mode < 0.28) peaksMin = [rPick(rng, morning)]
     else if (mode < 0.56) peaksMin = [rPick(rng, evening)]
     else peaksMin = [rPick(rng, morning), rPick(rng, evening)]
     widthH = 1.4 + rng() * 1.1
   } else {
-    const band = halfHourBand(16, 23)
+    const band = winBand(wins[0]!)
     const p1 = rPick(rng, band)
     peaksMin = [p1]
     if (rChance(rng, 0.45)) {
@@ -444,7 +459,7 @@ export function corridorProfile(seed: number, route: RouteDef): CorridorProfile 
       peak = Math.max(peak, Math.exp(-0.5 * (hoursOff / Math.max(0.5, widthH)) ** 2))
     }
     const floor = BAL.market.hiddenPeakFloor
-    density[i] = bandWeight(kind, tMin / 60) * (floor + (1 - floor) * peak)
+    density[i] = bandWeight(kind, tMin / 60, style) * (floor + (1 - floor) * peak)
   }
   normalize(density)
 

@@ -572,13 +572,50 @@ export function routeViaLabel(routeId: string): string | null {
 
 export type HaulStyle = 'day' | 'mid' | 'overnight' | 'marathon' | 'ultra'
 
-export function haulStyle(r: RouteDef): HaulStyle {
-  const h = displayRouteHours(r.hours)
+export function haulStyleOfHours(hours: number): HaulStyle {
+  const h = displayRouteHours(hours)
   if (h > 16) return 'ultra'
   if (h >= 10) return 'marathon'
   if (h >= 8) return 'overnight'
   if (h < 6) return 'day'
   return 'mid'
+}
+
+export function haulStyle(r: RouteDef): HaulStyle {
+  return haulStyleOfHours(r.hours)
+}
+
+/**
+ * Prime departure windows per haul band, as `[fromHour, toHour]` on a 24h
+ * clock (24 = midnight). This is the single source of truth: the demand model,
+ * corridor profiles, tooltips and the Routes filter all read from here.
+ */
+export const HAUL_WINDOWS: Record<HaulStyle, [number, number][]> = {
+  day: [[8, 12], [18, 22]],
+  mid: [[18, 24]],
+  overnight: [[20, 23.5]],
+  marathon: [[18, 23.5]],
+  ultra: [[16, 22]],
+}
+
+/** True when a departure clock hour (0-23.5) sits inside the band's prime window(s). */
+export function inPrimeWindow(style: HaulStyle, h: number): boolean {
+  // A 00:00 departure is the end of an "-24:00" window, not the start of the day.
+  return HAUL_WINDOWS[style].some(([from, to]) => {
+    const x = h === 0 && to >= 24 ? 24 : h
+    return x >= from && x <= to
+  })
+}
+
+function fmtClock(h: number): string {
+  const hh = Math.floor(h) % 24
+  const mm = h % 1 === 0.5 ? '30' : '00'
+  return `${String(hh).padStart(2, '0')}:${mm}`
+}
+
+/** "08:00–12:00 and 18:00–22:00" */
+export function haulWindowLabel(style: HaulStyle): string {
+  return HAUL_WINDOWS[style].map(([a, b]) => `${fmtClock(a)}–${fmtClock(b)}`).join(' and ')
 }
 
 /** Short badge text for the haul. */
@@ -598,18 +635,24 @@ export function haulTitle(r: RouteDef): string {
  * table, schedule builder and setup screen all say the same thing.
  */
 export function haulBrief(r: RouteDef): string {
-  const h = displayRouteHours(r.hours)
-  switch (haulStyle(r)) {
+  return haulBriefFor(haulStyle(r), displayRouteHours(r.hours))
+}
+
+/** Same description for a band; `hours` is optional (used by the Routes filter tooltip). */
+export function haulBriefFor(style: HaulStyle, hours?: number): string {
+  const win = haulWindowLabel(style)
+  const on = hours !== undefined ? ` — ${hours}h on the road` : ''
+  switch (style) {
     case 'ultra':
-      return `Ultra marathon — ${h}h needs multi-coach rotation and two-crew sleepers. Departures 19:30–23:30; expect thinner midweek loads and longer cooldowns at the far terminal.`
+      return `Ultra marathon${on}. ${win}, with multi-coach rotation and two-crew sleepers.`
     case 'marathon':
-      return `Marathon night haul — ${h}h on the road needs two drivers (CMVR limit is 10h per driver). Sleeper berths only; departures between 19:30 and 23:30 sell, while a 01:00–05:30 start arrives mid-afternoon and runs near empty.`
+      return `Marathon night haul${on}. ${win}, with sleeper berths only. Use two drivers, because the CMVR limit is 10 hrs per driver.`
     case 'overnight':
-      return `Night haul — the coach runs while passengers sleep, so berths sell. Depart 19:30–23:30 for the best loads; a 07:30–11:00 start wastes the passenger's working day and loads thin.`
+      return `Night haul${on}. ${win}. The coach runs while passengers sleep, so berths sell.`
     case 'mid':
-      return `Mid-haul — evening departures (17:00–23:00) are the money window. Berths and rear cabin fill at the same rate, so a hybrid coach works as well as a pure sleeper.`
+      return `Mid-haul${on}. ${win} is the money window. A hybrid coach (berths plus rear cabin) works fine.`
     default:
-      return `Day hop — morning (06:00–10:00) and evening (16:00–20:00) departures carry the coach on seaters. Midday is soft and the small hours are dead.`
+      return `Day hop${on}. ${win}. Seaters carry these.`
   }
 }
 

@@ -8,8 +8,11 @@
 import { rs } from '../core/money'
 import type { Bus } from '../types'
 
+export type AmenityGroupId = 'meals' | 'snacks' | 'drinks' | 'sleep' | 'hygiene' | 'info'
+
 export interface AmenityDef {
   id: string
+  group: AmenityGroupId
   title: string
   shortLabel: string
   blurb: string
@@ -30,31 +33,61 @@ export interface FittingDef {
   demandMult: number
 }
 
-export const AMENITY_CATALOG: AmenityDef[] = [
-  { id: 'waterBottle', title: 'Mineral Water', shortLabel: 'Water', blurb: '₹7/pax · Sealed 500ml water bottle.', cost: rs(7), pssBonus: 0.18 },
-  { id: 'snackHamper', title: 'Snack Hamper', shortLabel: 'Hamper', blurb: '₹35/pax · Biscuit pack, savouries & wet wipe.', cost: rs(35), pssBonus: 0.28 },
-  { id: 'sanitizedBedding', title: 'Sanitized Bedding', shortLabel: 'Bedding', blurb: '₹25/pax (night) · Pillow, sheet & blanket.', cost: rs(25), pssBonus: 0.35, nightOnly: true },
-  { id: 'travelKit', title: 'Sleep Travel Kit', shortLabel: 'Sleep kit', blurb: '₹18/pax · Eye mask & soft ear plugs.', cost: rs(18), pssBonus: 0.16 },
-  { id: 'fruitJuice', title: 'Chilled Fruit Juice', shortLabel: 'Juice', blurb: '₹20/pax · Tetra-pack juice with the hamper.', cost: rs(20), pssBonus: 0.14 },
-  { id: 'breakfastBox', title: 'Breakfast Box', shortLabel: 'Breakfast', blurb: '₹45/pax · Packaged breakfast on morning arrivals.', cost: rs(45), pssBonus: 0.2 },
-  { id: 'sanitaryKit', title: 'Sanitary Comfort Kit', shortLabel: 'Sanitary kit', blurb: '₹15/pax · Discreet women-friendly travel kit.', cost: rs(15), pssBonus: 0.12 },
-  { id: 'namkeen', title: 'Namkeen Mix', shortLabel: 'Namkeen', blurb: '₹20/pax · Spicy savory mix pouch.', cost: rs(20), pssBonus: 0.08 },
-  { id: 'oralKit', title: 'Oral Care Kit', shortLabel: 'Oral kit', blurb: '₹12/pax · Mini toothbrush & paste.', cost: rs(12), pssBonus: 0.1 },
-  { id: 'wetWipes', title: 'Wet Wipes Pack', shortLabel: 'Wipes', blurb: '₹10/pax · Multi-wipe hygiene pack.', cost: rs(10), pssBonus: 0.07 },
-  { id: 'comboMeal', title: 'Combo Meal (Veg / Non-Veg)', shortLabel: 'Meal', blurb: '₹95/pax · Veg thali / wrap or chicken / egg packed meal.', cost: rs(95), pssBonus: 0.25 },
-  { id: 'multiLingualCard', title: 'Multi-lingual Welcome Card', shortLabel: 'Card', blurb: '₹2/pax · Route & safety card in TN/KN/ML/EN.', cost: rs(2), pssBonus: 0.02 },
+/** Display groups, in the order the settings screen lists them. */
+export const AMENITY_GROUPS: { id: AmenityGroupId; label: string }[] = [
+  { id: 'meals', label: 'Meals' },
+  { id: 'snacks', label: 'Snacks' },
+  { id: 'drinks', label: 'Drinks' },
+  { id: 'sleep', label: 'Sleep comfort' },
+  { id: 'hygiene', label: 'Hygiene & health' },
+  { id: 'info', label: 'Information' },
 ]
 
+// Listed by group, then roughly by price. `blurb` is kept for tooltips only.
+export const AMENITY_CATALOG: AmenityDef[] = [
+  // Meals
+  { id: 'breakfastBox', group: 'meals', title: 'Breakfast Box', shortLabel: 'Breakfast', blurb: 'Packaged breakfast on morning arrivals.', cost: rs(45), pssBonus: 0.2 },
+  { id: 'dinnerBox', group: 'meals', title: 'Dinner Box', shortLabel: 'Dinner', blurb: 'Packed veg dinner: rice or chapati, curry, sweet and cutlery. Night departures only.', cost: rs(70), pssBonus: 0.22, nightOnly: true },
+  { id: 'comboMeal', group: 'meals', title: 'Combo Meal (Veg / Non-Veg)', shortLabel: 'Meal', blurb: 'Veg thali / wrap or chicken / egg packed meal.', cost: rs(95), pssBonus: 0.25 },
+  // Snacks
+  { id: 'biscuits', group: 'snacks', title: 'Biscuit Pack', shortLabel: 'Biscuits', blurb: 'Sealed biscuit packet.', cost: rs(10), pssBonus: 0.06 },
+  { id: 'namkeen', group: 'snacks', title: 'Namkeen Mix', shortLabel: 'Namkeen', blurb: 'Spicy savoury mix pouch.', cost: rs(20), pssBonus: 0.08 },
+  { id: 'dryFruits', group: 'snacks', title: 'Dry Fruit & Nut Pack', shortLabel: 'Dry fruits', blurb: 'Cashew, almond and raisin mix.', cost: rs(30), pssBonus: 0.1 },
+  { id: 'snackHamper', group: 'snacks', title: 'Snack Hamper', shortLabel: 'Hamper', blurb: 'Biscuit pack, savouries & wet wipe.', cost: rs(35), pssBonus: 0.28 },
+  // Drinks
+  { id: 'waterBottle', group: 'drinks', title: 'Mineral Water', shortLabel: 'Water', blurb: 'Sealed 500ml water bottle.', cost: rs(7), pssBonus: 0.18 },
+  { id: 'hotBeverage', group: 'drinks', title: 'Hot Tea / Coffee', shortLabel: 'Tea/Coffee', blurb: 'Flask tea or coffee at the rest stop.', cost: rs(15), pssBonus: 0.12 },
+  { id: 'fruitJuice', group: 'drinks', title: 'Chilled Fruit Juice', shortLabel: 'Juice', blurb: 'Tetra-pack juice with the hamper.', cost: rs(20), pssBonus: 0.14 },
+  // Sleep comfort
+  { id: 'travelKit', group: 'sleep', title: 'Sleep Travel Kit', shortLabel: 'Sleep kit', blurb: 'Eye mask & soft ear plugs.', cost: rs(18), pssBonus: 0.16 },
+  { id: 'neckPillow', group: 'sleep', title: 'Neck Pillow', shortLabel: 'Neck pillow', blurb: 'Inflatable travel neck rest.', cost: rs(22), pssBonus: 0.1 },
+  { id: 'sanitizedBedding', group: 'sleep', title: 'Sanitized Bedding', shortLabel: 'Bedding', blurb: 'Pillow, sheet & blanket. Night departures only.', cost: rs(25), pssBonus: 0.35, nightOnly: true },
+  // Hygiene & health
+  { id: 'motionKit', group: 'hygiene', title: 'Motion Sickness Pack', shortLabel: 'Motion kit', blurb: 'Lemon candy, sick bag and wet tissue for ghat roads.', cost: rs(8), pssBonus: 0.08 },
+  { id: 'wetWipes', group: 'hygiene', title: 'Wet Wipes Pack', shortLabel: 'Wipes', blurb: 'Multi-wipe hygiene pack.', cost: rs(10), pssBonus: 0.07 },
+  { id: 'oralKit', group: 'hygiene', title: 'Oral Care Kit', shortLabel: 'Oral kit', blurb: 'Mini toothbrush & paste.', cost: rs(12), pssBonus: 0.1 },
+  { id: 'sanitaryKit', group: 'hygiene', title: 'Sanitary Comfort Kit', shortLabel: 'Sanitary kit', blurb: 'Discreet women-friendly travel kit.', cost: rs(15), pssBonus: 0.12 },
+  // Information
+  { id: 'multiLingualCard', group: 'info', title: 'Multi-lingual Welcome Card', shortLabel: 'Card', blurb: 'Route & safety card in TN/KN/ML/EN.', cost: rs(2), pssBonus: 0.02 },
+]
+
+/**
+ * Aftermarket retrofits only: things an operator bolts on after delivery, not
+ * what a body builder normally ships. Listed cheapest first.
+ */
 export const FITTING_CATALOG: FittingDef[] = [
-  { id: 'wifi', title: '4G/5G Wi-Fi Router', shortLabel: 'WiFi', blurb: 'Cabin hotspot & OTA appeal.', retrofitCost: rs(18_000), pssBonus: 0.1, demandMult: 1.012 },
-  { id: 'cctv', title: 'Cabin CCTV Security Cameras', shortLabel: 'CCTV', blurb: 'Door & aisle cameras; women-friendly badge.', retrofitCost: rs(15_000), pssBonus: 0.06, demandMult: 1.008 },
-  { id: 'airPurifier', title: 'Cabin Air Purifier', shortLabel: 'Purifier', blurb: 'HEPA / ion purifier for AC coaches.', retrofitCost: rs(14_000), pssBonus: 0.08, demandMult: 1.005 },
   { id: 'cabinFreshener', title: 'Cabin Freshener Dispenser', shortLabel: 'Freshener', blurb: 'Auto perfume mist between trips.', retrofitCost: rs(5_000), pssBonus: 0.05, demandMult: 1.002 },
+  { id: 'privacyCurtains', title: 'Privacy Curtains & Window Blinds', shortLabel: 'Curtains', blurb: 'Blackout curtains and blinds for sleep and glare.', retrofitCost: rs(9_000), pssBonus: 0.06, demandMult: 1.003 },
   { id: 'powerSockets', title: '220V AC Power Sockets', shortLabel: 'AC sockets', blurb: 'Laptop sockets at seats/berths.', retrofitCost: rs(10_000), pssBonus: 0.08, demandMult: 1.005 },
-  { id: 'pantryCounter', title: 'Mini Pantry Counter', shortLabel: 'Pantry', blurb: 'Hot-water urn & service counter.', retrofitCost: rs(28_000), pssBonus: 0.1, demandMult: 1.005 },
+  { id: 'trayTables', title: 'Tray Tables & Cup Holders', shortLabel: 'Tray tables', blurb: 'Fold-out tray and cup holder behind each seat.', retrofitCost: rs(12_000), pssBonus: 0.04, demandMult: 1.002 },
+  { id: 'airPurifier', title: 'Cabin Air Purifier', shortLabel: 'Purifier', blurb: 'HEPA / ion purifier for AC coaches.', retrofitCost: rs(14_000), pssBonus: 0.08, demandMult: 1.005 },
+  { id: 'cctv', title: 'Cabin CCTV Security Cameras', shortLabel: 'CCTV', blurb: 'Door & aisle cameras; women-friendly badge.', retrofitCost: rs(15_000), pssBonus: 0.06, demandMult: 1.008 },
+  { id: 'wifi', title: '4G/5G Wi-Fi Router', shortLabel: 'WiFi', blurb: 'Cabin hotspot & OTA appeal.', retrofitCost: rs(18_000), pssBonus: 0.1, demandMult: 1.012 },
   { id: 'fridge', title: 'Cabin Mini Fridge', shortLabel: 'Fridge', blurb: 'Chilled drinks fridge for attendant.', retrofitCost: rs(18_000), pssBonus: 0.08, demandMult: 1.003 },
-  { id: 'solarAssist', title: 'Roof Solar Assist Pack', shortLabel: 'Solar', blurb: 'Aux solar for lights / USB overnight — ops only, no passenger effect.', retrofitCost: rs(55_000), pssBonus: 0, demandMult: 1 },
+  { id: 'seatToppers', title: 'Memory Foam Seat Toppers', shortLabel: 'Foam toppers', blurb: 'Extra cushioning for long-haul seats and berths.', retrofitCost: rs(22_000), pssBonus: 0.1, demandMult: 1.004 },
+  { id: 'pantryCounter', title: 'Mini Pantry Counter', shortLabel: 'Pantry', blurb: 'Hot-water urn & service counter.', retrofitCost: rs(28_000), pssBonus: 0.1, demandMult: 1.005 },
   { id: 'leatheretteSeats', title: 'Leatherette Seat Covers', shortLabel: 'Leatherette', blurb: 'Premium wipe-clean seat/berth covers.', retrofitCost: rs(32_000), pssBonus: 0.12, demandMult: 1.006 },
+  { id: 'solarAssist', title: 'Roof Solar Assist Pack', shortLabel: 'Solar', blurb: 'Aux solar for lights / USB overnight — ops only, no passenger effect.', retrofitCost: rs(55_000), pssBonus: 0, demandMult: 1 },
 ]
 
 /** Hard caps so a fully loaded pack stays a nudge, not a free 10/10. */

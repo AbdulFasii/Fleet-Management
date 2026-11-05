@@ -31,6 +31,7 @@ import {
 import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
 import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
 import { BrandHierarchyTree } from '../BrandHierarchyTree'
+import { AmenityPicker } from '../AmenityPicker'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
 import { CompanyGalleryModal, companyGalleryUrls } from '../CompanyGalleryModal'
 import { LightboxModal } from '../LightboxModal'
@@ -1468,24 +1469,10 @@ export function SettingsPage() {
                                     Selected <span className="good">{fmtCompact(amenityTotal)}/pax</span>
                                   </div>
                                 </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 14px' }}>
-                                  {AMENITY_CATALOG.map((a) => (
-                                    <label key={a.id} className="flex" style={{ alignItems: 'flex-start', gap: 8 }}>
-                                      <input
-                                        type="checkbox"
-                                        checked={!!amenities[a.id]}
-                                        onChange={(e) => g.updateGroup(group.id, { defaultAmenities: { ...amenities, [a.id]: e.target.checked } })}
-                                      />
-                                      <div>
-                                        <b>{a.title}</b>{' '}
-                                        <span className="small good">
-                                          (+{a.pssBonus} PSS{a.nightOnly ? ' night' : ''})
-                                        </span>
-                                        <div className="dim small">{a.blurb}</div>
-                                      </div>
-                                    </label>
-                                  ))}
-                                </div>
+                                <AmenityPicker
+                                  value={amenities}
+                                  onChange={(id, on) => g.updateGroup(group.id, { defaultAmenities: { ...amenities, [id]: on } })}
+                                />
                               </div>
 
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--bg3)', padding: 12, borderRadius: 6, border: '1px solid var(--border)' }}>
@@ -1498,22 +1485,25 @@ export function SettingsPage() {
                                     <span className="dim"> on delivery</span>
                                   </div>
                                 </div>
-                                {FITTING_CATALOG.map((f) => (
-                                  <label key={f.id} className="flex" style={{ alignItems: 'center', gap: 8 }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={!!fittings[f.id]}
-                                      onChange={(e) => g.updateGroup(group.id, { defaultFittings: { ...fittings, [f.id]: e.target.checked } })}
-                                    />
-                                    <div>
-                                      <b>{f.title}</b>{' '}
-                                      <span className="dim small">
-                                        ({fmtCompact(f.retrofitCost)} on delivery
-                                        {f.pssBonus > 0 ? ` · +${f.pssBonus} PSS` : ' · ops only'})
-                                      </span>
-                                    </div>
-                                  </label>
-                                ))}
+                                {/* Two columns, cheapest first, reading left to right. */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '6px 14px' }}>
+                                  {FITTING_CATALOG.map((f) => (
+                                    <label key={f.id} className="flex" style={{ alignItems: 'flex-start', gap: 8 }} title={f.blurb}>
+                                      <input
+                                        type="checkbox"
+                                        checked={!!fittings[f.id]}
+                                        onChange={(e) => g.updateGroup(group.id, { defaultFittings: { ...fittings, [f.id]: e.target.checked } })}
+                                      />
+                                      <div>
+                                        <b>{f.title}</b>
+                                        <div className="dim small">
+                                          {fmtCompact(f.retrofitCost)} on delivery
+                                          {f.pssBonus > 0 ? ` · +${f.pssBonus} PSS` : ' · ops only'}
+                                        </div>
+                                      </div>
+                                    </label>
+                                  ))}
+                                </div>
                               </div>
                             </div>
                           )}
@@ -1544,22 +1534,7 @@ export function SettingsPage() {
                       Selected <span className="good">{fmtCompact(amenityTotal)}/pax</span>
                     </span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px' }}>
-                    {AMENITY_CATALOG.map((a) => (
-                      <label key={a.id} className="flex" style={{ alignItems: 'flex-start', gap: 8 }}>
-                        <input
-                          type="checkbox"
-                          checked={!!cur[a.id]}
-                          onChange={(e) => update({ [a.id]: e.target.checked })}
-                        />
-                        <div>
-                          <b>{a.title}</b>{' '}
-                          <span className="small good">(+{a.pssBonus} PSS{a.nightOnly ? ' night' : ''})</span>
-                          <div className="dim small">{a.blurb}</div>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
+                  <AmenityPicker value={cur} onChange={(id, on) => update({ [id]: on })} />
                 </div>
               )
             })()}
