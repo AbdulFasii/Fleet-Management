@@ -4,6 +4,9 @@ import { fmtCompact, fmtINR, fmtSigned, type Money } from '../engine/core/money'
 import type { SpanMeter as SpanMeterType } from '../engine/types'
 import { isLightBadgeColor } from '../engine/sim/groups'
 import { qty } from './format'
+import type { Bus } from '../engine/types'
+import { BUS_MODELS, coachKindClass, coachConfigLabel } from '../engine/data/busModels'
+import { coachTitle } from '../engine/data/bodyBuilders'
 
 /* ---------- money ---------- */
 
@@ -418,6 +421,36 @@ export function StatRow({ items }: { items: { label: string; value: ReactNode; t
 /** One way to link to a bus everywhere: registration, opens its detail page. */
 export function BusLink({ id, reg }: { id: string; reg: string }) {
   return <Link to={`/fleet/${id}`}><b>{reg}</b></Link>
+}
+
+/** Comprehensive coach cell showing plate link, coach model/custom body design name, and layout configuration. */
+export function CoachCell({
+  bus,
+  showConfig = true,
+}: {
+  bus: Bus | undefined
+  showConfig?: boolean
+}) {
+  if (!bus) return <span className="dim">—</span>
+  const model = BUS_MODELS[bus.modelId]
+  const title = coachTitle(model, bus.bodyDesignName)
+  const config = coachConfigLabel(model)
+
+  return (
+    <div style={{ lineHeight: '1.3' }}>
+      <BusLink id={bus.id} reg={bus.reg} />
+      <div className="dim small" style={{ fontWeight: 500, marginTop: 1 }} title={title}>
+        {bus.nickname ? `"${bus.nickname}" · ` : ''}{title}
+      </div>
+      {showConfig && model && (
+        <div className="dim small" style={{ fontSize: '0.74rem', marginTop: 1 }}>
+          <span className={coachKindClass(model)}>
+            {config}
+          </span>
+        </div>
+      )}
+    </div>
+  )
 }
 
 /** Opens the Schedules page on one service. */

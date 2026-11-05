@@ -24,7 +24,7 @@ import {
 import { rs, toRupees, fmtCompact } from '../../engine/core/money'
 import type { Bus, GameState, Schedule, Trip } from '../../engine/types'
 import { activeGroups, groupForTrip } from '../../engine/sim/groups'
-import { Bar, M, Panel, KV, ratingTone, GroupBadge, Hint, StatRow, BusLink, Tabs, PageHeader } from '../bits'
+import { Bar, M, Panel, KV, ratingTone, GroupBadge, Hint, StatRow, BusLink, CoachCell, Tabs, PageHeader } from '../bits'
 import { tonnes } from '../format'
 import { hybridClassStats } from '../../engine/sim/seatmap'
 import { spareDriverBench, isDriverEligibleForTrip } from '../../engine/sim/staffing'
@@ -803,9 +803,9 @@ export function TripBoardPage() {
                         </td>
                         <td>
                           {bus ? (
-                            <Link to={`/fleet/${bus.id}`} className="accent" style={{ fontWeight: 500 }}>
-                              {bus.reg} ({modelTitle(BUS_MODELS[bus.modelId])})
-                            </Link>
+
+                              <CoachCell bus={bus} />
+
                           ) : (
                             <span className="warn">—</span>
                           )}
@@ -1057,8 +1057,8 @@ export function TripBoardPage() {
                             <GroupBadge group={groupForTrip(s, t)} />
                             {bus ? (
                               <div>
-                                <BusLink id={bus.id} reg={bus.reg} />
-                                <div className="dim small">{model ? modelTitle(model) : ''}</div>
+                                <CoachCell bus={bus} />
+
                               </div>
                             ) : (
                               <span className="bad small">No Bus Assigned</span>
@@ -1449,8 +1449,8 @@ export function TripBoardPage() {
                             <div className="row gap6">
                               <GroupBadge group={groupForTrip(s, t)} />
                               <div>
-                                <div className="font-mono"><b>{bus?.reg ?? '—'}</b></div>
-                                <div className="dim small">{model ? modelTitle(model) : ''}</div>
+                                <CoachCell bus={bus} />
+
                               </div>
                             </div>
                           </td>

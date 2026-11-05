@@ -42,7 +42,7 @@ import { yardMonthlyRent, busesParkedInCity, outstationNightlyFee } from '../../
 import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays } from '../../engine/sim/staffing'
 import { spanMeters } from '../../engine/sim/span'
 import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand, WorkshopLocation, ID } from '../../engine/types'
-import { Bar, BusLink, Empty, GroupBadge, KV, M, Modal, PageHeader, Panel, StatRow, Tabs } from '../bits'
+import { Bar, BusLink, CoachCell, Empty, GroupBadge, KV, M, Modal, PageHeader, Panel, StatRow, Tabs } from '../bits'
 
 const TRADE_LABEL: Record<MechanicTrade, string> = {
   engine_gearbox: 'Engine/Gearbox',
@@ -654,7 +654,7 @@ export function WorkshopPage() {
                     const done = Math.max(0.05, Math.min(1, (14 - daysLeft) / 14))
                     return (
                       <tr key={b.id}>
-                        <td><BusLink id={b.id} reg={b.reg} /><div className="muted">{coachTitle(BUS_MODELS[b.modelId], b.bodyDesignName)}</div></td>
+                        <td><CoachCell bus={b} /></td>
                         <td>{b.workshopJob}</td>
                         <td className="nowrap"><Bar value={done} tone="good" width={10} /> <span className="muted">{Math.round(done * 100)}%</span></td>
                         <td className="num">{daysLeft}d{b.workshopUntilDay ? <span className="muted"> · {fmtDate(b.workshopUntilDay)}</span> : null}</td>
@@ -900,7 +900,7 @@ export function WorkshopPage() {
                     const ready = s.day >= c.surveyorUntilDay
                     return (
                       <tr key={c.id}>
-                        <td>{bus ? <BusLink id={bus.id} reg={bus.reg} /> : c.busId}</td>
+                        <td><CoachCell bus={bus} /></td>
                         <td>
                           {c.status === 'settled' ? (
                             <span className="good">settled +<M v={c.payout ?? 0} /></span>

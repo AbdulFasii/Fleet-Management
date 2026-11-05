@@ -497,6 +497,21 @@ export function coachKind(m: BusModel): 'Semi-sleeper' | 'Sleeper' | 'Seater' | 
 }
 
 /** CSS tone for layout labels — hybrid stays distinct from sleeper amber / semi blue. */
+/** Detailed coach configuration string, e.g. "36 Berths Sleeper (2+1)", "44 Seats Semi (2+2)", "30B+10S Hybrid (2+1)". */
+export function coachConfigLabel(m: BusModel | undefined): string {
+  if (!m) return ''
+  if (isCargoModel(m)) return `${(m.cargoCapKg / 1000).toFixed(0)}T Cargo Truck`
+  if (m.layout.kind === 'hybrid' || m.cls === 'AC_HYBRID') {
+    const b = Math.floor(m.seats / 2)
+    const s = m.seats - b
+    return `${b}B+${s}S Hybrid (${m.layout.cols})`
+  }
+  if (m.sleeper || m.layout.kind === 'sleeper') {
+    return `${m.seats} Berths Sleeper (${m.layout.cols})`
+  }
+  return `${m.seats} Seats Semi (${m.layout.cols})`
+}
+
 export function coachKindClass(m: BusModel | undefined): 'hybrid' | 'accent' | 'info' | 'warn' {
   if (!m) return 'info'
   if (isCargoModel(m)) return 'warn'

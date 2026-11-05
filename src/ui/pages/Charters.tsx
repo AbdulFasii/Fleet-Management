@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
-import { Bar, BusLink, Empty, M, PageHeader, Panel, StatRow, Tabs } from '../bits'
+import { Bar, BusLink, CoachCell, Empty, M, PageHeader, Panel, StatRow, Tabs } from '../bits'
 import { BUS_MODELS, coachKind, isCharterModel, modelTitle } from '../../engine/data/busModels'
 import { CHARTER_CATEGORIES } from '../../engine/data/charterRoutes'
 import {
@@ -293,7 +293,7 @@ export function ChartersPage() {
                         <Bar value={running ? c.currentDayProgress / c.durationDays : 0} width={8} tone="good" />{' '}
                         <span className="muted">{running ? c.currentDayProgress : 0}/{c.durationDays}d</span>
                       </td>
-                      <td>{bus ? <><BusLink id={bus.id} reg={bus.reg} /><div className="muted">{modelTitle(BUS_MODELS[bus.modelId])} · {busHealthScore(bus)}%</div></> : <span className="dim">unassigned</span>}</td>
+                      <td>{bus ? <div><CoachCell bus={bus} /><div className="dim small" style={{ fontSize: '0.74rem' }}>{busHealthScore(bus)}% health</div></div> : <span className="dim">unassigned</span>}</td>
                       <td className="nowrap">{fmtDateShort(c.startDay)} – {fmtDateShort(c.endDay)}<div className="muted">{c.durationDays} day{c.durationDays === 1 ? '' : 's'}</div></td>
                       <td className="num">{c.roundTripKm}</td>
                       <td className="num good"><M v={c.payout} /></td>
@@ -406,7 +406,7 @@ export function ChartersPage() {
                         <div className="muted">{c.clientName} · {c.destinationName} · {c.durationDays}d</div>
                         {c.notes?.includes('Breakdown') && <div className="warn">breakdown en route: fee cut</div>}
                       </td>
-                      <td>{bus ? <BusLink id={bus.id} reg={bus.reg} /> : '—'}</td>
+                      <td><CoachCell bus={bus} /></td>
                       <td className="num">{c.roundTripKm}</td>
                       <td className="num"><M v={rev} /></td>
                       <td className="num warn"><M v={exp} /></td>
