@@ -22,6 +22,7 @@ import { BUS_MODELS, hybridSleeperCount } from '../data/busModels'
 import { busComfort } from '../data/bodyBuilders'
 import { ROUTES } from '../data/routes'
 import { corridorSupply } from '../data/corridorSupply'
+import { corridorArchetype, type CorridorArchetype } from '../data/routeArchetypes'
 import { DOW_DEMAND, daysInMonth, dow, festivalRunEffect, seasonInfo, toCivil, clockMinutes } from '../core/calendar'
 import { rngFor, rJitter } from '../core/rng'
 import type { Bus, BusClassId, BusModel, Channel, Company, GameState, RouteDef, Schedule, Trip, ID } from '../types'
@@ -66,46 +67,7 @@ const FEST_CURVE: number[] = normalizeCurve(BAL.festivalBookingCurve)
 
 /* ========================= stage 1: corridor pool ========================= */
 
-export type CorridorArchetype = 'tech' | 'pilgrim' | 'leisure' | 'commercial' | 'marathon'
-
-export function corridorArchetype(routeId: string): CorridorArchetype {
-  switch (routeId) {
-    case 'blr-hyd':
-    case 'blr-maa':
-    case 'maa-blr':
-    case 'maa-hyd':
-      return 'tech'
-    case 'maa-tir':
-    case 'blr-tir':
-    case 'mdu-maa':
-    case 'maa-mdu':
-    case 'mdu-maa-ecr':
-    case 'maa-mdu-ecr':
-    case 'mdu-blr':
-    case 'blr-mdu':
-    case 'maa-kkm':
-    case 'maa-rmd':
-      return 'pilgrim'
-    case 'maa-pdy':
-    case 'blr-goa':
-    case 'maa-goa':
-    case 'hyd-goa':
-    case 'maa-mys':
-      return 'leisure'
-    case 'maa-mum':
-    case 'maa-viz':
-    case 'maa-koc':
-    case 'maa-trv':
-    case 'maa-clt':
-    case 'maa-mlr':
-    case 'koc-blr':
-    case 'maa-ten':
-    case 'blr-mum':
-      return 'marathon'
-    default:
-      return 'commercial'
-  }
-}
+export { corridorArchetype, type CorridorArchetype }
 
 /** Commuter rhythm and demographic surges specific to corridor archetype. */
 export function archetypeFactor(route: RouteDef, depDay: number, depHour: number, depMin = 0): number {

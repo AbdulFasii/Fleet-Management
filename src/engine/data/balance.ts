@@ -5,6 +5,7 @@
 import { rs, L, Cr, type Money } from '../core/money'
 import { dow, festivalRunEffect } from '../core/calendar'
 import { CITIES } from './cities'
+import { occupancyPatternFor } from './routeArchetypes'
 import type { BusClassId, CancellationPolicy, Difficulty, RouteDef, StaffRole } from '../types'
 
 export const BAL = {
@@ -1447,8 +1448,10 @@ export function elapsedBookingFrac(daysToDep: number, festivalPreSold?: number):
 }
 
 /**
- * Practical occupancy estimates by direction and travel period:
- * Calibrated for a well-positioned sleeper operator (rating ~4.0 - 4.5):
+ * Practical occupancy estimates by direction and travel period, by route type
+ * (data/routeArchetypes ARCHETYPE_OCCUPANCY). The hometown/trade pattern below
+ * is the `commercial` row; tech, pilgrim, leisure and marathon corridors have
+ * their own. Calibrated for a well-positioned sleeper operator (rating ~4.0 - 4.5):
  * Travel period                       Chennai → Madurai    Madurai → Chennai
  * Normal Friday night                 80–95%               55–75%
  * Normal Saturday night               65–85%               65–85%
@@ -1471,38 +1474,23 @@ export function getDirectionalOccupancyRange(
   const b = CITIES[dest]?.metro ?? 0
   const isHb = a > b || (a === b && (origin === 'maa' || origin === 'blr' || origin === 'bom' || origin === 'del' || direction === 'AB'))
 
+  const pattern = occupancyPatternFor(route.id)
+  const pick = (bands: [[number, number], [number, number]]): [number, number] => (isHb ? bands[0] : bands[1])
   const fest = festivalRunEffect(depDay)
   let baseRange: [number, number]
 
   if (fest.name != null && fest.phase) {
-    if (fest.phase === 'festival_day') {
-      // Festival day itself: 40-75% in both directions
-      baseRange = [0.40, 0.75]
-    } else if (fest.phase === 'pre') {
-      // 1-3 days before major festival: homebound 90-100%, return 60-85%
-      baseRange = isHb ? [0.90, 1.00] : [0.60, 0.85]
-    } else if (fest.phase === 'post_first') {
-      // First return day after festival: homebound 60-85%, return 90-100%
-      baseRange = isHb ? [0.60, 0.85] : [0.90, 1.00]
-    } else {
-      // Final holiday return rush: homebound 50-75%, return 90-100%
-      baseRange = isHb ? [0.50, 0.75] : [0.90, 1.00]
-    }
+    const f = pattern.festival
+    baseRange = pick(
+      fest.phase === 'festival_day' ? f.day
+        : fest.phase === 'pre' ? f.pre
+          : fest.phase === 'post_first' ? f.postFirst
+            : f.postLate,
+    )
   } else {
+    const w = pattern.weekly
     const d = dow(depDay)
-    if (d === 5) {
-      // Normal Friday night: homebound 80-95%, return 55-75%
-      baseRange = isHb ? [0.80, 0.95] : [0.55, 0.75]
-    } else if (d === 6) {
-      // Normal Saturday night: 65-85% both directions
-      baseRange = [0.65, 0.85]
-    } else if (d === 0) {
-      // Normal Sunday night: homebound 50-70%, return 80-95%
-      baseRange = isHb ? [0.50, 0.70] : [0.80, 0.95]
-    } else {
-      // Normal Midweek (Mon-Thu): mild metro lean (homebound 55-78%, return 45-68%)
-      baseRange = isHb ? [0.55, 0.78] : [0.45, 0.68]
-    }
+    baseRange = pick(d === 5 ? w.fri : d === 6 ? w.sat : d === 0 ? w.sun : w.midweek)
   }
 
   // Adjust for quality score and bus class.
