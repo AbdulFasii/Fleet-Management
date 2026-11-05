@@ -143,12 +143,20 @@ console.log('--- Cargo services never carry a 2nd trip ---')
   check(fixed === 1, 'one paired cargo schedule was repaired')
   check(sch.paired !== true && sch.returnDepHour === undefined, '2nd trip removed from the schedule')
   const openAfter = Object.values(s.trips).filter((t) => t.scheduleId === id && t.status === 'open')
-  const stillSlot2 = openAfter.filter((t) => t.slot === 2 || Boolean(t.pairOfTripId))
-  check(stillSlot2.length === 0, 'no open departure keeps a 2nd-trip slot or pairing')
+  // A one-way overnight cargo run still alternates out and back on successive
+  // days (the back leg links to the out leg via pairOfTripId); only a same-day
+  // 2nd trip (slot 2) is forbidden.
+  const stillSlot2 = openAfter.filter((t) => t.slot === 2)
+  check(stillSlot2.length === 0, 'no open departure keeps a 2nd-trip slot')
   const stillSecondClock = openAfter.filter((t) => t.depHour === 10)
   check(stillSecondClock.length === 0, 'no open departure keeps the old 2nd-trip clock (10:00)')
-  const releasedTrips = beforeReturn.filter((t) => s.trips[t.id]?.status === 'cancelled')
-  check(releasedTrips.length > 0, `phantom 2nd-trip departures are cancelled (${releasedTrips.length})`)
+  // Each old 2nd-trip departure is either closed or rebuilt as that day's
+  // regular one-way leg on the service clock (trip ids are per coach/day/direction).
+  const phantomGone = beforeReturn.every((t) => {
+    const now = s.trips[t.id]
+    return !now || now.status === 'cancelled' || (now.slot !== 2 && now.depHour !== 10)
+  })
+  check(phantomGone, `phantom 2nd-trip departures are closed or rebuilt as regular legs (${beforeReturn.length})`)
   const daysAfter = new Set(openAfter.map((t) => t.day))
   check(openAfter.length === daysAfter.size, 'rebuilt board has one departure per day')
 }

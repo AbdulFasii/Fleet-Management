@@ -48,7 +48,7 @@ console.log('\n[2] HR Auto-Raise Dilution when Over Capacity')
   const hr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointHr(s, hr.id)
   s.company.hrAutoRaise = true
-  const cap = Math.floor(deskCapacity(s, 'hr')) // 60
+  const cap = Math.floor(deskCapacity(s, 'hr')) // BAL.span.base.hr at skill 5
 
   // Populate 100 underpaid drivers
   for (let i = 0; i < 100; i++) {
@@ -77,8 +77,8 @@ console.log('\n[3] HR Auto-Hire Dilution in Unlimited Mode')
   const hr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointHr(s, hr.id)
 
-  // Inflate staff to 120 so coverage is 0.5
-  for (let i = 0; i < 120; i++) {
+  // Inflate staff to twice the HR span so coverage is 0.5
+  for (let i = 0; i < 2 * BAL.span.base.hr; i++) {
     const st: Staff = {
       id: `st_pad_${i}`,
       name: `Staff Pad ${i}`,
@@ -130,7 +130,7 @@ console.log('\n[4] HR Skill Review Gap Stretched by 1 / Coverage')
   const normalGap = hrSkillReviewGap(5)
 
   // Inflate staff so coverage drops to 0.5
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 2 * BAL.span.base.hr; i++) {
     s.staff[`drv_coach_${i}`] = {
       id: `drv_coach_${i}`,
       name: `Driver ${i}`,
@@ -157,7 +157,7 @@ console.log('\n[5] HR Fatigue Interventions Capped')
   appointHr(s, hr.id)
 
   // Inflate staff so coverage is 0.5
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 2 * BAL.span.base.hr; i++) {
     s.staff[`drv_fat_${i}`] = {
       id: `drv_fat_${i}`,
       name: `Driver Fat ${i}`,
@@ -231,7 +231,7 @@ console.log('\n[6] Fire Morale Cushion Weakened by Coverage')
   const dropWithFullCov = 80 - d2.morale
 
   // Inflate staff so coverage drops to 0.5
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < 2 * BAL.span.base.hr; i++) {
     s.staff[`drv_pad_${i}`] = {
       id: `drv_pad_${i}`,
       name: `Pad ${i}`,

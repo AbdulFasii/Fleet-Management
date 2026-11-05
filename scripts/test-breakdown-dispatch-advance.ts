@@ -82,6 +82,10 @@ s.staff['c1'] = {
   busId: 'b1',
 }
 
+// A second driver so the paired service runs daily instead of idling on the
+// lone driver's rest days (4 trips a month left a breakdown down to luck).
+s.staff['d2'] = { ...(s.staff['d1'] as object), id: 'd2', name: 'Driver 2' } as never
+
 console.log('Advancing days until breakdown occurs...')
 let sawBreakdown = false
 

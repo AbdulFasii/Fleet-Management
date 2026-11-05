@@ -65,6 +65,25 @@ assert.equal(openCargoPermit(s, 'mdu-maa'), null)
 assert.equal(s.company.cash, cashBeforeLicence - licenceFee, 'the annual licence is paid upfront')
 assert(s.permits['mdu-maa']?.cargo?.expiryDay === s.day + BAL.cargoPermitTermDays, 'licence runs a year')
 
+// Parcels ride in our own departures' bellies: run a nightly passenger service
+// on the corridor so the desk has a parcel book to contract against.
+const lineBus = {
+  id: 'line1', reg: 'TN58 LN 1001', modelId: 'leyacsleep2', ownership: 'owned', mfgYear: 2023,
+  acquiredDay: s.day, acquiredPrice: rs(6_000_000), bookValue: rs(6_000_000), odometer: 20_000,
+  condition: { engine: 95, gearbox: 95, brakes: 95, suspension: 95, ac: 95, electrical: 95, body: 95 },
+  tyreKm: 5_000, frontTyreKm: 5_000, rearTyreKm: 5_000, tyresRetreaded: false, frontBrand: 'oem', rearBrand: 'oem',
+  tyreCount: 10, status: 'active', insuranceExpiryDay: s.day + 200, fitnessExpiryDay: s.day + 200,
+  pucExpiryDay: s.day + 200, roadTaxPayableDay: s.day + 200, aitpPaidUntilDay: s.day + 200,
+  gpsDeviceFitted: true, lastServiceOdo: 15_000, qualityScore: 4, busCleanliness: 90,
+} as unknown as Bus
+s.buses[lineBus.id] = lineBus
+const lineSch = createSchedule(s, {
+  routeId: 'mdu-maa', depHour: 21, depMin: 0, baseFare: route.marketFareAC, autoPrice: true,
+  cancellation: 'standard', redDeal: false,
+} as never)
+if ('error' in lineSch) throw new Error(lineSch.error)
+assert.equal(assignBus(s, lineSch.id, lineBus.id), null)
+
 const offered = getAvailableContracts(s).filter((c) => c.routeId === 'mdu-maa')
 assert(offered.length > 2, `expected more than 2 proposals, got ${offered.length}`)
 const cashBefore = s.company.cash

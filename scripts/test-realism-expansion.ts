@@ -2,6 +2,8 @@ import { newGame } from '../src/engine/newGame'
 import { advanceDay } from '../src/engine/tick'
 import { createSchedule, assignBus } from '../src/engine/sim/schedules'
 import { retrofitBus } from '../src/engine/sim/maintenance'
+import { busHasFitting } from '../src/engine/data/amenitiesCatalog'
+import { resolvedAmenities } from '../src/engine/sim/groups'
 import { installDepotFuelTank, orderDepotFuelRefill, setFuelContract } from '../src/engine/sim/depot'
 import { checkCertifications } from '../src/engine/sim/reputation'
 import { resolveTripFare } from '../src/engine/sim/pricing'
@@ -62,14 +64,15 @@ const wifiErr = retrofitBus(s, bus.id, 'wifi')
 if (wifiErr) throw new Error(`WiFi retrofit failed: ${wifiErr}`)
 if (!bus.wifiFitted) throw new Error('bus.wifiFitted is not true')
 
-const usbErr = retrofitBus(s, bus.id, 'usb')
-if (usbErr) throw new Error(`USB retrofit failed: ${usbErr}`)
-if (!bus.usbChargingFitted) throw new Error('bus.usbChargingFitted is not true')
+// USB charging left the fittings catalog; seat power is the 220V socket fitting now.
+const usbErr = retrofitBus(s, bus.id, 'powerSockets')
+if (usbErr) throw new Error(`Power socket retrofit failed: ${usbErr}`)
+if (!busHasFitting(bus, 'powerSockets')) throw new Error('power sockets not fitted')
 
 const cctvErr = retrofitBus(s, bus.id, 'cctv')
 if (cctvErr) throw new Error(`CCTV retrofit failed: ${cctvErr}`)
 if (!bus.cctvFitted) throw new Error('bus.cctvFitted is not true')
-console.log('✓ Bus retrofitted with WiFi, USB, and CCTV successfully.')
+console.log('✓ Bus retrofitted with WiFi, power sockets, and CCTV successfully.')
 
 // Test Schedule with Amenities
 const schRes = createSchedule(s, {
@@ -81,18 +84,16 @@ const schRes = createSchedule(s, {
   cancellation: 'standard',
   redDeal: false,
   serviceTier: 'gold',
-  amenities: {
-    waterBottle: true,
-    snackHamper: true,
-    sanitizedBedding: true,
-  },
 })
 if ('error' in schRes) throw new Error(`Schedule creation failed: ${schRes.error}`)
 assignBus(s, schRes.id, bus.id)
 
 const sch = s.schedules[schRes.id]!
 if (sch.serviceTier !== 'gold') throw new Error('Schedule serviceTier is not gold')
-if (!sch.amenities?.waterBottle || !sch.amenities?.snackHamper) throw new Error('Amenities not saved on schedule')
+// Amenities are a company (or brand) policy now, not a per-schedule setting.
+s.company.defaultAmenities = { ...(s.company.defaultAmenities ?? {}), waterBottle: true, snackHamper: true, sanitizedBedding: true }
+const served = resolvedAmenities(s, sch)
+if (!served.waterBottle || !served.snackHamper) throw new Error('Company amenities not applied to the schedule')
 console.log('✓ Gold Tier Schedule created with water, snacks, and bedding amenities.')
 
 // -------------------------------------------------------------

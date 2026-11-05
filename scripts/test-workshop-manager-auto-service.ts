@@ -137,8 +137,9 @@ s.workshop.mechanicIds = [mech.id]
 dailyMaintenancePass(s)
 
 // Verify that:
-// 1. One bus got in-house bay
-// 2. The other two buses got automated from third party (outsideGarage: true)
+// 1. One bus got the in-house bay
+// 2. With our own bays built, nothing is sent to an outside garage: the other
+//    two wait (still active) for our bay to free up.
 const inHouse = Object.values(s.buses).filter((b) => b.status === 'workshop' && !b.outsideGarage)
 const outside = Object.values(s.buses).filter((b) => b.status === 'workshop' && b.outsideGarage)
 
@@ -146,26 +147,24 @@ console.log(`In-house jobs: ${inHouse.length} (${inHouse.map(b => b.reg).join(',
 console.log(`Outside commercial jobs: ${outside.length} (${outside.map(b => `${b.reg} [${b.workshopJob}]`).join(', ')})`)
 
 assert(inHouse.length === 1, `Expected exactly 1 in-house bay job, got ${inHouse.length}`)
-assert(outside.length === 2, `Expected 2 outside commercial jobs, got ${outside.length}`)
-assert(Object.values(s.buses).every((b) => b.status === 'workshop'), 'All 3 due buses should be scheduled for service!')
+assert(outside.length === 0, `Expected no outside garage jobs while we own bays, got ${outside.length}`)
+assert(Object.values(s.buses).filter((b) => b.status === 'active').length === 2, 'The other 2 due buses wait for our bay')
 
-console.log('✓ All 25k, 100k, 250k general services automated: 1 in-house + 2 outside third-party!')
+console.log('✓ General service automated in-house; the rest queue for our own bay.')
 
-// Phase 4: Advance days to verify they finish service and return to active
+// Phase 4: one bay works through the queue; every coach is serviced in turn
+// and returns to active duty.
 console.log('Phase 4: Simulating turnaround and return to active duty')
-// Day advances by 2 days (A-service and B-service finish)
-s.day += 2
-dailyMaintenancePass(s)
-
-const activeAfter2Days = Object.values(s.buses).filter(b => b.status === 'active')
-console.log(`Buses back active after 2 days: ${activeAfter2Days.length} (${activeAfter2Days.map(b => b.reg).join(', ')})`)
-assert(activeAfter2Days.length >= 2, 'At least A-service and B-service buses should have returned to active')
-
-// Day advances to day 10 (overhaul takes 6 days, so it will finish)
-s.day += 6
-dailyMaintenancePass(s)
+const serviced = new Set(Object.values(s.buses).filter((b) => b.status === 'workshop').map((b) => b.id))
+for (let d = 0; d < 25; d++) {
+  s.day += 1
+  dailyMaintenancePass(s)
+  for (const b of Object.values(s.buses)) if (b.status === 'workshop') serviced.add(b.id)
+}
 const allActive = Object.values(s.buses).filter(b => b.status === 'active')
-assert(allActive.length === 3, 'All 3 buses should have returned to active duty after overhaul')
+console.log(`Serviced through our bay: ${serviced.size} · active now: ${allActive.length}`)
+assert(serviced.size === 3, 'All 3 due buses should pass through our bay')
+assert(allActive.length === 3, 'All 3 buses should have returned to active duty after servicing')
 console.log('✓ All buses completed servicing and returned to active duty!')
 // Phase 5: Test "or employees assign" when bays = 0
 console.log('Phase 5: Manager appointed, 0 bays, but mechanics assigned -> all 3 go to outside third-party')

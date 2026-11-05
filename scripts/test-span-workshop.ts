@@ -35,16 +35,17 @@ console.log('[1] Workshop Demand: Built Bays')
 console.log('\n[2] Workshop Manager Span & Coverage')
 {
   const s = newGame('WorkshopSpan', 'seth', 'maa-mdu', 7)
-  s.workshop.bays = 8
+  const W = BAL.span.base.workshop
+  s.workshop.bays = W
   const mgr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointFleetManager(s, mgr.id)
 
-  check(deskCapacity(s, 'workshop') === 8, 'skill 5 capacity is 8 bays')
-  check(deskCoverage(s, 'workshop') === 1.0, '8 bays on cap 8 is 100% coverage')
+  check(deskCapacity(s, 'workshop') === W, `skill 5 capacity is ${W} bays`)
+  check(deskCoverage(s, 'workshop') === 1.0, `${W} bays on cap ${W} is 100% coverage`)
 
-  // Expand to 16 bays: coverage drops to 0.50
-  s.workshop.bays = 16
-  check(deskCoverage(s, 'workshop') === 0.50, `16 bays gives 0.50 coverage (got ${deskCoverage(s, 'workshop')})`)
+  // Double the bays: coverage drops to 0.50
+  s.workshop.bays = 2 * W
+  check(deskCoverage(s, 'workshop') === 0.50, `${2 * W} bays gives 0.50 coverage (got ${deskCoverage(s, 'workshop')})`)
 
   // Expand to 50 bays: coverage clamps at minCoverage floor (0.20)
   s.workshop.bays = 50
@@ -55,7 +56,7 @@ console.log('\n[3] Job Cost & Turnaround Discount Dilution')
 {
   const s = newGame('WorkshopJob', 'seth', 'maa-mdu', 7)
   s.workshop.level = 1
-  s.workshop.bays = 8
+  s.workshop.bays = BAL.span.base.workshop
   // Add 8 mechanics so bays are staffed
   s.workshop.mechanicIds = []
   for (let i = 0; i < 8; i++) {
@@ -79,13 +80,13 @@ console.log('\n[3] Job Cost & Turnaround Discount Dilution')
   }
   s.buses = { b_quote_test: bus }
 
-  // With manager on duty at 1.0 coverage (8 bays)
+  // With manager on duty at 1.0 coverage (bays = workshop span)
   const mgr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointFleetManager(s, mgr.id)
   const fullCovQuote = quoteService(s, bus, 'a')
 
-  // Now expand bays to 16 with same manager -> coverage drops to 0.50
-  s.workshop.bays = 16
+  // Now double the bays with the same manager -> coverage drops to 0.50
+  s.workshop.bays = 2 * BAL.span.base.workshop
   // Keep 8 mechanics so bays are still in-house
   const dilutedQuote = quoteService(s, bus, 'a')
 
@@ -102,7 +103,7 @@ console.log('\n[4] managerAutoMaint Booking Cap at floor(capacity)')
 
   const mgr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointFleetManager(s, mgr.id)
-  const cap = Math.floor(deskCapacity(s, 'workshop')) // 8 bays
+  const cap = Math.floor(deskCapacity(s, 'workshop')) // BAL.span.base.workshop at skill 5
 
   // Staff all 16 bays so freeBays = 16
   for (let i = 0; i < 16; i++) {
@@ -129,7 +130,7 @@ console.log('\n[4] managerAutoMaint Booking Cap at floor(capacity)')
   }
 
   check(freeStaffedBays(s) === 16, '16 free staffed bays before pass')
-  check(cap === 8, 'manager capacity is 8 bookings/day')
+  check(cap === BAL.span.base.workshop, `manager capacity is ${BAL.span.base.workshop} bookings/day`)
 
   dailyMaintenancePass(s)
 

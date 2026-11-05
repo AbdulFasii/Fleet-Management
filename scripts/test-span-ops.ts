@@ -102,7 +102,7 @@ console.log('\n[2] Ops Auto-Staff Supervision Cap')
   appointOps(s, ops.id)
   s.company.opsAutoStaff = true
 
-  const cap = Math.floor(deskCapacity(s, 'ops')) // 30 coaches
+  const cap = Math.floor(deskCapacity(s, 'ops')) // BAL.span.base.ops at skill 5
 
   // Create 50 scheduled active coaches
   const dummySch: Schedule = {
@@ -142,7 +142,7 @@ console.log('\n[2] Ops Auto-Staff Supervision Cap')
   }
 
   check(spanDemand(s, 'ops') === 50, 'fleet is 50 coaches')
-  check(cap === 30, 'ops capacity is 30 coaches')
+  check(cap === BAL.span.base.ops, `ops capacity is ${BAL.span.base.ops} coaches`)
 
   opsAutoStaffPass(s)
 
@@ -157,7 +157,7 @@ console.log('\n[2] Ops Auto-Staff Supervision Cap')
   const spanLog = s.inbox.find((msg) => msg.text.includes('Ops manager span exceeded'))
   check(Boolean(spanLog), 'logged "Ops manager span exceeded" alert in inbox')
   if (spanLog) {
-    check(spanLog.text.includes('20 coaches unsupervised'), 'mentions 20 coaches unsupervised')
+    check(spanLog.text.includes(`${50 - cap} coaches unsupervised`), `mentions ${50 - cap} coaches unsupervised`)
   }
 }
 

@@ -212,7 +212,9 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
       return { appeal: 0.52, isPeak: false, isOffPeak: true }
     }
     // Afternoon 14:00 - 17:00
-    return { appeal: 0.82, isPeak: false, isOffPeak: false }
+    if (h > 14.0 && h < 17.0) {
+      return { appeal: 0.82, isPeak: false, isOffPeak: false }
+    }
     // Dead of night 23:00 - 05:30
     return { appeal: 0.30, isPeak: false, isOffPeak: true }
   }

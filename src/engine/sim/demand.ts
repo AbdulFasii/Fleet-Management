@@ -1012,9 +1012,9 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   const timeFit = departureTimeFit(route, trip.depHour, depMin, model?.cls)
   const timeOffset = (timeFit.appeal - 1.0) * 0.40
 
-  // Position within [rangeMin, rangeMax]:
-  // Baseline 0.35 + (perfScore - 0.50) * 0.50 + timeOffset
-  const pos = clamp(0.35 + (perfScore - 0.50) * 0.50 + timeOffset, 0.05, 0.95)
+  // Position within [rangeMin, rangeMax]: an average operator sits at
+  // M.bandBaselinePos, better/worse ones move up/down with perfScore.
+  const pos = clamp(M.bandBaselinePos + (perfScore - 0.50) * 0.50 + timeOffset, 0.05, 0.95)
   let target = rangeMin + span * pos
   // 3.5★ is neutral. Each star above that adds a few points of fill; each star below takes a few off.
   const starLift = clamp((bus.qualityScore - 3.5) * 0.05, -0.08, 0.06)

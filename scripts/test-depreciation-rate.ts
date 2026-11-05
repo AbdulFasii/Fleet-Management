@@ -8,7 +8,6 @@ import { newGame } from '../src/engine/newGame'
 import { applyDepreciation, monthlyDepreciationFor, depreciationLifeYears } from '../src/engine/sim/finance'
 import { clampDepRate, purchaseDepRate, orderNewBus, deliverOrdersPass } from '../src/engine/sim/fleet'
 import { BAL } from '../src/engine/data/balance'
-import { effectiveNewPrice } from '../src/engine/sim/fleet'
 import { rs, toRupees } from '../src/engine/core/money'
 import type { Bus, DepreciationMethod, GameState } from '../src/engine/types'
 
@@ -19,7 +18,6 @@ function check(ok: boolean, label: string): void {
 }
 
 const MODEL = 'bb1824'
-const COST = toRupees(effectiveNewPrice(newGame('x', 'seth', 'mdu-maa', 1), MODEL))
 
 function buyNew(s: GameState): Bus {
   s.company.cash = rs(3_00_00_000)
@@ -29,6 +27,10 @@ function buyNew(s: GameState): Bus {
   const ids = Object.keys(s.buses)
   return s.buses[ids[ids.length - 1]!]!
 }
+
+// What a coach actually costs on order: the default body design is built on
+// the chassis, so this is more than the bare chassis list price.
+const COST = toRupees(buyNew(newGame('x', 'seth', 'mdu-maa', 90210)).acquiredPrice)
 
 function run(rate: number, method: DepreciationMethod, months: number): { book: number; bus: Bus } {
   const s = newGame('Dep Rate', 'seth', 'mdu-maa', 90210)

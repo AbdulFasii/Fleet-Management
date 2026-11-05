@@ -195,7 +195,9 @@ export function marketFare(
   const model = BUS_MODELS[modelId]
   if (!model) return route.marketFareAC
   const tierMult = serviceTierFareMult(serviceTier)
-  const normal = roundFare(route.marketFareAC * model.fareIndex * corridorFareIdx(s, route.id) * tierMult)
+  // Round once, at the end: rounding this base first could round a tier's
+  // lift away (₹1,045 → ₹1,000) and leave premium priced like standard.
+  const normal = route.marketFareAC * model.fareIndex * corridorFareIdx(s, route.id) * tierMult
 
   const d = dow(depDay)
   const isHb = isHomebound(route, direction)
@@ -289,7 +291,8 @@ export function resolveTripFare(
   trip.fareSleeper = undefined
   trip.fareSeater = undefined
 
-  const normal = roundFare(route.marketFareAC * model.fareIndex * corridorFareIdx(s, route.id) * tierMult)
+  // Unrounded base; the final fare is rounded once (see marketFare).
+  const normal = route.marketFareAC * model.fareIndex * corridorFareIdx(s, route.id) * tierMult
 
   const d = dow(trip.day)
   const isWeekend = d === 0 || d === 6

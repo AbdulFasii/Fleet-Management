@@ -119,9 +119,10 @@ console.log('\n[5] Manager Auto-Hire Target Scales with Span Deficit')
   const baseTarget = autoHireRoleTarget(s, 'manager')
   check(baseTarget >= 8, `base manager target >= 8 (got ${baseTarget})`)
 
-  // Now create 60 coaches (cap is 30, deficit 30)
-  // 30 / (30 * 0.60) = 30 / 18 = 2 assistants needed for ops
-  for (let i = 0; i < 60; i++) {
+  // Fleet at twice the ops span: deficit = base, each assistant adds base x share
+  const opsBase = BAL.span.base.ops
+  const wantAst = Math.ceil((2 * opsBase - opsBase + 1) / (opsBase * BAL.span.assistantShare))
+  for (let i = 0; i < 2 * opsBase; i++) {
     s.buses[`b_tgt_${i}`] = {
       id: `b_tgt_${i}`,
       modelId: 'cheetah',
@@ -138,7 +139,7 @@ console.log('\n[5] Manager Auto-Hire Target Scales with Span Deficit')
   }
 
   const astNeeded = assistantsToCover(s, 'ops')
-  check(astNeeded === 2, `assistants needed for ops is 2 (got ${astNeeded})`)
+  check(astNeeded === wantAst, `assistants needed for ops is ${wantAst} (got ${astNeeded})`)
 
   const newTarget = autoHireRoleTarget(s, 'manager')
   check(newTarget >= 8 + astNeeded, `manager hiring target scaled to include needed assistants (${newTarget} >= 10)`)

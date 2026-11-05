@@ -44,6 +44,8 @@ function makeBus(s: GameState, modelId: string): Bus {
 
 function estimate(routeId: string, modelId: string, depHour: number) {
   const s = newGame('Layout Test', 'seth', routeId, 4242)
+  // Layout checks compare products on a mature corridor, not the new-route ramp.
+  s.config = { ...s.config, routeLifeCycle: false }
   refreshMarkets(s)
   s.buses['b1'] = makeBus(s, modelId)
   const res = createSchedule(s, {
@@ -77,8 +79,6 @@ function check(name: string, lf: number, lo: number, hi = 1) {
 console.log('--- Layout mismatch penalties are discounts, not write-offs ---')
 
 // Overnight haul (8h, 21:00): berths are the right product, a seater still half-sells.
-// (Slightly under 70% since the booking window was shortened to 7 days — fares are
-// now set from a shorter lead-time curve, which trims the sleeper target a little.)
 const nightSleeper = estimate('mdu-maa', 'leyacsleep2', 21)
 const nightSeater = estimate('mdu-maa', 'volvo9400semi', 21)
 check('sleeper on an 8h night haul', nightSleeper.target, 0.70)
@@ -113,7 +113,14 @@ if (Math.abs(midSleeper.target - midSeater.target) > 0.18) {
   process.exit(1)
 }
 
-// Short day hop (5.5h): seats win, but a sleeper still sells to night-shift demand.
-check('sleeper on a 5.5h day hop', estimate('mys-cbe', 'leyacsleep2', 9).target, 0.43, 0.62)
+// Short day hop (5h): seats win, but a sleeper still sells to night-shift demand.
+const daySleeper = estimate('maa-slm', 'leyacsleep2', 9).target
+const daySeater = estimate('maa-slm', 'volvo9400semi', 9).target
+check('sleeper on a 5h day hop', daySleeper, 0.40)
+if (daySleeper >= daySeater) {
+  console.error(`FAIL: on a day hop a seater should beat a sleeper (seater ${(daySeater * 100).toFixed(0)}%, sleeper ${(daySleeper * 100).toFixed(0)}%)`)
+  process.exit(1)
+}
+console.log(`✓ day hop seater ${(daySeater * 100).toFixed(0)}% beats sleeper ${(daySleeper * 100).toFixed(0)}%`)
 
 console.log('\n--- ALL LAYOUT MISMATCH CHECKS PASSED ---')

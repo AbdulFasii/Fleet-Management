@@ -68,8 +68,8 @@ console.log('[1] Documents Desk Span & Dilution')
 
   const mgr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointDocsManager(s, mgr.id)
-  check(deskCapacity(s, 'documents') === 50, 'skill 5 capacity is 50 files')
-  check(deskCoverage(s, 'documents') === 1.0, '15 files on cap 50 is 100% coverage')
+  check(deskCapacity(s, 'documents') === BAL.span.base.documents, `skill 5 capacity is ${BAL.span.base.documents} files`)
+  check(deskCoverage(s, 'documents') === 1.0, `15 files on cap ${BAL.span.base.documents} is 100% coverage`)
 
   // Document renewals cap: ceil(BAL.span.docRenewalsPerPass * coverage) = 12 at 1.0 coverage
   check(Math.ceil(BAL.span.docRenewalsPerPass * deskCoverage(s, 'documents')) === 12, 'renewals cap is 12 per pass at full coverage')
@@ -111,7 +111,7 @@ console.log('\n[3] Schedule Desk Span & Festival Assignment')
 
   const mgr = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointScheduleManager(s, mgr.id)
-  check(deskCapacity(s, 'schedule') === 30, 'skill 5 capacity is 30 services')
+  check(deskCapacity(s, 'schedule') === BAL.span.base.schedule, `skill 5 capacity is ${BAL.span.base.schedule} services`)
 }
 
 console.log('\n[4] CRM Desk Span & Daily Auto-Action Cap')
@@ -149,7 +149,8 @@ console.log('\n[5] Accounts Desk Span & Tax/Insurance Gate')
   const acct = recruitVeteran(s, 'manager', { skill: [5, 5] })
   appointAccountant(s, acct.id)
 
-  check(deskCapacity(s, 'accountant') === 1500, 'base capacity is 1500 ledger rows')
+  const acctBase = BAL.span.base.accountant
+  check(deskCapacity(s, 'accountant') === acctBase, `base capacity is ${acctBase} ledger rows`)
   check(deskCoverage(s, 'accountant') === 1.0, 'low txn volume gives 1.0 coverage')
 
   // Tax gate requires coverage >= 0.75
@@ -163,8 +164,8 @@ console.log('\n[5] Accounts Desk Span & Tax/Insurance Gate')
   check(s.company.gstPayable === 0, 'GST auto-filed at full coverage (>=0.75)')
 
   // Simulate heavy ledger volume to dilute coverage below 0.75:
-  // Need > 2000 txns for capacity 1500 -> 1500 / 2200 = ~0.68 coverage
-  for (let i = 0; i < 2200; i++) {
+  // About 1.5x the ledger span in rows -> coverage ~0.67
+  for (let i = 0; i < Math.ceil(acctBase * 1.5); i++) {
     pushTxn(s, {
       id: `tx_${i}`,
       day: s.day,

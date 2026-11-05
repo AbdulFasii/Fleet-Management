@@ -120,10 +120,11 @@ export const BAL = {
   cargoUnloadingPaisePerKg: 8,
   /**
    * Truck part-load rate as a fraction of the parcel slider.
-   * Default parcel ₹2.50 → about ₹0.90/kg per 100 km. Capped so a high parcel
-   * slider cannot price a 26T like a courier desk.
-     */
-  cargoTruckRateVsParcel: 0.36,
+   * Default parcel ₹1.00 → ₹0.90/kg per 100 km (a 4t part-load Chennai→Madurai
+   * bills about ₹17k). Capped so a high parcel slider cannot price a 26T like
+   * a courier desk. (Was 0.36, tuned when the parcel default was ₹2.50.)
+   */
+  cargoTruckRateVsParcel: 0.90,
   cargoTruckRateCapRs: 1.25,
   /** Signed contracts land just under the posted rate (volume discount). */
   cargoContractRateLo: 0.86,
@@ -344,6 +345,12 @@ export const BAL = {
       cargoBundleRival: 1.05,
       uncounteredRival: 1.11,
     },
+    /**
+     * Where an average operator lands inside a day's occupancy band (0 = band
+     * bottom, 1 = top). Calibrated with scripts/calibrate-occupancy.ts so a
+     * sensibly run, maintained fleet averages 60-70%.
+     */
+    bandBaselinePos: 0.65,
     /** Discounts stop adding fill past this multiple. */
     priceBoostMax: 1.35,
     /** How the per-corridor real-world swings compound on the target fill. */
@@ -1511,14 +1518,17 @@ export function getDirectionalOccupancyRange(
     maxLf = maxLf * scale
   }
 
-  // Coach class adjustments
+  // Coach class adjustments. The bands describe a sleeper market; a seat
+  // trails a berth only once the trip runs past a day hop (6h+). On a short
+  // hop the seat is the right product and keeps the full band.
+  const dayHop = route.hours < BAL.layoutDuration.shortMax
   if (cls === 'AC_SLEEPER_PREM') {
     minLf = Math.min(1.0, minLf + 0.03)
     maxLf = Math.min(1.0, maxLf + 0.03)
-  } else if (cls === 'AC_SEMI') {
+  } else if (cls === 'AC_SEMI' && !dayHop) {
     minLf = minLf * 0.90
     maxLf = maxLf * 0.90
-  } else if (cls === 'AC_SEMI_PREM' || cls === 'E_AC_SEMI') {
+  } else if ((cls === 'AC_SEMI_PREM' || cls === 'E_AC_SEMI') && !dayHop) {
     minLf = minLf * 0.95
     maxLf = maxLf * 0.95
   } else if (cls === 'AC_HYBRID') {

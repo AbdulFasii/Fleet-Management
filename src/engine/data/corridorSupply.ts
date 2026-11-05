@@ -25,7 +25,7 @@ export const TYPICAL_PRIVATE_LF = 0.70
  * marathons (Chennai–Goa, Chennai–Bhubaneswar) sit nearer 6-10, but at that
  * size a single daily coach would be 10-15% of the lane's seats.
  */
-export const MIN_DEPARTURES = 12
+export const MIN_DEPARTURES = 15
 
 export interface CorridorSupply {
   /** Private departures per day, each direction. */
@@ -67,10 +67,10 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'maa-koc': S(50, 280),
   'maa-trv': S(35, 240),
   'maa-clt': S(20, 240),
-  'maa-mlr': S(12, 220),
+  'maa-mlr': S(15, 220),
   'maa-viz': S(25, 240),
-  'maa-goa': S(12, 150),
-  'maa-mum': S(12, 220),
+  'maa-goa': S(15, 150),
+  'maa-mum': S(15, 220),
 
   // —— Tamil Nadu to Kerala ——
   'cbe-koc': S(60, 300),
@@ -82,7 +82,7 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'slm-koc': S(35, 240),
 
   // —— Tamil Nadu to Karnataka ——
-  'mdu-mys': S(12, 180),
+  'mdu-mys': S(15, 180),
   'blr-cbe': S(180, 360),
   'blr-try': S(90, 260),
   'blr-slm': S(60, 260),
@@ -119,7 +119,7 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
 
   // —— South to north marathons ——
   'blr-nag': S(25, 260),
-  'maa-bbs': S(12, 220),
+  'maa-bbs': S(15, 220),
 
   // —— Andhra and Telangana ——
   'blr-vga': S(110, 300),

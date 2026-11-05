@@ -59,7 +59,8 @@ modified.prakesh.designs.push({
 })
 
 // Save modified designs to shared storage
-saveSharedBodyDesigns(modified)
+// Saving is asynchronous (IndexedDB first, then the local fallback): wait for it.
+await saveSharedBodyDesigns(modified)
 
 // Verify memory cache and localStorage got updated
 const sharedSync = getSharedBodyBuildersSync()

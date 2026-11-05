@@ -15,6 +15,7 @@ import { newGame } from '../src/engine/newGame'
 import { leaseMonthlyRent, usedPrice, startLease, endLease } from '../src/engine/sim/fleet'
 import { BAL } from '../src/engine/data/balance'
 import { BUS_MODELS } from '../src/engine/data/busModels'
+import { designsForModel } from '../src/engine/data/bodyBuilders'
 import { rs } from '../src/engine/core/money'
 import { advanceDay } from '../src/engine/tick'
 
@@ -26,6 +27,13 @@ function check(ok: boolean, label: string): void {
 
 const la = (m: number) => (m / 100 / 1_00_000).toFixed(2)
 
+// Lease offers come with a body built on the chassis (as in the market), so
+// price them with the first lease design for the model, like the game does.
+const gs = newGame('Lease Bodies', 'seth', 'maa-mdu', 5)
+const bodyFor = (id: string): string | undefined => designsForModel(gs, BUS_MODELS[id]!, { market: 'lease' })[0]?.design.id
+const rentOf = (id: string, age: number, odo: number) => leaseMonthlyRent(id, age, odo, bodyFor(id), gs)
+const valueOf = (id: string, age: number) => usedPrice(id, age, bodyFor(id), gs)
+
 console.log('\nquotes vs market band (₹ lakh / month)')
 for (const [id, age, odo, lo, hi] of [
   ['bb1824', 1, 72_000, 1.4, 2.2],
@@ -36,8 +44,8 @@ for (const [id, age, odo, lo, hi] of [
   ['eicher_pro', 1, 80_000, 0.7, 1.15],
   ['eicher_pro', 6, 470_000, 0.45, 0.85],
 ] as Array<[string, number, number, number, number]>) {
-  const rent = leaseMonthlyRent(id, age, odo)
-  const value = usedPrice(id, age)
+  const rent = rentOf(id, age, odo)
+  const value = valueOf(id, age)
   const pct = (rent / value) * 100
   const model = BUS_MODELS[id]!
   console.log(`  ${`${model.maker} ${model.name}`.padEnd(24)} ${age}y ${String(Math.round(odo / 1000)).padStart(3)}k → ₹${la(rent)}L/mo  (${pct.toFixed(2)}% of ₹${la(value)}L)`)
@@ -46,17 +54,17 @@ for (const [id, age, odo, lo, hi] of [
 }
 
 console.log('\nage curve — same model, older bus')
-const young = leaseMonthlyRent('bb1824', 1, 72_000)
-const middle = leaseMonthlyRent('bb1824', 3, 160_000)
-const old = leaseMonthlyRent('bb1824', 6, 400_000)
-const pctOf = (age: number, odo: number) => leaseMonthlyRent('bb1824', age, odo) / usedPrice('bb1824', age)
+const young = rentOf('bb1824', 1, 72_000)
+const middle = rentOf('bb1824', 3, 160_000)
+const old = rentOf('bb1824', 6, 400_000)
+const pctOf = (age: number, odo: number) => rentOf('bb1824', age, odo) / valueOf('bb1824', age)
 check(young > middle && middle > old, 'absolute rent falls as the coach ages')
 check(pctOf(1, 72_000) < pctOf(3, 160_000) && pctOf(3, 160_000) < pctOf(6, 400_000), 'rent claims a bigger share of value as the coach ages')
 
 console.log('\nowner upkeep is funded (service + tyres + insurance + tax)')
 for (const [id, age, odo] of [['bb1824', 2, 140_000], ['leyhybrid', 6, 390_000]] as Array<[string, number, number]>) {
-  const rent = leaseMonthlyRent(id, age, odo)
-  const value = usedPrice(id, age)
+  const rent = rentOf(id, age, odo)
+  const value = valueOf(id, age)
   const model = BUS_MODELS[id]!
   const insured = Math.max(BAL.insuranceMin, Math.round(Math.max(value, model.priceNew * 0.3) * BAL.insurancePctOfValue))
   const fixed = insured / 12 + BAL.fitnessRenewalCost / 12 + rs(42_000) / 12
