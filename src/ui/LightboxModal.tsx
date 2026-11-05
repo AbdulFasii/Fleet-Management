@@ -5,9 +5,11 @@ export interface LightboxModalProps {
   url: string | null
   title?: string
   onClose: () => void
+  /** When given, a Delete button removes the photo (it asks to confirm first). */
+  onDelete?: () => void
 }
 
-export function LightboxModal({ url, title, onClose }: LightboxModalProps) {
+export function LightboxModal({ url, title, onClose, onDelete }: LightboxModalProps) {
   useEffect(() => {
     if (!url) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -76,6 +78,17 @@ export function LightboxModal({ url, title, onClose }: LightboxModalProps) {
               >
                 Open in new tab ↗
               </a>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                className="danger small"
+                onClick={() => {
+                  if (window.confirm('Delete this photo from the gallery?')) onDelete()
+                }}
+              >
+                Delete
+              </button>
             )}
             <button type="button" className="small" onClick={onClose}>
               Close

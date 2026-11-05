@@ -1299,6 +1299,8 @@ export interface Company {
   primoNextEligibleDay?: number
   reputation: number // 0-100, gates unlocks
   brandAwareness: number // 0-1, grows with trips & marketing
+  /** Company-wide showcase gallery (public HTTPS URLs, capped). Shared by every brand. */
+  gallery?: string[]
   app: AppState
   /** Rolling history of recent trip PSS scores (up to 30) */
   recentTripPss?: number[]

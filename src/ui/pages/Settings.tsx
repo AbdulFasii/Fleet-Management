@@ -32,7 +32,7 @@ import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroup
 import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
 import { BrandHierarchyTree } from '../BrandHierarchyTree'
 import { BrandPicActions, BrandPicPicker } from '../BrandPicPicker'
-import { BrandGalleryModal } from '../BrandGalleryModal'
+import { CompanyGalleryModal, companyGalleryUrls } from '../CompanyGalleryModal'
 import { LightboxModal } from '../LightboxModal'
 import { CloudSavesPanel } from '../CloudSavesPanel'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
@@ -134,7 +134,7 @@ export function SettingsPage() {
   const [retireTarget, setRetireTarget] = useState<BusGroup | null>(null)
   const [retireDestination, setRetireDestination] = useState<string>('')
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
-  const [galleryBrand, setGalleryBrand] = useState<BusGroup | null>(null)
+  const [galleryOpen, setGalleryOpen] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
 
   const bodyBuilders = s.bodyBuilders ?? DEFAULT_BODY_BUILDERS
@@ -1149,9 +1149,19 @@ export function SettingsPage() {
               <div style={{ fontWeight: 600, fontSize: 16 }}>Vehicle Brand Groups ("Subsidiaries")</div>
               <Hint text={"Separate fleet branding, passenger amenities, cabin fittings, ratings, and Primo standing. One shared balance sheet, payroll, and workshop."} />
             </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="small"
+              onClick={() => setGalleryOpen(true)}
+              title="Company-wide showcase gallery, shared by every brand"
+            >
+              Gallery {(() => { const n = companyGalleryUrls(s.company.gallery, Object.values(s.groups ?? {})).length; return n ? `(${n})` : '' })()}
+            </button>
             <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined); setNewBrandParentId('') }}>
               + Create Subsidiary Brand
             </button>
+            </div>
           </div>
 
           {/* Corporate Brand Hierarchy Tree Diagram */}
@@ -1233,14 +1243,6 @@ export function SettingsPage() {
                             title={`Create a new sub-brand under ${group.name}`}
                           >
                             + Sub-brand
-                          </button>
-                          <button
-                            type="button"
-                            className="small"
-                            onClick={() => setGalleryBrand(group)}
-                            title="View and manage showcase fleet & livery gallery"
-                          >
-                            Gallery {group.gallery?.length ? `(${group.gallery.length})` : ''}
                           </button>
                           <BrandPicActions
                             value={group.brandingPic}
@@ -3039,11 +3041,21 @@ export function SettingsPage() {
         </Modal>
       )}
 
-      <BrandGalleryModal
-        group={galleryBrand}
-        isOpen={Boolean(galleryBrand)}
-        onClose={() => setGalleryBrand(null)}
-        onUpdateGroup={(id, patch) => g.updateGroup(id, patch)}
+      <CompanyGalleryModal
+        isOpen={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        companyName={s.company.name}
+        companyGallery={s.company.gallery}
+        groups={Object.values(s.groups ?? {})}
+        onSaveGallery={(urls) => {
+          // One company gallery: fold any old per-brand galleries into it.
+          const ok = g.intent((st) => {
+            st.company.gallery = urls
+            for (const grp of Object.values(st.groups ?? {})) delete grp.gallery
+            return null
+          })
+          return ok ? null : 'Could not save the gallery.'
+        }}
         onToast={(msg, kind) => g.toast(msg, kind)}
       />
 
