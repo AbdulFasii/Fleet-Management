@@ -1,3 +1,4 @@
+import type { Scenario } from '../../engine/types'
 import { useEffect, useRef, useState } from 'react'
 import { fmtDate } from '../../engine/core/calendar'
 import { useGame } from '../../store/gameStore'
@@ -13,6 +14,7 @@ export function SetupScreen() {
   const startNew = g.startNew
   const [name, setName] = useState('')
   const [diff, setDiff] = useState<Difficulty>('malik')
+  const [scenario, setScenario] = useState<Scenario>('standard')
   const [route, setRoute] = useState(starterRoutes()[0])
   const [saveFiles, setSaveFiles] = useState<{ name: string; size: number; mtime: string }[]>([])
   const [cloudSaves, setCloudSaves] = useState<CloudSaveHeader[]>([])
@@ -95,6 +97,19 @@ export function SetupScreen() {
       </div>
 
       <div className="form-row">
+        <label>Scenario</label>
+        <div className="subtabs inline">
+          {([
+            ['standard', 'Standard', 'The full game. Reach ₹100 Cr net worth to win.'],
+            ['sandbox', 'Sandbox', 'Extra ₹10 Cr, the game never ends, no victory. For trying things out.'],
+            ['ironman', 'Ironman', 'No rescue loan, no loading another save over a running game, and a ₹150 Cr finish line.'],
+          ] as const).map(([id, label, tip]) => (
+            <button key={id} className={`small ${scenario === id ? 'primary' : ''}`} title={tip} onClick={() => setScenario(id)}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="form-row">
         <label>Home route (permit pre-granted)</label>
         <select value={route} onChange={(e) => setRoute(e.target.value)}>
           {starterRoutes().map((r) => (
@@ -111,7 +126,7 @@ export function SetupScreen() {
       </p>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-        <button className="primary" style={{ padding: '8px 24px' }} onClick={() => startNew(name.trim() || 'Bharat Bus Co', diff, route)}>
+        <button className="primary" style={{ padding: '8px 24px' }} onClick={() => startNew(name.trim() || 'Bharat Bus Co', diff, route, scenario)}>
           REGISTER THE COMPANY ▸
         </button>
         {cloudSaves.length > 0 && (

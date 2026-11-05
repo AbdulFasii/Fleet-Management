@@ -1,3 +1,5 @@
+import { Cr } from './core/money'
+import type { Scenario } from './types'
 import { GAME_START_DAY, ymKey } from './core/calendar'
 import { BAL, DIFFICULTIES } from './data/balance'
 import type { Difficulty, GameState, BodyBuilder } from './types'
@@ -42,6 +44,7 @@ export function newGame(
   homeRouteId: string,
   seed: number,
   initialBodyBuilders?: Record<string, BodyBuilder>,
+  scenario: Scenario = 'standard',
 ): GameState {
   const day = GAME_START_DAY
   const preset = DIFFICULTIES.find((d) => d.id === difficulty)!
@@ -224,6 +227,8 @@ export function newGame(
 
   // seed capital & credit line (credit floor + equity-linked headroom)
   capitalIn(s, 'seed_capital', preset.seedCapital, { note: 'promoter capital' })
+  s.scenario = scenario
+  if (scenario === 'sandbox') capitalIn(s, 'seed_capital', Cr(10), { note: 'sandbox funds' })
   refreshOdLimit(s)
 
   // the home-route permit comes pre-granted so day 1 is playable

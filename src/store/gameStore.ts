@@ -5,7 +5,7 @@ import { setAutoFreeze } from 'immer'
 
 // Disable Immer auto-freeze so retained simulation drafts can be directly mutated across ticks
 setAutoFreeze(false)
-import type { BusDuty, CharterPricingStrategy, CorridorStance, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, LoungeTier, LoungeSeating, LoungeAmenityId, PassengerHandlingConfig } from '../engine/types'
+import type { BusDuty, CharterPricingStrategy, CorridorStance, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, LoungeTier, LoungeSeating, LoungeAmenityId, PassengerHandlingConfig, Scenario } from '../engine/types'
 import { type Money, fmtCompact } from '../engine/core/money'
 import { advanceDay, needsAttention } from '../engine/tick'
 import { newGame, SAVE_VERSION, initialBrandCode } from '../engine/newGame'
@@ -138,7 +138,7 @@ interface GameStore {
   assignBusToGroup: (busId: ID, groupId: ID | undefined, opts?: { chargeRebrand?: boolean }) => string | null
   assignScheduleToGroup: (schId: ID, groupId: ID | undefined) => string | null
 
-  startNew: (name: string, difficulty: Difficulty, homeRouteId: string) => void
+  startNew: (name: string, difficulty: Difficulty, homeRouteId: string, scenario?: Scenario) => void
   loadSave: () => boolean
   /** Parse a JSON export and load it. Returns whether browser storage accepted a write. */
   importSaveJson: (text: string) => { ok: boolean; persisted: boolean; error?: string }
@@ -1466,11 +1466,11 @@ export const useGame = create<GameStore>()(
     skipStopReason: null,
     uiPrefs: loadUiPrefs(),
 
-    startNew: (name, difficulty, homeRouteId) => {
+    startNew: (name, difficulty, homeRouteId, scenario = 'standard') => {
       setActiveCloudSaveId(null)
       const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0
       const shared = getSharedBodyBuildersSync()
-      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed, shared ?? undefined)
+      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed, shared ?? undefined, scenario)
       const { bodyBuilders } = syncStateBodyBuildersWithShared(s.bodyBuilders)
       s.bodyBuilders = bodyBuilders
       const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)
@@ -1512,6 +1512,10 @@ export const useGame = create<GameStore>()(
     },
 
     importSaveJson: (text) => {
+      const live = get().state
+      if (live?.scenario === 'ironman' && !live.gameOver) {
+        return { ok: false, persisted: false, error: 'Ironman: you cannot load another save over a running game.' }
+      }
       try {
         skipInFlight = false
         const parsed = decodeSaveString(text)
@@ -1829,7 +1833,7 @@ export const useGame = create<GameStore>()(
     sellBus: (busId) => get().intent((s) => fleet.sellBus(s, busId)),
     forecloseLoan: (loanId) => get().intent((s) => banking.forecloseLoan(s, loanId)),
     takeCashLoan: (slabId) => get().intent((s) => banking.takeCashLoan(s, slabId)),
-    rescueWithLoan: (slabId) => get().intent((s) => banking.takeCashLoan(s, slabId, { rescue: true }), 'Working capital drawn — keep operating.'),
+    rescueWithLoan: (slabId) => get().intent((s) => (s.scenario === 'ironman' ? 'Ironman: there is no rescue.' : banking.takeCashLoan(s, slabId, { rescue: true })), 'Working capital drawn — keep operating.'),
     hire: (candId) => get().intent((s) => staffing.hire(s, candId)),
     fire: (staffId) => get().intent((s) => staffing.fire(s, staffId)),
     assignStaff: (staffId, busId) => get().intent((s) => staffing.assignStaff(s, staffId, busId)),

@@ -337,7 +337,7 @@ function VictoryScreen() {
       title="A TRANSPORT EMPIRE"
       actions={<><button className="primary" onClick={ack}>Keep playing</button><button onClick={abandon}>Retire & start over</button></>}
     >
-      <p>Your company reached ₹100 Cr net worth. The game carries on if you want to keep building.</p>
+      <p>Your company reached its net worth target. The game carries on if you want to keep building.</p>
       <table className="data">
         <tbody>
           <tr><td>Days taken</td><td className="num">{v.score.daysSurvived}</td></tr>
@@ -376,6 +376,10 @@ function GameOverScreen() {
           <tr><td>Cash shortfall now</td><td className="num bad"><M v={shortfall} /></td></tr>
         </tbody>
       </table>
+      {s.scenario === 'ironman' ? (
+        <p className="muted" style={{ marginTop: 12 }}>Ironman: no rescue. The company is finished.</p>
+      ) : (
+        <>
       <p className="small" style={{ marginTop: 12 }}>
         Borrow working capital and continue. Same slabs as the Bank tab. Distress rate is +4% and credit takes a hit. Pick a facility that covers the shortfall.
       </p>
@@ -409,6 +413,8 @@ function GameOverScreen() {
           })}
         </tbody>
       </table>
+        </>
+      )}
     </Modal>
   )
 }

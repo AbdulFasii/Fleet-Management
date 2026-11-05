@@ -1695,7 +1695,11 @@ export interface BusGroup {
   primoNextEligibleDay?: number
 }
 
+export type Scenario = 'standard' | 'sandbox' | 'ironman'
+
 export interface GameState {
+  /** How this game was started. Missing on older saves: standard. */
+  scenario?: Scenario
   version: number
   seed: number
   day: number

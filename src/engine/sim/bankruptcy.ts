@@ -10,6 +10,7 @@ import { pushLog } from './log'
 
 export function bankruptcyCheck(s: GameState): void {
   if (s.gameOver) return
+  if (s.scenario === 'sandbox') return // sandbox games never end
   const c = s.company
 
   // solvent enough

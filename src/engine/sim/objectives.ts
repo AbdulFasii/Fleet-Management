@@ -17,6 +17,10 @@ export interface ObjectiveDef {
 
 const liveBuses = (s: GameState) => Object.values(s.buses).filter((b) => (b.status as string) !== 'sold').length
 const activeRoutes = (s: GameState) => Object.values(s.permits).filter((p) => p.status === 'active').length
+/** Net worth that wins the game. Ironman asks for more. */
+export function empireTarget(s: GameState): Money {
+  return Cr(s.scenario === 'ironman' ? 150 : 100)
+}
 const crore = (v: number) => `₹${(v / Cr(1)).toFixed(1)} Cr`
 
 /**
@@ -46,8 +50,8 @@ export const OBJECTIVES: ObjectiveDef[] = [
     progress: (s) => ({ current: Math.min(Cr(5), Math.max(0, netWorth(s))), target: Cr(5), fmt: crore }), reward: { cash: rs(1_000_000), reputation: 3 } },
   { id: 'g_fleet25', label: '25 buses at 4.5★', hint: 'Size and quality together.', to: '/fleet',
     progress: (s) => ({ current: Math.min(25, liveBuses(s)) * (s.company.rating >= 4.5 ? 1 : 0), target: 25, fmt: (v) => `${v} buses` }), reward: { cash: rs(2_500_000) } },
-  { id: 'g_empire', label: 'Build a ₹100 Cr company', hint: 'The finish line: net worth of ₹100 Cr.', to: '/money',
-    progress: (s) => ({ current: Math.min(Cr(100), Math.max(0, netWorth(s))), target: Cr(100), fmt: crore }), reward: { reputation: 5 } },
+  { id: 'g_empire', label: 'Build the empire', hint: 'The finish line: net worth of ₹100 Cr (₹150 Cr in an ironman game).', to: '/money',
+    progress: (s) => ({ current: Math.min(empireTarget(s), Math.max(0, netWorth(s))), target: empireTarget(s), fmt: crore }), reward: { reputation: 5 } },
 ]
 
 export function objectiveDone(s: GameState, id: string): boolean {
@@ -79,7 +83,7 @@ export function checkObjectives(s: GameState): void {
     }
     pushLog(s, 'good', `GOAL REACHED: ${o.label}${bits.length ? ` — reward ${bits.join(', ')}` : ''}.`, o.to)
   }
-  if (!s.victory && objectiveDone(s, 'g_empire')) {
+  if (!s.victory && s.scenario !== 'sandbox' && objectiveDone(s, 'g_empire')) {
     const routes = activeRoutes(s)
     s.victory = {
       day: s.day,
@@ -92,6 +96,6 @@ export function checkObjectives(s: GameState): void {
       },
       netWorth: netWorth(s),
     }
-    pushLog(s, 'good', 'VICTORY: your company is a ₹100 Cr transport empire. Retire with honours or keep building.')
+    pushLog(s, 'good', `VICTORY: your company is a ${fmtCompact(empireTarget(s))} transport empire. Retire with honours or keep building.`)
   }
 }

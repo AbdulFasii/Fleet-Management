@@ -522,7 +522,7 @@ export function SettingsPage() {
   return (
     <>
       {/* Title & Navigation */}
-      <PageHeader title="Settings" facts={<>{s.company.name} · {diff.label} · {fmtDate(s.day)}</>}>
+      <PageHeader title="Settings" facts={<>{s.company.name} · {diff.label}{s.scenario && s.scenario !== 'standard' ? ` · ${s.scenario}` : ''} · {fmtDate(s.day)}</>}>
         <Tabs inline tabs={[
             ['flow', 'Gameplay & Auto-Pause'],
             ['fleet', 'Fleet Policies'],
