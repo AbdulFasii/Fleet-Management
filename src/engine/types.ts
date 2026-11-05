@@ -1165,6 +1165,8 @@ export interface CharterContract {
   currentDayProgress: number
   status: 'inquiry' | 'booked' | 'active' | 'completed' | 'cancelled'
   pricingStrategy: CharterPricingStrategy
+  /** Peak-month and festival multiplier fixed when the inquiry came in (1 if missing). */
+  seasonMult?: number
   clientRating?: number
   completedRevenue?: Money
   completedExpenses?: Money

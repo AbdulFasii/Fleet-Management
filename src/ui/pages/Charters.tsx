@@ -2,13 +2,14 @@ import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useGame } from '../../store/gameStore'
 import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
+import { fmtCompact } from '../../engine/core/money'
 import { Bar, BusLink, Empty, M, PageHeader, Panel, StatRow, Tabs } from '../bits'
 import { BUS_MODELS, coachKind, isCharterModel, modelTitle } from '../../engine/data/busModels'
 import { CHARTER_CATEGORIES } from '../../engine/data/charterRoutes'
 import {
   busHealthScore,
-  calculateCharterBusCosts,
   charterDriverShortfall,
+  quoteCharterForBus,
   canBusTakeContract,
   getCharterConfig,
   getCharterFleet,
@@ -23,8 +24,8 @@ type Tab = 'inquiries' | 'tours' | 'fleet' | 'history' | 'policy'
 
 const PRICING: Record<CharterPricingStrategy, { label: string; effect: string; detail: string }> = {
   discount: { label: 'Discount', effect: '-12% fee · +35% conversion', detail: 'Undercuts market rates; bookings fill fast.' },
-  market: { label: 'Market', effect: 'standard rates', detail: 'South India market rates, about 28-35% margin.' },
-  premium: { label: 'Premium', effect: '+22% fee · needs condition 75+', detail: 'High-end weddings and retreats; needs a clean, well-kept coach.' },
+  market: { label: 'Market', effect: 'standard rates', detail: 'South India hire rates for the coach you send. Profit is capped at 50% of the fee.' },
+  premium: { label: 'Premium', effect: '+20% fee · needs condition 75+', detail: 'High-end weddings and retreats; needs a clean, well-kept coach. Profit is still capped at 50% of the fee.' },
 }
 
 const LAYOUT_LABEL: Record<string, string> = { semi: 'Semi-sleeper', sleeper: 'Sleeper', seater: 'Seater', van: 'Van / mini bus' }
@@ -160,7 +161,11 @@ export function ChartersPage() {
                   const options = eligible(inq)
                   const busId = pick[inq.id]
                   const bus = busId ? s.buses[busId] : undefined
-                  const cost = bus ? calculateCharterBusCosts(s, inq, bus) : null
+                  const quote = bus ? quoteCharterForBus(s, inq, bus) : null
+                  const cost = quote?.costs ?? null
+                  const optionFees = options.map((b) => quoteCharterForBus(s, inq, b).payout)
+                  const feeLo = optionFees.length ? Math.min(...optionFees) : inq.payout
+                  const feeHi = optionFees.length ? Math.max(...optionFees) : inq.payout
                   const isOpen = open === inq.id
                   return (
                     <Fragment key={inq.id}>
@@ -178,12 +183,14 @@ export function ChartersPage() {
                           <b>{inq.minSeats}+</b> seats
                           <div className="muted">{LAYOUT_LABEL[inq.preferredCoachKind] ?? inq.preferredCoachKind}</div>
                         </td>
-                        <td className="num good"><M v={inq.payout} /></td>
+                        <td className="num good" title="Priced by the coach you send">
+                          {quote ? <M v={quote.payout} /> : feeLo === feeHi ? <span className="muted">~<M v={feeLo} /></span> : <span className="muted"><M v={feeLo} />–<M v={feeHi} /></span>}
+                        </td>
                         <td>
                           <select value={busId ?? ''} onChange={(e) => setPick((p) => ({ ...p, [inq.id]: e.target.value }))}>
                             <option value="">{options.length > 0 ? `choose (${options.length} free)` : 'none free'}</option>
                             {options.map((b) => (
-                              <option key={b.id} value={b.id}>{b.reg} · {BUS_MODELS[b.modelId]?.seats}s · {busHealthScore(b)}%</option>
+                              <option key={b.id} value={b.id}>{b.reg} · {BUS_MODELS[b.modelId]?.seats}s · {busHealthScore(b)}% · {fmtCompact(optionFees[options.indexOf(b)]!)}</option>
                             ))}
                           </select>
                         </td>
@@ -210,6 +217,14 @@ export function ChartersPage() {
                                       <tr><td>FASTag tolls & permits</td><td className="num"><M v={cost.tollCost} /></td></tr>
                                       {cost.maintenanceCost > 0 && <tr><td>Maintenance & prep</td><td className="num"><M v={cost.maintenanceCost} /></td></tr>}
                                       <tr><td><b>Total</b></td><td className="num"><b><M v={cost.totalDirectCost} /></b></td></tr>
+                                      {quote && (
+                                        <tr>
+                                          <td colSpan={2} className="muted">
+                                            ₹{quote.ratePerKm}/km for this coach · fee <M v={quote.payout} />
+                                            {quote.capped ? ' · held at the 50% profit cap' : quote.floored ? ' · raised to cost + 5%' : ''}
+                                          </td>
+                                        </tr>
+                                      )}
                                     </tbody>
                                   </table>
                                 ) : (

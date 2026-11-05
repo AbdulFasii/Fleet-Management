@@ -16,7 +16,8 @@ import { cancelOpenTripsForBus } from './booking'
 import { opsAutoStaffPass, scheduleManagerOnDuty } from './staffing'
 import { deskCapacity } from './span'
 import { applyWear } from './dispatch'
-import { isBusBusyOnCharter } from './charter'
+import { busHealthScore, isBusBusyOnCharter } from './charter'
+import { capCharterPrice, charterRatePerKm } from '../data/charterRates'
 import { earn, spend } from './finance'
 
 export { isFestivalDay }
@@ -320,22 +321,16 @@ export function calculateCharterQuote(
   const seats = model?.seats || 36
   const isSemi = model ? (model.layout.kind === 'semi' || !model.sleeper) : false
   const isHybrid = model ? model.layout.kind === 'hybrid' : false
-  const isPrem = model ? (model.cls === 'AC_SLEEPER_PREM' || model.cls === 'AC_SEMI_PREM' || model.maker === 'Volvo' || model.maker === 'Scania') : false
   const coachType: 'semi' | 'sleeper' | 'hybrid' = isSemi ? 'semi' : isHybrid ? 'hybrid' : 'sleeper'
 
   const roundTripKm = route.km * 2
   // Indian bus charter contracts have a standard 400 km minimum billable floor
   const billableKm = Math.max(roundTripKm, 400)
 
-  // Real-world per-km tariffs in South India (tourist / private contract carriage):
-  // - Premium multi-axle (Volvo 9600, Scania): ₹86 - ₹94/km
-  // - Standard AC Sleeper (BharatBenz 1824, Leyland): ₹64 - ₹70/km
-  // - AC Hybrid (40-46 berths/seats): ₹58 - ₹64/km
-  // - AC Semi-Sleeper (44-50 seats): ₹50 - ₹56/km
-  const baseRate = isPrem ? 88 : isSemi ? 52 : isHybrid ? 60 : 66
-
-  // Jitter slightly by route demand/season (±5%)
+  // Per-km tariff for the vehicle actually hired (data/charterRates), nudged
+  // by the corridor's going rate (±8% / +15%).
   const fareFactor = s.world.fareIndex[route.id] ?? 1.0
+  const baseRate = model ? charterRatePerKm(model, busHealthScore(bus)) : 60
   const ratePerKm = Math.round(baseRate * Math.max(0.92, Math.min(1.15, fareFactor)))
 
   const roundTripToll = Math.round(roundTripKm * (route.tollPerKm || 0))
@@ -356,10 +351,11 @@ export function calculateCharterQuote(
   // All-inclusive tour charter contract value in paise (base distance tariff + tolls + taxes + bata)
   const tariffPaise = rs(billableKm * ratePerKm)
   const rawContract = tariffPaise + roundTripToll + interstateTax + crewBata
-  // Enforce healthy commercial margin floor (at least 35% above direct expenses)
-  const finalRaw = Math.max(rawContract, Math.round(totalExpenses * 1.35))
-  const fee = Math.round(finalRaw / rs(500)) * rs(500)
-  const profit = Math.max(rs(5_000), fee - totalExpenses)
+  // Held between direct cost + 5% and the 50% profit cap.
+  const held = capCharterPrice(rawContract, totalExpenses)
+  const round100 = held.capped ? Math.floor : held.floored ? Math.ceil : Math.round
+  const fee = round100(held.price / rs(100)) * rs(100)
+  const profit = fee - totalExpenses
 
   return {
     roundTripKm,

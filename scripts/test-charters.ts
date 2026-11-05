@@ -46,7 +46,9 @@ console.log('   Discount Payout:', discountQuote.payout)
 console.log('   Market Payout:', marketQuote.payout)
 console.log('   Premium Payout:', premiumQuote.payout)
 
-if (!(discountQuote.payout < marketQuote.payout && marketQuote.payout < premiumQuote.payout)) {
+// Premium can only add fee until the 50% profit cap binds, so market and
+// premium may land on the same capped price for a short tour.
+if (!(discountQuote.payout < marketQuote.payout && marketQuote.payout <= premiumQuote.payout)) {
   throw new Error('Pricing strategy ordering failed!')
 }
 

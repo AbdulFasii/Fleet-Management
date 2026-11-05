@@ -51,12 +51,12 @@ console.log('--- 1. Testing calculateCharterQuote math and profit ---')
   console.log(`Cost breakdown: fuel=₹${q.fuelCost / 100}, toll=₹${q.tollCost / 100}, bata=₹${q.bataCost / 100}, adblue=₹${q.adblueCost / 100}, other=₹${q.otherCosts / 100}`)
 
   assert(q.profit > 0, `Profit must be positive! Got ₹${q.profit / 100}`)
-  assert(q.profit >= rs(5_000), `Profit should meet minimum floor of ₹5,000, got ₹${q.profit / 100}`)
   assert(q.fee >= q.totalExpenses, `Fee ₹${q.fee / 100} must cover expenses ₹${q.totalExpenses / 100}`)
   const margin = q.profit / q.fee
   console.log(`Profit margin: ${(margin * 100).toFixed(1)}%`)
   assert(margin >= 0.30, `Profit margin should be healthy (>= 30%), got ${(margin * 100).toFixed(1)}%`)
-  assert(q.fee % rs(500) === 0, `Fee should be rounded to nearest ₹500, got ${q.fee}`)
+  assert(margin <= 0.50 + 1e-9, `Profit must not exceed 50% of the fee, got ${(margin * 100).toFixed(1)}%`)
+  assert(q.fee % rs(100) === 0, `Fee should be rounded to ₹100, got ${q.fee}`)
 }
 
 console.log('\n--- 2. Testing Schedule Manager gating (no manager -> NO charters) ---')

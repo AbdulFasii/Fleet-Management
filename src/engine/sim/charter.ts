@@ -12,6 +12,7 @@ import { CHARTER_ROUTES, type CharterRouteDef } from '../data/charterRoutes'
 import { BUS_MODELS, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { BAL } from '../data/balance'
+import { CHARTER_DETENTION_SHARE, CHARTER_MIN_KM_PER_DAY, capCharterPrice, charterRatePerKm } from '../data/charterRates'
 import { nextId } from '../core/ids'
 import { fmtCompact, rs } from '../core/money'
 import { rngFor, rInt, rPick, rChance } from '../core/rng'
@@ -143,7 +144,7 @@ export function calculateCharterBusCosts(
   const driverBata = rs(days * driverCount * 1200)
 
   // 4. Maintenance wear, tyres, cleaning & vehicle standing retention allocation
-  const minBillingKm = days * 250
+  const minBillingKm = days * CHARTER_MIN_KM_PER_DAY
   const shortfallKm = Math.max(0, minBillingKm - km)
   const maintenanceCost =
     rs(Math.round(km * 5.0)) + // Running wear on tyres, engine oil, brakes
@@ -170,7 +171,79 @@ export function calculateCharterBusCosts(
   }
 }
 
-/** Calculate quote for a charter route */
+/** Strategy, peak-month and festival multipliers on the rate-based price. */
+export function charterSeasonMult(s: GameState, peakMonths: number[]): number {
+  let mult = 1
+  if (peakMonths.includes(toCivil(s.day).m)) mult *= 1.15
+  if (isFestivalDay(s.day)) mult *= 1.20
+  return mult
+}
+
+function strategyMult(strategy: CharterPricingStrategy): number {
+  return strategy === 'discount' ? 0.88 : strategy === 'premium' ? 1.20 : 1.0
+}
+
+export interface CharterPrice {
+  payout: Money
+  ratePerKm: number
+  /** Price before the profit cap and cost floor. */
+  rateBased: Money
+  costs: CharterCostBreakdown
+  /** The 50% profit cap cut this price. */
+  capped: boolean
+  /** The cost + 5% floor raised this price. */
+  floored: boolean
+}
+
+/** Typical vehicle behind an indicative quote, before a coach is chosen. */
+const REFERENCE_MODEL: Record<CharterRouteDef['preferredCoachKind'], string> = {
+  van: 'traveller12',
+  seater: 'eicher32',
+  semi: 'cheetah',
+  sleeper: 'leyacsleep',
+}
+
+/**
+ * Price a hire for one vehicle. Running km (at least 300 a day) at the
+ * vehicle's rate, the short km at detention rate, times strategy and season,
+ * plus tolls, permits and driver bata passed through at cost. Then held
+ * between direct cost + 5% and the 50% profit cap.
+ */
+export function priceCharterForVehicle(
+  s: GameState,
+  job: { roundTripKm: number; durationDays: number },
+  strategy: CharterPricingStrategy,
+  seasonMult: number,
+  bus: Pick<Bus, 'modelId'> & Partial<Bus>,
+): CharterPrice {
+  const model = BUS_MODELS[bus.modelId]
+  const km = job.roundTripKm
+  const days = Math.max(1, job.durationDays)
+  const condition = bus.condition ? busHealthScore(bus as Bus) : 75
+  const ratePerKm = model ? charterRatePerKm(model, condition) : 40
+  const shortfallKm = Math.max(0, days * CHARTER_MIN_KM_PER_DAY - km)
+  const hire = rs(km * ratePerKm + shortfallKm * ratePerKm * CHARTER_DETENTION_SHARE)
+
+  const zero = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout: 0 }, bus as Bus)
+  const passThrough = zero.tollCost + zero.driverBata
+  const rateBased = Math.round(hire * strategyMult(strategy) * seasonMult) + passThrough
+  const { price, capped, floored } = capCharterPrice(rateBased, zero.totalDirectCost)
+  // Round to ₹100 without crossing the cap or the floor.
+  const round100 = capped ? Math.floor : floored ? Math.ceil : Math.round
+  const payout = round100(price / rs(100)) * rs(100)
+  const costs = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout }, bus as Bus)
+  return { payout, ratePerKm, rateBased, costs, capped, floored }
+}
+
+/** The price for this inquiry if `bus` takes it (strategy and season fixed when the inquiry came in). */
+export function quoteCharterForBus(s: GameState, inq: CharterContract, bus: Bus): CharterPrice {
+  return priceCharterForVehicle(s, inq, inq.pricingStrategy, inq.seasonMult ?? 1, bus)
+}
+
+/**
+ * Indicative quote for a charter route before a vehicle is chosen. Priced on
+ * `bus` when given, else on a typical vehicle for the requested coach kind.
+ */
 export function calculateCharterQuote(
   s: GameState,
   route: CharterRouteDef,
@@ -184,65 +257,15 @@ export function calculateCharterQuote(
   maintenanceCostEst: Money
   netProfitEst: Money
 } {
-  const km = route.roundTripKm
-  const days = Math.max(1, route.durationDays)
-
-  // Calibrated real-world market rates per km for private bus rental in South India
-  let ratePerKm = 40
-  if (route.preferredCoachKind === 'sleeper') {
-    ratePerKm = 48
-  } else if (route.preferredCoachKind === 'semi') {
-    ratePerKm = 40
-  } else if (route.preferredCoachKind === 'seater') {
-    ratePerKm = 34
-  } else if (route.preferredCoachKind === 'van') {
-    ratePerKm = 26
-  }
-
-  // Base contract payout:
-  // Actual running km at full rate + detention charge on shortfall km below 250 km/day
-  const minBillingKm = days * 250
-  const shortfallKm = Math.max(0, minBillingKm - km)
-  const detentionRate = Math.round(ratePerKm * 0.45)
-  const baseKmPricePaise = rs(km * ratePerKm + shortfallKm * detentionRate)
-
-  // Base toll, tourist permit, and driver outstation bata package
-  const baseTollPaise = rs(Math.round(km * 3.5)) + rs(days * 800)
-  const driverCount = (km > 500 || days > 2) ? 2 : 1
-  const baseBataPaise = rs(days * driverCount * 1200)
-  const basePricePaise = baseKmPricePaise + baseTollPaise + baseBataPaise
-
-  // Strategy adjustment
-  let mult = 1.0
-  if (strategy === 'discount') mult = 0.88 // 12% discount
-  else if (strategy === 'premium') mult = 1.20 // 20% luxury premium
-
-  // Seasonal peak adjustments
-  const civil = toCivil(s.day)
-  if (route.peakMonths.includes(civil.m)) mult *= 1.15
-  if (isFestivalDay(s.day)) mult *= 1.20
-
-  const payout = Math.round(basePricePaise * mult)
-
-  if (bus) {
-    const costs = calculateCharterBusCosts(s, { roundTripKm: km, durationDays: days, payout }, bus)
-    return {
-      payout,
-      fuelCostEst: costs.fuelCost,
-      tollCostEst: costs.tollCost,
-      driverBataEst: costs.driverBata,
-      maintenanceCostEst: costs.maintenanceCost,
-      netProfitEst: costs.netProfit,
-    }
-  }
-
+  const vehicle = bus ?? { modelId: REFERENCE_MODEL[route.preferredCoachKind] }
+  const q = priceCharterForVehicle(s, route, strategy, charterSeasonMult(s, route.peakMonths), vehicle)
   return {
-    payout,
-    fuelCostEst: 0,
-    tollCostEst: 0,
-    driverBataEst: 0,
-    maintenanceCostEst: 0,
-    netProfitEst: 0,
+    payout: q.payout,
+    fuelCostEst: bus ? q.costs.fuelCost : 0,
+    tollCostEst: bus ? q.costs.tollCost : 0,
+    driverBataEst: bus ? q.costs.driverBata : 0,
+    maintenanceCostEst: bus ? q.costs.maintenanceCost : 0,
+    netProfitEst: bus ? q.costs.netProfit : 0,
   }
 }
 
@@ -306,6 +329,7 @@ export function generateCharterInquiries(s: GameState): void {
       minSeats: route.minSeats,
       minCondition: cfg.pricingStrategy === 'premium' ? 75 : 50,
       payout: quote.payout,
+      seasonMult: charterSeasonMult(s, route.peakMonths),
       fuelCostEst: 0,
       tollCostEst: 0,
       driverBataEst: 0,
@@ -402,9 +426,11 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
   const noDriver = charterDriverShortfall(s, bus, inq)
   if (noDriver) return noDriver + '.'
 
-  // Calculate direct costs strictly with the exact selected bus
-  const costs = calculateCharterBusCosts(s, inq, bus)
+  // Price and cost strictly with the exact selected bus
+  const priced = quoteCharterForBus(s, inq, bus)
+  const costs = priced.costs
 
+  inq.payout = priced.payout
   inq.busId = bus.id
   inq.status = 'booked'
   inq.fuelCostEst = costs.fuelCost
@@ -731,7 +757,7 @@ export function autoAssignBestCharters(s: GameState): number {
     let bestProfit = -Infinity
 
     for (const b of eligibleBuses) {
-      const costs = calculateCharterBusCosts(s, inq, b)
+      const costs = quoteCharterForBus(s, inq, b).costs
       if (costs.marginPct < (getCharterConfig(s).minMarginPct ?? 0)) continue
       const score = scoreBusForContract(b, inq)
       const weightedProfit = costs.netProfit + score * 1000
