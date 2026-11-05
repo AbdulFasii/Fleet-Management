@@ -1411,7 +1411,9 @@ export const useGame = create<GameStore>()(
       setActiveCloudSaveId(null)
       const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0
       const shared = getSharedBodyBuildersSync()
-      const s = newGame(name || 'Bharat Bus Co', difficulty, homeRouteId, seed, shared ?? undefined, scenario)
+      const trimmed = name?.trim()
+      if (!trimmed) return
+      const s = newGame(trimmed, difficulty, homeRouteId, seed, shared ?? undefined, scenario)
       const { bodyBuilders } = syncStateBodyBuildersWithShared(s.bodyBuilders)
       s.bodyBuilders = bodyBuilders
       const validPrefs = sanitizeUiPrefs(get().uiPrefs, s)

@@ -1,4 +1,4 @@
-# BUS RAJ — Indian Bus Operator Tycoon
+# Fleet Operator
 
 A text-based, dashboard-style business simulation where you run a private
 intercity bus company in India — the world of RedBus listings, Volvo

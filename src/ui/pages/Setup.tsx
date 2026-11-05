@@ -69,15 +69,31 @@ export function SetupScreen() {
       .catch(() => g.toast('Network error loading save file.', 'bad'))
   }
 
+  const isNameValid = name.trim().length > 0
+
+  const handleRegister = () => {
+    const trimmed = name.trim()
+    if (!trimmed) {
+      g.toast('Please enter a company name to register.', 'warn')
+      return
+    }
+    startNew(trimmed, diff, route, scenario)
+  }
+
   return (
     <div className="setup-screen">
-      <h1>Bus Operator Tycoon</h1>
+      <h1>Fleet Operator</h1>
 
       <div className="form-row">
         <label>Company name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && isNameValid) {
+              handleRegister()
+            }
+          }}
           placeholder="Enter company name..."
           style={{ width: 260 }}
           maxLength={28}
@@ -126,7 +142,17 @@ export function SetupScreen() {
       </p>
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-        <button className="primary" style={{ padding: '8px 24px' }} onClick={() => startNew(name.trim() || 'Bharat Bus Co', diff, route, scenario)}>
+        <button
+          className="primary"
+          style={{
+            padding: '8px 24px',
+            opacity: isNameValid ? 1 : 0.45,
+            cursor: isNameValid ? 'pointer' : 'not-allowed',
+          }}
+          disabled={!isNameValid}
+          title={isNameValid ? 'Register your company' : 'Enter a company name first'}
+          onClick={handleRegister}
+        >
           REGISTER THE COMPANY ▸
         </button>
         {cloudSaves.length > 0 && (
