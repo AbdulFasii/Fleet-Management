@@ -565,7 +565,7 @@ export function RoutesPage() {
                         : 0
 
                       // When player is 0%, competitors are 100%
-                      const competitorShare = Math.max(0, 100 - pShare)
+                      const competitorShare = Math.max(0, Math.round((100 - pShare) * 10) / 10)
 
                       let rivalEntries = share?.byRival ? Object.entries(share.byRival) : []
                       if (rivalEntries.length === 0) {

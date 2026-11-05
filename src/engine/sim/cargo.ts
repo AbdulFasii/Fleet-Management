@@ -1,9 +1,10 @@
 /**
  * Cargo is a finite pool per city pair and direction, the same way passengers are.
  *
- * The market for a lane is the corridor's passenger demand for that direction,
- * turned into kilograms. Our book is the share a desk with this manager, price
- * and competition can actually win. Departures draw their slot's weight of that
+ * The parcel market for a lane is what the corridor's private buses carry in
+ * their bellies (real departures x a typical load). Our parcel book follows
+ * our share of those departures, scaled by the desk (manager, price,
+ * punctuality); truck freight is a share of a separate gravity market. Departures draw their slot's weight of that
  * book and stop near a natural load — they do not keep loading until the bay is full.
  *
  * Contracts are one direction of one lane. Alias routes (Madurai–Chennai and
@@ -13,6 +14,7 @@ import { BAL } from '../data/balance'
 import { CITIES, cityFreightProfile } from '../data/cities'
 import { isCargoModel } from '../data/busModels'
 import { ROUTES, routeName, canonicalRouteId } from '../data/routes'
+import { corridorSupply, realParcelKgPerDay } from '../data/corridorSupply'
 import { dow, festivalEffect, fmtDate, seasonInfo, ymKey } from '../core/calendar'
 import { rngFor, rChance, rJitter, rPick, type Rng } from '../core/rng'
 import { nextId } from '../core/ids'
@@ -32,7 +34,6 @@ import type {
   SpotCargoOffer,
 } from '../types'
 import { corridorProfile, windowMass } from './corridor'
-import { demandFactors } from './demand'
 import { canAfford, routeDayFor, spend } from './finance'
 import { pushLog } from './log'
 import { cargoManagerOnDuty } from './staffing'
@@ -302,15 +303,25 @@ function cargoMixMult(s: GameState): number {
   return 1.0
 }
 
-/** Passengers shopping this direction today, before we turn them into kilograms. */
-export function corridorPaxDemand(s: GameState, route: RouteDef, direction: 'AB' | 'BA', day: number): number {
-  const f = demandFactors(s, route, direction, day)
-  return Math.max(0, route.baseDemand * f.mult)
+/**
+ * Which way this lane's parcels lean: origin shipping strength times the
+ * destination's pull, against the average of both directions (mean 1).
+ */
+function parcelDirectionLean(route: RouteDef, direction: 'AB' | 'BA'): number {
+  const o = cityFreightProfile(cargoOriginId(route, direction))
+  const d = cityFreightProfile(cargoDestId(route, direction))
+  const fwd = o.shipIndex * d.attractIndex
+  const rev = d.shipIndex * o.attractIndex
+  const mean = (fwd + rev) / 2
+  return mean > 0 ? fwd / mean : 1
 }
 
 /**
- * Kilograms the corridor can ship today based on city gravity freight profiles.
- * Bulk exists only while the dedicated cargo subsidiary is active.
+ * Kilograms the corridor ships today. Parcels ride in the bellies of the
+ * corridor's private buses, so the parcel market is the real departure count
+ * times a typical belly load (data/corridorSupply), leaned by which city
+ * ships harder. Truck freight still follows the city gravity model and exists
+ * only while the dedicated cargo subsidiary is active.
  */
 export function corridorCargoMarketKg(
   s: GameState,
@@ -318,15 +329,10 @@ export function corridorCargoMarketKg(
   direction: 'AB' | 'BA',
   day: number,
 ): { parcelMarketKg: number; bulkMarketKg: number } {
-  const originId = cargoOriginId(route, direction)
-  const destId = cargoDestId(route, direction)
-  const originProfile = cityFreightProfile(originId)
-  const destProfile = cityFreightProfile(destId)
+  const originProfile = cityFreightProfile(cargoOriginId(route, direction))
+  const destProfile = cityFreightProfile(cargoDestId(route, direction))
 
   const km = Math.max(80, route.km)
-  // Distance decay: base decay + parcel/bulk route adjustments
-  const distBaseDecay = Math.pow(500 / Math.max(150, km), 0.35)
-  const parcelDistMult = km < 300 ? (BAL.cargoShortRouteMult ?? 1.5) : km > 800 ? (BAL.cargoLongRouteMult ?? 0.8) : 1.0
   const bulkDistMult = km < 300 ? 0.65 : km <= 800 ? 1.20 : 0.90
 
   const dowM = cargoDowMult(day)
@@ -336,38 +342,46 @@ export function corridorCargoMarketKg(
 
   const key = cargoLaneKey(route, direction)
   const dailyJitter = 0.88 + rngFor(s.seed, 'cargo-mkt-day', key, day)() * 0.24
+  const daily = dowM * seasonM * corpGrowth * mixM * dailyJitter
 
-  // Gravity formula: K * ship * attract * distDecay * dow * season * mix * annualGrowth * jitter
-  const gravityK = BAL.cargoGravityK ?? 16_000
-  const gravityKg = gravityK *
-    originProfile.shipIndex *
-    destProfile.attractIndex *
-    distBaseDecay *
-    dowM *
-    seasonM *
-    corpGrowth *
-    mixM *
-    dailyJitter
+  const parcelMarketKg = Math.max(30, Math.round(realParcelKgPerDay(route.id) * parcelDirectionLean(route, direction) * daily))
 
-  // Small bleed from passenger base demand for organic local variation
-  const paxDemand = corridorPaxDemand(s, route, direction, day)
-  const paxBleed = paxDemand * 0.15
-
-  const totalMarketKg = Math.max(80, gravityKg + paxBleed)
-
-  // Split into parcel (express belly) and bulk (trucks)
-  const baseParcelRatio = 0.25 * parcelDistMult
-  const parcelRatio = Math.max(0.10, Math.min(0.65, baseParcelRatio))
-
-  const parcelMarketKg = Math.max(30, Math.round(totalMarketKg * parcelRatio))
-  const bulkMarketKg = s.company.dedicatedCargoSubsidiary
-    ? Math.max(0, Math.round(totalMarketKg * (1 - parcelRatio) * bulkDistMult))
-    : 0
+  let bulkMarketKg = 0
+  if (s.company.dedicatedCargoSubsidiary) {
+    // Gravity formula: K * ship * attract * distDecay * daily factors
+    const distBaseDecay = Math.pow(500 / Math.max(150, km), 0.35)
+    const parcelDistMult = km < 300 ? (BAL.cargoShortRouteMult ?? 1.5) : km > 800 ? (BAL.cargoLongRouteMult ?? 0.8) : 1.0
+    const parcelRatio = Math.max(0.10, Math.min(0.65, 0.25 * parcelDistMult))
+    const gravityKg = (BAL.cargoGravityK ?? 16_000) * originProfile.shipIndex * destProfile.attractIndex * distBaseDecay * daily
+    bulkMarketKg = Math.max(0, Math.round(Math.max(80, gravityKg) * (1 - parcelRatio) * bulkDistMult))
+  }
 
   return { parcelMarketKg, bulkMarketKg }
 }
 
-/** Kilograms our desk can actually book on this lane today. Never larger than the market. */
+/**
+ * Our daily departures on this corridor (each direction). One active,
+ * year-round schedule runs one departure each way a day; festival-only
+ * services are left out.
+ */
+export function ourCorridorDeparturesPerDay(s: GameState, route: RouteDef): number {
+  const canon = canonicalRouteId(route.id)
+  let n = 0
+  for (const sch of Object.values(s.schedules ?? {})) {
+    if (!sch.active || sch.festivalOnly || sch.busIds.length === 0) continue
+    if (canonicalRouteId(sch.routeId) === canon) n++
+  }
+  return n
+}
+
+/**
+ * Kilograms our desk can actually book on this lane today. Never larger than the market.
+ *
+ * Parcels: each departure's booking counters bring in their own shippers, so
+ * our share of the parcel market is our share of the corridor's departures,
+ * scaled by how well the desk sells (manager, posted rate, punctuality).
+ * Trucks: a share of the freight book, as before.
+ */
 export function cargoBookKg(
   s: GameState,
   route: RouteDef,
@@ -378,18 +392,26 @@ export function cargoBookKg(
   const price = cargoPriceFillMult(s, route, direction, day)
   const damp = Math.max(0.35, 1 - BAL.cargoShareCompetitionDamp * route.competition)
   const bonus = s.company.dedicatedCargoSubsidiary ? (1 + BAL.cargoSubsidiaryShareBonus) : 1
-  const fillEff = cargoFillRate(cargoManagerOnDuty(s), cargoEffSkill(s))
-  // Manager booking efficiency and desk span directly scale book capture share
+  const mgr = cargoManagerOnDuty(s)
+  const fillEff = cargoFillRate(mgr, cargoEffSkill(s))
   // Shippers favour carriers that arrive on time; a bandh/flood on the lane shuts most bookings.
   const reliability = Math.max(0.7, Math.min(1.1, 0.8 + 0.4 * (s.company.punctuality - 0.5)))
   const closure = s.world.closures?.[route.id]
   const closureMult = closure && closure.untilDay >= day ? 0.4 : 1
-  const capture = Math.min(0.85, Math.max(0.04, brandShare(cargoManagerOnDuty(s), cargoEffSkill(s)) * (0.55 + fillEff * 0.45) * price * damp * bonus * reliability * closureMult))
+  const desk = brandShare(mgr, cargoEffSkill(s)) * (0.55 + fillEff * 0.45)
+
+  const ours = ourCorridorDeparturesPerDay(s, route)
+  const theirs = corridorSupply(route.id).departures
+  const depShare = ours / Math.max(1, ours + theirs)
+  const deskSell = (desk / BAL.cargoMarketShare) * BAL.cargoParcelCaptureScale
+  const parcelCapture = Math.min(0.85, depShare * deskSell * price * bonus * reliability * closureMult)
+
+  const bulkCapture = Math.min(0.85, Math.max(0.04, desk * price * damp * bonus * reliability * closureMult))
   const adHoc = BAL.cargoAdHocParcelMult ?? 1
   return {
     // Walk-in + spot parcels share this book; scale ad-hoc volume without touching bulk trucks.
-    parcelBookKg: Math.round(market.parcelMarketKg * capture * adHoc),
-    bulkBookKg: Math.round(market.bulkMarketKg * capture),
+    parcelBookKg: Math.round(market.parcelMarketKg * parcelCapture * adHoc),
+    bulkBookKg: Math.round(market.bulkMarketKg * bulkCapture),
   }
 }
 

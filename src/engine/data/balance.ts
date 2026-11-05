@@ -62,10 +62,11 @@ export const BAL = {
     textiles: 120,
     fmcg: 120,
   } as Record<string, number>,
-  /** Parcel kg available in the market per daily passenger on that direction. */
-  cargoKgPerPaxDemand: 4.0,
-  /** Dedicated-truck kg per daily passenger. Zero unless the subsidiary is on. */
-  cargoBulkKgPerPaxDemand: 20.0,
+  /**
+   * Parcel desk selling power vs an average private operator's counter, at a
+   * mid-skill manager: our parcel book = our departure share x this x desk.
+   */
+  cargoParcelCaptureScale: 1.15,
   /** How hard this corridor's crowd ships, on top of its passenger demand. */
   cargoArchetypeIntensity: { tech: 1.1, commercial: 1.15, pilgrim: 0.85, leisure: 0.8, marathon: 0.95 } as Record<string, number>,
   /** Live contracts may promise at most this share of the lane's book. */
@@ -299,6 +300,31 @@ export const BAL = {
     /** Permanent lean/fat of a corridor in this save. */
     corridorBiasSd: 0.16,
     lfMax: 1.00,
+    /**
+     * Supply: each coach of ours adds this share of its seats as brand-new
+     * corridor riders (switching from rail, state buses or cars), by how many
+     * private departures the corridor already runs. Linear between anchors.
+     */
+    inducedDemand: [
+      [30, 0.35],
+      [100, 0.25],
+      [200, 0.10],
+    ] as [number, number][],
+    /** Lowest fill multiplier a flooded window can fall to. */
+    supplyPressureMin: 0.40,
+    /** A rival capacity flood lands on peak slots: its seats count this many times a window's share. */
+    rivalFloodPeakConcentration: 2,
+    /** Discounts stop adding fill past this multiple. */
+    priceBoostMax: 1.35,
+    /** How the per-corridor real-world swings compound on the target fill. */
+    corridorModifier: {
+      biasExp: 0.4,
+      moodExp: 0.3,
+      archExp: 0.15,
+      weatherExp: 0.5,
+      min: 0.80,
+      max: 1.20,
+    },
     /** Dynamic rival caliber on contested corridors. Top rivals field modern fleets and compete hard. */
     rivalCompetitivenessScale: 0.35,
     /** Soft saturation slope on compounding operator appeal: allows top operators ~76-82% lifetime LF */

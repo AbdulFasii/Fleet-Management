@@ -21,6 +21,7 @@ import { BAL, DIFFICULTIES, getDirectionalOccupancyRange, elapsedBookingFrac } f
 import { BUS_MODELS, hybridSleeperCount } from '../data/busModels'
 import { busComfort } from '../data/bodyBuilders'
 import { ROUTES } from '../data/routes'
+import { corridorSupply } from '../data/corridorSupply'
 import { DOW_DEMAND, daysInMonth, dow, festivalRunEffect, seasonInfo, toCivil, clockMinutes, FESTIVALS } from '../core/calendar'
 import { rngFor, rJitter } from '../core/rng'
 import type { Bus, BusClassId, BusModel, Channel, Company, GameState, RouteDef, Schedule, Trip, ID } from '../types'
@@ -820,6 +821,55 @@ export function equilibriumLf(route: RouteDef): number {
 }
 
 /**
+ * Occupancy multiplier for a fare `rel` times the going rate. One elasticity
+ * for the whole model: late shoppers care less, pilgrim crowds more. Dearer
+ * fares lose fill without limit; discounts stop helping past a ceiling.
+ */
+export function fareElasticityMult(rel: number, daysToDep: number, archetypePriceMult = 1): number {
+  if (Math.abs(rel - 1) <= 0.02) return 1
+  const late = daysToDep <= M.elasticityLateDays ? M.elasticityLateMult : 1
+  const e = M.priceElasticity * late * archetypePriceMult
+  return Math.min(M.priceBoostMax, Math.pow(Math.max(0.2, rel), -e))
+}
+
+/** Share of a new coach's seats that turns into new corridor riders (rail, state-bus and car switchers). */
+export function inducedDemandRate(departures: number): number {
+  const curve = M.inducedDemand
+  if (departures <= curve[0]![0]) return curve[0]![1]
+  for (let i = 1; i < curve.length; i++) {
+    const [at, w] = curve[i]!
+    if (departures <= at) {
+      const [prevAt, prevW] = curve[i - 1]!
+      return prevW + ((w - prevW) * (departures - prevAt)) / (at - prevAt)
+    }
+  }
+  return curve[curve.length - 1]![1]
+}
+
+/**
+ * How our extra seats and a rival flood change this window's fill, relative
+ * to one coach of ours sitting in an otherwise normal market. Shoppers split
+ * evenly across the window's seats; every coach of ours also draws a few new
+ * riders onto the corridor (more on thin corridors, almost none on the big
+ * metro pairs). Exactly 1.0 for a lone coach with no flood.
+ */
+export function marketSupplyPressure(
+  route: RouteDef,
+  pool: number,
+  rivalSeats: number,
+  rivalExtraSeats: number,
+  ownSeats: number,
+  cap: number,
+): number {
+  if (pool <= 0 || cap <= 0) return 1
+  const rate = inducedDemandRate(corridorSupply(route.id).departures)
+  const fill = (own: number, extra: number) => (pool + own * rate) / Math.max(1, rivalSeats + extra + own)
+  const ref = fill(cap, 0)
+  if (ref <= 0) return 1
+  return clamp(fill(ownSeats, rivalExtraSeats) / ref, M.supplyPressureMin, 1)
+}
+
+/**
  * What share of seats this trip is on course to sell, and why.
  */
 export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?: BookingCtx): LoadFactorEstimate {
@@ -893,12 +943,16 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   const pool = corridorPool(s, route, trip, f, ctx) * mass.pool
   const corridorSeats = (route.baseDemand / equilibriumLf(route)) * supplyResponse(f) * mass.supply
 
-  // Rivals do not pull buses off the corridor: extra departures pile onto supply
+  // Rivals do not pull buses off the corridor: our departures pile on top of
+  // the private supply already running in this window.
   const ownSeats = Math.max(cap, ctx?.ownSeatsByTripId.get(trip.id) ?? cap)
-  // A rival capacity flood (or predatory wave) puts real extra seats on the corridor.
+  // A rival capacity flood (or predatory wave) puts real extra seats on the
+  // corridor, concentrated on the peak slots it is aimed at.
   const rivalAct = s.world.rivalActions?.[route.id]
-  const rivalExtraSeats = rivalAct && rivalAct.untilDay >= s.day && rivalAct.startDay <= s.day ? rivalAct.addedDailySeats : 0
-  const rivalSeats = Math.max(0, corridorSeats - cap) + rivalExtraSeats
+  const rivalExtraDaily = rivalAct && rivalAct.untilDay >= s.day && rivalAct.startDay <= s.day ? rivalAct.addedDailySeats : 0
+  const rivalExtraSeats = rivalExtraDaily * mass.supply * M.rivalFloodPeakConcentration
+  const rivalSeats = corridorSeats + rivalExtraSeats
+  const supplyPressure = marketSupplyPressure(route, pool, corridorSeats, rivalExtraSeats, ownSeats, cap)
 
   // On heavily contested corridors, rival operators field high-tier fleets
   const rivalTier = 1 + M.rivalCompetitivenessScale * Math.max(0, route.competition - M.competitionRef)
@@ -933,15 +987,6 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   // Passenger Boarding Lounges in origin/dest cities provide attractive waiting experience (+1.5% to +5.0%)
   const loungeBoost = getLoungeDemandBoost(s, route.id)
   effectiveAttr *= loungeBoost
-
-  // Our own timetable is a planned roster, so it shares shoppers far more
-  // gently than the market curve (see ownSubstitutionWeight): a twin departure
-  // takes half a coach, an hour apart a quarter, two hours a tenth, and by
-  // three hours the drag is gone.
-  const busCountInWindow = ownSeats / Math.max(1, cap)
-  const cannibalizationFactor = busCountInWindow > 1.05
-    ? Math.pow(busCountInWindow, 0.48) / busCountInWindow
-    : 1.0
 
   // 1. Target occupancy range from directional travel period:
   // - Normal Friday night:                  Chennai → Madurai 80–95% | Madurai → Chennai 55–75%
@@ -987,20 +1032,15 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
     1,
   )
 
-  // C. Commercial Factors: Price Competitiveness, Sales Reach, Service
-  // Standard market pricing yields priceFactor ≈ 1.0; reachFactor ≈ 1.0
-  const priceFactor = clamp(parts.price, 0.5, 1.25)
+  // C. Commercial Factors: Sales Reach, Service. Price is applied once, as a
+  // straight elasticity on the target further down, not here as well.
   const reachFactor = clamp(parts.reach / 1.10, 0.6, 1.15)
   const serviceFactor = clamp(parts.service, 0.8, 1.10)
-  const commercialFactor = clamp(priceFactor * reachFactor * serviceFactor, 0.5, 1.25)
+  const commercialFactor = clamp(reachFactor * serviceFactor, 0.5, 1.25)
 
   // Combined performance filling the remaining percentage (0.0 for worst case, ~0.50-0.60 for decent coach)
   const corePerformance = companyScore * 0.34 + coachScore * 0.66
-  const perfScore = clamp(
-    corePerformance * commercialFactor * cannibalizationFactor,
-    0,
-    1.0,
-  )
+  const perfScore = clamp(corePerformance * commercialFactor, 0, 1.0)
 
   // Haul-aware departure slot fit (corridor clock):
   const timeFit = departureTimeFit(route, trip.depHour, depMin, model?.cls)
@@ -1033,8 +1073,28 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
   const cMood = weekMood(s, route, trip.day) // Weekly mood
   const cArch = archetypeFactor(route, trip.day, trip.depHour, depMin) // Commuter rhythm
   const rFactor = railFactor(route, trip.day, f) // Rail interaction
-  const corridorModifier = clamp(cBias * 0.4 + cMood * 0.3 + cArch * 0.15 + rFactor * 0.15, 0.92, 1.08)
+  const weather = weatherFactor(s, route, trip.day, ctx?.weatherByDay) // Monsoon, cyclones, heat
+  const payday = paydayFactor(route, trip.direction, trip.day) // Month-start homebound bump
+  // Real-world swings now compound instead of averaging into a ±8% band. The
+  // exponents keep the sticky per-save draws (bias, mood) and the daily
+  // weather noise from stacking into extremes; rail and payday move the fill
+  // at full strength.
+  const corridorModifier = clamp(
+    Math.pow(cBias, M.corridorModifier.biasExp)
+      * Math.pow(cMood, M.corridorModifier.moodExp)
+      * Math.pow(cArch, M.corridorModifier.archExp)
+      * rFactor
+      * Math.pow(weather, M.corridorModifier.weatherExp)
+      * payday,
+    M.corridorModifier.min,
+    M.corridorModifier.max,
+  )
   target = target * corridorModifier
+
+  // Supply: our own extra coaches in the window, and any rival flood, split
+  // the window's shoppers. The first coach is what the occupancy bands above
+  // describe, so only the seats beyond it move the fill.
+  target = target * supplyPressure
 
   // 7. Trip-to-trip wobble:
   const wobble = tripWobbleRate(s.seed, trip)
@@ -1054,23 +1114,15 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
     target = clamp(target * 1.03, 0, M.lfMax)
   }
 
-  // Price elasticity vs auto calculated market fare:
-  // When price is higher than auto calculated price, occupancy drops based on the difference.
-  // When price is lower than auto calculated price, occupancy improves based on the discount.
-  if (Math.abs(rel - 1.0) > 0.02) {
-    if (rel > 1.0) {
-      const dropMult = Math.pow(rel, -1.8)
-      target = target * dropMult
-    } else {
-      const boostMult = Math.pow(rel, -1.75)
-      target = Math.min(M.lfMax, target * boostMult)
-    }
-  }
+  // Price elasticity vs the auto-calculated market fare, applied once.
+  const archPriceMult = M.archetype.priceMult[arch] ?? 1
+  target = Math.min(M.lfMax, target * fareElasticityMult(rel, daysToDep, archPriceMult))
 
-  // Anchor worst-case minimum while respecting soft caps, scaling minFloor down if overpriced
+  // Anchor worst-case minimum while respecting soft caps, scaling minFloor down
+  // if overpriced or if the window is flooded with seats.
   const floorScale = rel > 1.05 ? Math.pow(rel, -2.0) : 1.0
   const layoutFloor = layoutMult < 0.85 ? Math.pow(layoutMult / 0.85, layoutPenaltyExp) : 1.0
-  const minFloor = rangeMin * 0.80 * (timeFit.isOffPeak ? 0.75 : 1.0) * floorScale * layoutFloor
+  const minFloor = rangeMin * 0.80 * (timeFit.isOffPeak ? 0.75 : 1.0) * floorScale * layoutFloor * supplyPressure
   target = clamp(target, Math.max(0.04, minFloor), M.lfMax)
 
   let hybridStats: LoadFactorEstimate['hybrid'] = undefined
@@ -1089,20 +1141,12 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
     if (trip.fareSleeper) {
       const slpAuto = autoFare * 1.15
       const slpRel = trip.fareSleeper / slpAuto
-      if (Math.abs(slpRel - 1.0) > 0.02) {
-        slpTarget = slpRel > 1.0
-          ? slpTarget * Math.pow(slpRel, -1.8)
-          : Math.min(M.lfMax, slpTarget * Math.pow(slpRel, -1.75))
-      }
+      slpTarget = Math.min(M.lfMax, slpTarget * fareElasticityMult(slpRel, daysToDep, archPriceMult))
     }
     if (trip.fareSeater) {
       const strAuto = autoFare * 0.85
       const strRel = trip.fareSeater / strAuto
-      if (Math.abs(strRel - 1.0) > 0.02) {
-        strTarget = strRel > 1.0
-          ? strTarget * Math.pow(strRel, -1.8)
-          : Math.min(M.lfMax, strTarget * Math.pow(strRel, -1.75))
-      }
+      strTarget = Math.min(M.lfMax, strTarget * fareElasticityMult(strRel, daysToDep, archPriceMult))
     }
 
     // Floor each zone at its own share of the coach floor, so a weak zone

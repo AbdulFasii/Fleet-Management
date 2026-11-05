@@ -15,7 +15,6 @@
  *   passengers/day = departures × AVG_PRIVATE_SEATS × TYPICAL_PRIVATE_LF
  *   parcel kg/day  = departures × parcelKgPerBus
  */
-import { canonicalRouteId } from './routes'
 
 /** Average seats on a private intercity coach (sleepers ~30-36, semis ~44-50). */
 export const AVG_PRIVATE_SEATS = 36
@@ -38,8 +37,8 @@ export interface CorridorSupply {
 const S = (departures: number, parcelKgPerBus: number): CorridorSupply => ({ departures, parcelKgPerBus })
 
 /**
- * Keyed by canonical route id (alias ids such as `blr-maa` resolve through
- * canonicalRouteId). Parcel loads: metro pairs and textile/trade lanes run
+ * Keyed by one direction of each corridor; the reversed id (`blr-maa`,
+ * `mdu-maa-ecr`) resolves to the same row. Parcel loads: metro pairs and textile/trade lanes run
  * heavy (300-380 kg), tier-2 links lighter (150-250 kg), marathon hauls carry
  * fewer but longer-distance parcels.
  */
@@ -157,8 +156,14 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
 /** Fallback for a route missing from the table: a thin tier-2 link. */
 const FALLBACK: CorridorSupply = S(20, 200)
 
+/** `a-b` -> `b-a`, keeping a path suffix such as `-ecr`. */
+function reversedId(routeId: string): string {
+  const [a, b, ...rest] = routeId.split('-')
+  return [b, a, ...rest].join('-')
+}
+
 export function corridorSupply(routeId: string): CorridorSupply {
-  return CORRIDOR_SUPPLY[routeId] ?? CORRIDOR_SUPPLY[canonicalRouteId(routeId)] ?? FALLBACK
+  return CORRIDOR_SUPPLY[routeId] ?? CORRIDOR_SUPPLY[reversedId(routeId)] ?? FALLBACK
 }
 
 /** Private-operator passengers per day, one direction. */

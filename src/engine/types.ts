@@ -403,7 +403,7 @@ export interface RouteDef {
   hours: number
   /** benchmark market fare for an AC sleeper berth, full trip */
   marketFareAC: Money
-  /** total daily pax in this corridor per direction (all operators) */
+  /** Private-operator pax/day per direction (derived from data/corridorSupply). */
   baseDemand: number
   /** 0-1: how saturated the corridor is with competitor supply */
   competition: number

@@ -1,6 +1,7 @@
 import { rs } from '../core/money'
 import type { RouteDef } from '../types'
 import { CITIES, cityPickups } from './cities'
+import { realPaxPerDay } from './corridorSupply'
 
 /** Named rivals per corridor, used for flavour in the market view and events. */
 export const RIVALS: Record<string, string[]> = {
@@ -111,7 +112,7 @@ export const RIVALS: Record<string, string[]> = {
 }
 
 const R = (
-  id: string, km: number, hours: number, marketFareAC: number, baseDemand: number,
+  id: string, km: number, hours: number, marketFareAC: number,
   competition: number, rail: number, ghat: boolean, borderTax: number, tollPerKm: number,
   unlockRep: number, notes: string,
   /** Explicit endpoints when the id is not a plain `from-to` pair (e.g. path variants). */
@@ -121,7 +122,9 @@ const R = (
   return {
     id, from, to, km, hours,
     marketFareAC: rs(marketFareAC),
-    baseDemand, competition,
+    // Private-operator pax/day per direction, from the corridor supply table.
+    baseDemand: realPaxPerDay(id),
+    competition,
     railCompetition: rail,
     ghat,
     interstate: CITIES[from].state !== CITIES[to].state,
@@ -136,114 +139,114 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
   [
     // —— Chennai hub, open from day 1 ——
     // Freight follows each corridor's passenger demand, per direction.
-    R('maa-blr', 350, 7, 950, 4200, 0.8, 0.7, false, 1800, 2.4, 0, 'The IT hop. Strong rail competition; evening semis do well.'),
-    R('maa-pdy', 165, 4, 450, 2800, 0.7, 0.15, false, 400, 1.6, 0, 'Weekend leisure shuttle. Multiple day trips per bus.'),
-    R('maa-tir', 150, 3, 480, 3200, 0.65, 0.25, false, 800, 1.8, 0, 'Pilgrim day-and-evening run. Weekends and Brahmotsavam explode.'),
-    R('maa-nlr', 175, 4, 420, 2400, 0.6, 0.35, false, 700, 1.7, 0, 'Andhra day shuttle up NH16. Multiple turns; thin sleeper demand.'),
-    R('maa-try', 330, 6, 750, 3000, 0.75, 0.55, false, 0, 2.1, 0, 'Rock Fort corridor. Day seaters and evening semis both work.'),
-    R('maa-slm', 340, 5, 720, 2600, 0.7, 0.5, false, 0, 2.0, 0, 'NH44 industrial hop. Steady weekday traffic, thin sleeper demand.'),
-    R('maa-mdu', 460, 8, 1000, 5500, 0.8, 0.65, false, 0, 2.3, 0, 'Temple-town overnight connecting Chennai to Madurai via Trichy. Festival swings are massive.'),
-    R('maa-mdu-ecr', 480, 9, 1000, 3500, 0.75, 0.4, false, 0, 2.1, 0, 'East Coast Road temple-town overnight via Puducherry and Thanjavur. Coastal leisure plus festival flows.', ['maa', 'mdu']),
-    R('maa-rmd', 490, 10, 1050, 2000, 0.65, 0.35, false, 0, 2.0, 0, 'Deep-south coastal overnight via Thanjavur. Pilgrim traffic toward Rameswaram.'),
-    R('maa-tvr', 310, 7, 720, 2400, 0.7, 0.3, false, 0, 1.9, 0, 'Delta corridor via Puducherry. Evening semis and day seaters both work.'),
+    R('maa-blr', 350, 7, 950, 0.8, 0.7, false, 1800, 2.4, 0, 'The IT hop. Strong rail competition; evening semis do well.'),
+    R('maa-pdy', 165, 4, 450, 0.7, 0.15, false, 400, 1.6, 0, 'Weekend leisure shuttle. Multiple day trips per bus.'),
+    R('maa-tir', 150, 3, 480, 0.65, 0.25, false, 800, 1.8, 0, 'Pilgrim day-and-evening run. Weekends and Brahmotsavam explode.'),
+    R('maa-nlr', 175, 4, 420, 0.6, 0.35, false, 700, 1.7, 0, 'Andhra day shuttle up NH16. Multiple turns; thin sleeper demand.'),
+    R('maa-try', 330, 6, 750, 0.75, 0.55, false, 0, 2.1, 0, 'Rock Fort corridor. Day seaters and evening semis both work.'),
+    R('maa-slm', 340, 5, 720, 0.7, 0.5, false, 0, 2.0, 0, 'NH44 industrial hop. Steady weekday traffic, thin sleeper demand.'),
+    R('maa-mdu', 460, 8, 1000, 0.8, 0.65, false, 0, 2.3, 0, 'Temple-town overnight connecting Chennai to Madurai via Trichy. Festival swings are massive.'),
+    R('maa-mdu-ecr', 480, 9, 1000, 0.75, 0.4, false, 0, 2.1, 0, 'East Coast Road temple-town overnight via Puducherry and Thanjavur. Coastal leisure plus festival flows.', ['maa', 'mdu']),
+    R('maa-rmd', 490, 10, 1050, 0.65, 0.35, false, 0, 2.0, 0, 'Deep-south coastal overnight via Thanjavur. Pilgrim traffic toward Rameswaram.'),
+    R('maa-tvr', 310, 7, 720, 0.7, 0.3, false, 0, 1.9, 0, 'Delta corridor via Puducherry. Evening semis and day seaters both work.'),
 
     // —— Chennai hub, Tamil Nadu overnight ——
-    R('maa-cbe', 500, 9, 1100, 3800, 0.75, 0.6, false, 0, 2.2, 5, 'Overnight TN workhorse. Textile and IT return flows.'),
-    R('maa-ten', 625, 11, 1350, 3000, 0.65, 0.4, false, 0, 2.1, 5, 'Deep-south sleeper via Madurai. Two drivers; loyal Nellai crowd.'),
-    R('maa-kkm', 705, 13, 1450, 2200, 0.7, 0.45, false, 0, 2.2, 5, 'Land\'s-end overnight. Pilgrim and tourist sleepers; two drivers.'),
+    R('maa-cbe', 500, 9, 1100, 0.75, 0.6, false, 0, 2.2, 5, 'Overnight TN workhorse. Textile and IT return flows.'),
+    R('maa-ten', 625, 11, 1350, 0.65, 0.4, false, 0, 2.1, 5, 'Deep-south sleeper via Madurai. Two drivers; loyal Nellai crowd.'),
+    R('maa-kkm', 705, 13, 1450, 0.7, 0.45, false, 0, 2.2, 5, 'Land\'s-end overnight. Pilgrim and tourist sleepers; two drivers.'),
 
     // —— Chennai hub, neighbouring states ——
-    R('maa-mys', 480, 9, 1100, 1800, 0.6, 0.25, false, 1600, 2.0, 5, 'Palace-city overnight. Leisure weekends, quiet Tuesdays.'),
-    R('maa-vga', 455, 8, 1000, 2400, 0.7, 0.55, false, 1400, 2.1, 5, 'Andhra commercial corridor. Day and night both sell.'),
-    R('maa-hyd', 625, 12, 1450, 2800, 0.75, 0.55, false, 2200, 2.2, 10, 'Two-IT-hub overnight. Fierce private competition.'),
-    R('maa-koc', 690, 13, 1500, 2100, 0.65, 0.35, true, 2000, 1.9, 10, 'Kerala migrant sleeper. Onam flows are enormous.'),
-    R('maa-trv', 720, 14, 1500, 1900, 0.6, 0.4, true, 2000, 1.9, 10, 'Capital-to-capital via Nagercoil. Tourist plus office traffic.'),
-    R('maa-clt', 655, 13, 1400, 1700, 0.55, 0.25, true, 2000, 1.9, 10, 'Malabar sleeper via Palakkad. Gulf-leave and Onam peaks.'),
-    R('maa-mlr', 710, 14, 1450, 1500, 0.5, 0.2, true, 1800, 1.8, 10, 'Coastal Karnataka via Salem. Port and pilgrim traffic.'),
-    R('maa-viz', 780, 15, 1600, 1600, 0.55, 0.45, false, 2200, 2.0, 15, 'Coastal marathon. Two drivers; thinner midweek.'),
-    R('maa-goa', 920, 21, 1850, 1200, 0.5, 0.15, true, 2600, 1.8, 20, 'Party-and-beach haul. Weekend and New Year gold, dead weekdays.'),
-    R('maa-mum', 1340, 24, 2400, 1400, 0.5, 0.55, true, 3200, 2.1, 20, 'West-coast prestige haul. Rail eats the middle; premium sleepers win.'),
+    R('maa-mys', 480, 9, 1100, 0.6, 0.25, false, 1600, 2.0, 5, 'Palace-city overnight. Leisure weekends, quiet Tuesdays.'),
+    R('maa-vga', 455, 8, 1000, 0.7, 0.55, false, 1400, 2.1, 5, 'Andhra commercial corridor. Day and night both sell.'),
+    R('maa-hyd', 625, 12, 1450, 0.75, 0.55, false, 2200, 2.2, 10, 'Two-IT-hub overnight. Fierce private competition.'),
+    R('maa-koc', 690, 13, 1500, 0.65, 0.35, true, 2000, 1.9, 10, 'Kerala migrant sleeper. Onam flows are enormous.'),
+    R('maa-trv', 720, 14, 1500, 0.6, 0.4, true, 2000, 1.9, 10, 'Capital-to-capital via Nagercoil. Tourist plus office traffic.'),
+    R('maa-clt', 655, 13, 1400, 0.55, 0.25, true, 2000, 1.9, 10, 'Malabar sleeper via Palakkad. Gulf-leave and Onam peaks.'),
+    R('maa-mlr', 710, 14, 1450, 0.5, 0.2, true, 1800, 1.8, 10, 'Coastal Karnataka via Salem. Port and pilgrim traffic.'),
+    R('maa-viz', 780, 15, 1600, 0.55, 0.45, false, 2200, 2.0, 15, 'Coastal marathon. Two drivers; thinner midweek.'),
+    R('maa-goa', 920, 21, 1850, 0.5, 0.15, true, 2600, 1.8, 20, 'Party-and-beach haul. Weekend and New Year gold, dead weekdays.'),
+    R('maa-mum', 1340, 24, 2400, 0.5, 0.55, true, 3200, 2.1, 20, 'West-coast prestige haul. Rail eats the middle; premium sleepers win.'),
 
     // —— Tamil Nadu to Kerala ——
-    R('cbe-koc', 190, 4, 650, 3800, 0.75, 0.6, false, 1600, 2.1, 0, 'Industrial and trade shuttle via Palakkad gap. High turnover and cargo.'),
-    R('cbe-clt', 180, 5, 600, 2800, 0.65, 0.5, false, 1600, 2.0, 0, 'Western TN to Malabar connection via Palakkad. Steady day and evening runs.'),
-    R('cbe-trv', 380, 9, 1050, 2600, 0.7, 0.6, false, 2000, 2.1, 5, 'Overnight connector traversing central Kerala down to the capital.'),
-    R('mdu-koc', 260, 8, 750, 2200, 0.6, 0.3, true, 1800, 1.8, 5, 'Spice route crossing Bodimettu ghat. Scenic mountain haul; heavy tourist flow.'),
-    R('mdu-trv', 305, 7, 800, 3000, 0.7, 0.55, false, 1800, 2.0, 0, 'Southern corridor via Tirunelveli and Nagercoil. Pilgrim and trader traffic.'),
-    R('ten-trv', 160, 3, 450, 3200, 0.65, 0.6, false, 1400, 1.9, 0, 'Cross-border southern express via Nagercoil. Quick turnaround day service.'),
-    R('slm-koc', 355, 8, 950, 2200, 0.65, 0.5, false, 2000, 2.1, 5, 'NH544 overnight connecting TN industrial hub to Cochin port.'),
+    R('cbe-koc', 190, 4, 650, 0.75, 0.6, false, 1600, 2.1, 0, 'Industrial and trade shuttle via Palakkad gap. High turnover and cargo.'),
+    R('cbe-clt', 180, 5, 600, 0.65, 0.5, false, 1600, 2.0, 0, 'Western TN to Malabar connection via Palakkad. Steady day and evening runs.'),
+    R('cbe-trv', 380, 9, 1050, 0.7, 0.6, false, 2000, 2.1, 5, 'Overnight connector traversing central Kerala down to the capital.'),
+    R('mdu-koc', 260, 8, 750, 0.6, 0.3, true, 1800, 1.8, 5, 'Spice route crossing Bodimettu ghat. Scenic mountain haul; heavy tourist flow.'),
+    R('mdu-trv', 305, 7, 800, 0.7, 0.55, false, 1800, 2.0, 0, 'Southern corridor via Tirunelveli and Nagercoil. Pilgrim and trader traffic.'),
+    R('ten-trv', 160, 3, 450, 0.65, 0.6, false, 1400, 1.9, 0, 'Cross-border southern express via Nagercoil. Quick turnaround day service.'),
+    R('slm-koc', 355, 8, 950, 0.65, 0.5, false, 2000, 2.1, 5, 'NH544 overnight connecting TN industrial hub to Cochin port.'),
 
     // —— Tamil Nadu to Karnataka ——
-    R('mdu-mys', 485, 9, 1200, 2200, 0.65, 0.25, true, 1600, 2.0, 5, 'Temple-to-palace overnight via Dindigul and the Karnataka border. Leisure weekends and festival sleepers.'),
-    R('blr-cbe', 365, 7, 900, 5600, 0.85, 0.6, false, 1800, 2.3, 0, 'The premier industrial & tech corridor. Massive daily passenger and parcel volume.'),
-    R('blr-try', 340, 7, 850, 3800, 0.75, 0.5, false, 1800, 2.2, 0, 'Direct Central TN link via Salem and Namakkal. High student and tech worker flows.'),
-    R('blr-slm', 200, 4, 550, 3400, 0.7, 0.45, false, 1600, 2.2, 0, 'Rapid 4-lane NH44 day hopper. High frequency business transit.'),
-    R('blr-ten', 585, 11, 1350, 3100, 0.75, 0.5, false, 2000, 2.3, 5, 'Deep-south long-range overnight sleeper via Salem, Dindigul and Madurai bypass. Two drivers.'),
-    R('blr-kkm', 665, 13, 1450, 2500, 0.7, 0.5, false, 2000, 2.3, 5, 'Direct NH44 cape terminus run. Long haul tourist and pilgrim sleepers.'),
-    R('mys-cbe', 200, 7, 550, 2000, 0.6, 0.2, true, 1600, 1.8, 0, 'Chamarajanagar and Dhimbam hairpin turns. Breathtaking scenery, slow ghat speeds.'),
+    R('mdu-mys', 485, 9, 1200, 0.65, 0.25, true, 1600, 2.0, 5, 'Temple-to-palace overnight via Dindigul and the Karnataka border. Leisure weekends and festival sleepers.'),
+    R('blr-cbe', 365, 7, 900, 0.85, 0.6, false, 1800, 2.3, 0, 'The premier industrial & tech corridor. Massive daily passenger and parcel volume.'),
+    R('blr-try', 340, 7, 850, 0.75, 0.5, false, 1800, 2.2, 0, 'Direct Central TN link via Salem and Namakkal. High student and tech worker flows.'),
+    R('blr-slm', 200, 4, 550, 0.7, 0.45, false, 1600, 2.2, 0, 'Rapid 4-lane NH44 day hopper. High frequency business transit.'),
+    R('blr-ten', 585, 11, 1350, 0.75, 0.5, false, 2000, 2.3, 5, 'Deep-south long-range overnight sleeper via Salem, Dindigul and Madurai bypass. Two drivers.'),
+    R('blr-kkm', 665, 13, 1450, 0.7, 0.5, false, 2000, 2.3, 5, 'Direct NH44 cape terminus run. Long haul tourist and pilgrim sleepers.'),
+    R('mys-cbe', 200, 7, 550, 0.6, 0.2, true, 1600, 1.8, 0, 'Chamarajanagar and Dhimbam hairpin turns. Breathtaking scenery, slow ghat speeds.'),
 
     // —— Karnataka to Kerala (Mainly Bengaluru to Kerala) ——
-    R('blr-clt', 360, 9, 1100, 5000, 0.85, 0.45, true, 2000, 2.0, 0, 'Crucial Malabar artery over Wayanad ghats (Thamarassery Churam). Premium sleepers sell out.'),
-    R('blr-trv', 730, 13, 1600, 3600, 0.8, 0.55, false, 2400, 2.2, 10, 'Prestige capital-to-capital marathon. Two drivers; Onam and holiday demand spikes.'),
-    R('blr-tcr', 480, 9, 1200, 3400, 0.75, 0.5, false, 2000, 2.1, 5, 'Cultural capital express via Palakkad gap. High weekend migration; Pooram festival surges.'),
-    R('blr-knr', 320, 9, 1050, 3200, 0.75, 0.4, true, 2000, 1.9, 0, 'North Kerala connector navigating Coorg and Makutta ghats. Robust daily patronage.'),
-    R('blr-pkd', 415, 8, 1000, 2800, 0.7, 0.5, false, 2000, 2.1, 0, 'Gateway corridor into Kerala along NH544. Consistent mid-haul flow.'),
-    R('blr-mlr', 350, 7, 950, 4500, 0.85, 0.4, true, 0, 2.0, 0, 'Karnataka premier coastal link across Shiradi ghat. Year-round heavy volume.'),
-    R('mys-clt', 250, 8, 650, 2400, 0.65, 0.25, true, 1600, 1.8, 0, 'Interstate transit navigating the Western Ghats to Kozhikode via Kannur.'),
+    R('blr-clt', 360, 9, 1100, 0.85, 0.45, true, 2000, 2.0, 0, 'Crucial Malabar artery over Wayanad ghats (Thamarassery Churam). Premium sleepers sell out.'),
+    R('blr-trv', 730, 13, 1600, 0.8, 0.55, false, 2400, 2.2, 10, 'Prestige capital-to-capital marathon. Two drivers; Onam and holiday demand spikes.'),
+    R('blr-tcr', 480, 9, 1200, 0.75, 0.5, false, 2000, 2.1, 5, 'Cultural capital express via Palakkad gap. High weekend migration; Pooram festival surges.'),
+    R('blr-knr', 320, 9, 1050, 0.75, 0.4, true, 2000, 1.9, 0, 'North Kerala connector navigating Coorg and Makutta ghats. Robust daily patronage.'),
+    R('blr-pkd', 415, 8, 1000, 0.7, 0.5, false, 2000, 2.1, 0, 'Gateway corridor into Kerala along NH544. Consistent mid-haul flow.'),
+    R('blr-mlr', 350, 7, 950, 0.85, 0.4, true, 0, 2.0, 0, 'Karnataka premier coastal link across Shiradi ghat. Year-round heavy volume.'),
+    R('mys-clt', 250, 8, 650, 0.65, 0.25, true, 1600, 1.8, 0, 'Interstate transit navigating the Western Ghats to Kozhikode via Kannur.'),
 
     // —— Rest of the South (Interstate & Intra-State) ——
-    R('blr-hyd', 570, 10, 1350, 5500, 0.85, 0.5, false, 2500, 2.2, 0, 'The classic overnight IT corridor. Huge demand, brutal competition.'),
-    R('hyd-vga', 275, 6, 700, 5200, 0.85, 0.5, false, 0, 2.0, 0, 'Dense Telugu corridor. Day and evening services both work.'),
-    R('blr-tir', 250, 6, 650, 3000, 0.7, 0.3, false, 1200, 2.0, 0, 'Pilgrim traffic from Bengaluru, weekend spikes.'),
-    R('blr-mdu', 435, 8, 1100, 3200, 0.75, 0.45, false, 1600, 2.1, 0, 'Temple-town overnight connecting Bengaluru to Madurai via Salem and Dindigul. Festival and weekend sleepers sell hard.'),
-    R('blr-goa', 560, 12, 1500, 1800, 0.6, 0.2, true, 2200, 1.8, 10, 'Tourist route over the ghats. Monsoon is rough, season is gold.'),
-    R('blr-koc', 550, 10, 1350, 5200, 0.8, 0.5, true, 2000, 1.9, 0, 'Bengaluru–Kerala migrant corridor. Peak weekend and festival traffic.'),
-    R('hyd-goa', 665, 15, 1600, 1500, 0.55, 0.15, true, 2400, 1.9, 20, 'Party route. Weekend and New Year surges.'),
+    R('blr-hyd', 570, 10, 1350, 0.85, 0.5, false, 2500, 2.2, 0, 'The classic overnight IT corridor. Huge demand, brutal competition.'),
+    R('hyd-vga', 275, 6, 700, 0.85, 0.5, false, 0, 2.0, 0, 'Dense Telugu corridor. Day and evening services both work.'),
+    R('blr-tir', 250, 6, 650, 0.7, 0.3, false, 1200, 2.0, 0, 'Pilgrim traffic from Bengaluru, weekend spikes.'),
+    R('blr-mdu', 435, 8, 1100, 0.75, 0.45, false, 1600, 2.1, 0, 'Temple-town overnight connecting Bengaluru to Madurai via Salem and Dindigul. Festival and weekend sleepers sell hard.'),
+    R('blr-goa', 560, 12, 1500, 0.6, 0.2, true, 2200, 1.8, 10, 'Tourist route over the ghats. Monsoon is rough, season is gold.'),
+    R('blr-koc', 550, 10, 1350, 0.8, 0.5, true, 2000, 1.9, 0, 'Bengaluru–Kerala migrant corridor. Peak weekend and festival traffic.'),
+    R('hyd-goa', 665, 15, 1600, 0.55, 0.15, true, 2400, 1.9, 20, 'Party route. Weekend and New Year surges.'),
 
     // —— Northern & Western Corridors ——
-    R('del-jai', 275, 6, 650, 6200, 0.9, 0.65, false, 1800, 2.5, 5, 'Pink City tourist and commercial expressway corridor. High competition.'),
-    R('del-ixc', 250, 5, 600, 5800, 0.9, 0.7, false, 1600, 2.4, 5, 'GT Road high-frequency executive shuttle. Day seats and evening luxury.'),
-    R('del-lko', 535, 9, 1200, 4800, 0.85, 0.7, false, 2200, 2.6, 10, 'Yamuna & Agra-Lucknow expressway overnight sleeper. Fast tarmac.'),
-    R('del-agr', 230, 4, 500, 4400, 0.8, 0.7, false, 1400, 2.6, 5, 'Taj Mahal expressway shuttle. Tourist day-trippers and corporate hops.'),
-    R('mum-amd', 530, 11, 1300, 5400, 0.85, 0.75, false, 2400, 2.4, 15, 'Western trade spine along NH48. High commercial freight and corporate sleepers.'),
-    R('mum-pnq', 150, 5, 550, 9000, 0.95, 0.6, true, 0, 3.2, 10, 'Expressway shuttle. Volume game if you expand west.'),
-    R('blr-mum', 985, 19, 1950, 2500, 0.65, 0.6, true, 3000, 2.1, 20, 'Marathon haul. Premium sleepers and two drivers.'),
+    R('del-jai', 275, 6, 650, 0.9, 0.65, false, 1800, 2.5, 5, 'Pink City tourist and commercial expressway corridor. High competition.'),
+    R('del-ixc', 250, 5, 600, 0.9, 0.7, false, 1600, 2.4, 5, 'GT Road high-frequency executive shuttle. Day seats and evening luxury.'),
+    R('del-lko', 535, 9, 1200, 0.85, 0.7, false, 2200, 2.6, 10, 'Yamuna & Agra-Lucknow expressway overnight sleeper. Fast tarmac.'),
+    R('del-agr', 230, 4, 500, 0.8, 0.7, false, 1400, 2.6, 5, 'Taj Mahal expressway shuttle. Tourist day-trippers and corporate hops.'),
+    R('mum-amd', 530, 11, 1300, 0.85, 0.75, false, 2400, 2.4, 15, 'Western trade spine along NH48. High commercial freight and corporate sleepers.'),
+    R('mum-pnq', 150, 5, 550, 0.95, 0.6, true, 0, 3.2, 10, 'Expressway shuttle. Volume game if you expand west.'),
+    R('blr-mum', 985, 19, 1950, 0.65, 0.6, true, 3000, 2.1, 20, 'Marathon haul. Premium sleepers and two drivers.'),
 
     // —— South → North Prestige Marathons ——
-    R('blr-nag', 1100, 22, 2250, 2400, 0.70, 0.60, false, 2800, 2.2, 20, 'Deccan to Vidarbha grand trunk corridor along NH44. Luxury sleeper marathon linking Bengaluru IT to Central India hub; multi-coach rotation.'),
-    R('maa-bbs', 1250, 23, 2400, 2000, 0.65, 0.65, false, 3200, 2.1, 20, 'East Coast golden corridor along NH16 linking Tamil Nadu to Odisha. Heavy commercial, student and cultural passenger movement.'),
+    R('blr-nag', 1100, 22, 2250, 0.70, 0.60, false, 2800, 2.2, 20, 'Deccan to Vidarbha grand trunk corridor along NH44. Luxury sleeper marathon linking Bengaluru IT to Central India hub; multi-coach rotation.'),
+    R('maa-bbs', 1250, 23, 2400, 0.65, 0.65, false, 3200, 2.1, 20, 'East Coast golden corridor along NH16 linking Tamil Nadu to Odisha. Heavy commercial, student and cultural passenger movement.'),
 
     // —— Major South Indian Mid-Haul & Long-Haul Additions ——
     // Andhra & Telangana corridors
-    R('blr-vga', 640, 12, 1450, 4800, 0.8, 0.55, false, 2000, 2.2, 5, 'Bustling IT and commercial artery. Constant multi-axle night services along NH44/NH16.'),
-    R('blr-viz', 1005, 18, 2050, 2400, 0.7, 0.5, false, 2400, 2.2, 15, 'The East Coast marathon connecting Bengaluru to the City of Destiny. Premium sleepers sell out.'),
-    R('hyd-viz', 620, 11, 1450, 5200, 0.85, 0.6, false, 0, 2.2, 5, 'Telangana to Andhra coastal flagship corridor. Very high sleeper demand and business travel.'),
-    R('hyd-cbe', 920, 16, 1950, 2200, 0.65, 0.45, false, 2600, 2.2, 10, 'Long-haul manufacturing and IT link along NH44. Steady year-round patronage; two drivers.'),
-    R('hyd-koc', 1090, 18, 2200, 1800, 0.6, 0.4, true, 2800, 2.1, 15, 'Interstate marathon connecting Cyberabad to Kerala commercial heartland. Two drivers.'),
-    R('hyd-tir', 560, 11, 1250, 4600, 0.8, 0.45, false, 1800, 2.1, 0, 'Pilgrim spine via Kurnool. Constant round-the-clock demand with intense festival peaks.'),
-    R('hyd-pnq', 560, 11, 1300, 4500, 0.8, 0.55, false, 2400, 2.3, 5, 'Deccan IT corridor along NH65. High techie and student weekend migration.'),
-    R('hyd-mum', 710, 14, 1650, 3200, 0.75, 0.6, false, 2800, 2.3, 10, 'Trade and financial highway via Solapur. Commercial parcel and sleeper volume; two drivers.'),
-    R('hyd-kno', 215, 4, 480, 3800, 0.75, 0.45, false, 1200, 2.1, 0, 'NH44 express connector from Hyderabad into the Rayalaseema heartland.'),
-    R('vga-viz', 350, 7, 800, 4600, 0.8, 0.65, false, 0, 2.1, 0, 'Coastal Andhra golden corridor along NH16 via Rajahmundry. Day pushbacks and evening AC sleepers.'),
+    R('blr-vga', 640, 12, 1450, 0.8, 0.55, false, 2000, 2.2, 5, 'Bustling IT and commercial artery. Constant multi-axle night services along NH44/NH16.'),
+    R('blr-viz', 1005, 18, 2050, 0.7, 0.5, false, 2400, 2.2, 15, 'The East Coast marathon connecting Bengaluru to the City of Destiny. Premium sleepers sell out.'),
+    R('hyd-viz', 620, 11, 1450, 0.85, 0.6, false, 0, 2.2, 5, 'Telangana to Andhra coastal flagship corridor. Very high sleeper demand and business travel.'),
+    R('hyd-cbe', 920, 16, 1950, 0.65, 0.45, false, 2600, 2.2, 10, 'Long-haul manufacturing and IT link along NH44. Steady year-round patronage; two drivers.'),
+    R('hyd-koc', 1090, 18, 2200, 0.6, 0.4, true, 2800, 2.1, 15, 'Interstate marathon connecting Cyberabad to Kerala commercial heartland. Two drivers.'),
+    R('hyd-tir', 560, 11, 1250, 0.8, 0.45, false, 1800, 2.1, 0, 'Pilgrim spine via Kurnool. Constant round-the-clock demand with intense festival peaks.'),
+    R('hyd-pnq', 560, 11, 1300, 0.8, 0.55, false, 2400, 2.3, 5, 'Deccan IT corridor along NH65. High techie and student weekend migration.'),
+    R('hyd-mum', 710, 14, 1650, 0.75, 0.6, false, 2800, 2.3, 10, 'Trade and financial highway via Solapur. Commercial parcel and sleeper volume; two drivers.'),
+    R('hyd-kno', 215, 4, 480, 0.75, 0.45, false, 1200, 2.1, 0, 'NH44 express connector from Hyderabad into the Rayalaseema heartland.'),
+    R('vga-viz', 350, 7, 800, 0.8, 0.65, false, 0, 2.1, 0, 'Coastal Andhra golden corridor along NH16 via Rajahmundry. Day pushbacks and evening AC sleepers.'),
 
     // Kerala & Coastal Karnataka corridors
-    R('koc-mlr', 420, 9, 1150, 3600, 0.75, 0.5, true, 1800, 2.0, 5, 'The coastal NH66 corridor linking Kerala to South Canara. High trade and student volume.'),
-    R('trv-clt', 390, 9, 1050, 4200, 0.8, 0.65, false, 0, 2.0, 0, 'Kerala premier North-South spine connecting Travancore to Malabar via Kochi.'),
-    R('trv-koc', 210, 5, 550, 5000, 0.85, 0.65, false, 0, 2.1, 0, 'Capital to commercial capital express along NH66. Heavy year-round commuter & executive demand.'),
-    R('mlr-goa', 365, 8, 950, 2400, 0.65, 0.3, true, 1800, 2.0, 5, 'Coastal Konkan scenic corridor via Udupi and Karwar. Tourist and beach traveler traffic.'),
+    R('koc-mlr', 420, 9, 1150, 0.75, 0.5, true, 1800, 2.0, 5, 'The coastal NH66 corridor linking Kerala to South Canara. High trade and student volume.'),
+    R('trv-clt', 390, 9, 1050, 0.8, 0.65, false, 0, 2.0, 0, 'Kerala premier North-South spine connecting Travancore to Malabar via Kochi.'),
+    R('trv-koc', 210, 5, 550, 0.85, 0.65, false, 0, 2.1, 0, 'Capital to commercial capital express along NH66. Heavy year-round commuter & executive demand.'),
+    R('mlr-goa', 365, 8, 950, 0.65, 0.3, true, 1800, 2.0, 5, 'Coastal Konkan scenic corridor via Udupi and Karwar. Tourist and beach traveler traffic.'),
 
     // Karnataka, Tamil Nadu & Puducherry mid-hauls
-    R('blr-pdy', 310, 7, 750, 3400, 0.75, 0.3, false, 1400, 2.0, 0, 'Weekend getaway and cultural route. Heavy Friday night and Sunday evening surges.'),
-    R('blr-hbl', 410, 8, 900, 4400, 0.8, 0.5, false, 0, 2.2, 0, 'North Karnataka industrial lifeline on NH48. High frequency corporate and student transit.'),
-    R('hbl-goa', 155, 4, 420, 2800, 0.65, 0.15, true, 1200, 1.8, 0, 'Western Ghats connector descending Anmod Ghat to the Goan coast.'),
-    R('mdu-cbe', 215, 5, 520, 3600, 0.7, 0.4, false, 0, 2.0, 0, 'Madurai to Western TN corridor via Dindigul. Steady merchant and student traffic.'),
-    R('try-cbe', 210, 4, 500, 3200, 0.7, 0.45, false, 0, 2.0, 0, 'Central Tamil Nadu textile and industrial hop along NH81 via Karur.'),
+    R('blr-pdy', 310, 7, 750, 0.75, 0.3, false, 1400, 2.0, 0, 'Weekend getaway and cultural route. Heavy Friday night and Sunday evening surges.'),
+    R('blr-hbl', 410, 8, 900, 0.8, 0.5, false, 0, 2.2, 0, 'North Karnataka industrial lifeline on NH48. High frequency corporate and student transit.'),
+    R('hbl-goa', 155, 4, 420, 0.65, 0.15, true, 1200, 1.8, 0, 'Western Ghats connector descending Anmod Ghat to the Goan coast.'),
+    R('mdu-cbe', 215, 5, 520, 0.7, 0.4, false, 0, 2.0, 0, 'Madurai to Western TN corridor via Dindigul. Steady merchant and student traffic.'),
+    R('try-cbe', 210, 4, 500, 0.7, 0.45, false, 0, 2.0, 0, 'Central Tamil Nadu textile and industrial hop along NH81 via Karur.'),
 
     // Popular Dindigul corridors
-    R('maa-dgl', 420, 8, 850, 3600, 0.75, 0.55, false, 0, 2.2, 0, 'State capital to the lock city along NH45 via Trichy. Heavy merchant, student and agricultural trade transit.'),
-    R('blr-dgl', 375, 8, 850, 3400, 0.75, 0.45, false, 1600, 2.2, 0, 'Direct interstate link on NH44 via Salem and Karur. Gateway corridor to Dindigul trade and Kodaikanal tourism.'),
-    R('cbe-dgl', 165, 4, 420, 3200, 0.7, 0.35, false, 0, 2.0, 0, 'Western Tamil Nadu corridor connecting Manchester of South India to Dindigul via Pollachi and Palani.'),
-    R('try-dgl', 100, 2, 280, 2800, 0.7, 0.5, false, 0, 2.0, 0, 'Rapid Central TN connector along NH83. Steady daytime merchant and student movement.'),
+    R('maa-dgl', 420, 8, 850, 0.75, 0.55, false, 0, 2.2, 0, 'State capital to the lock city along NH45 via Trichy. Heavy merchant, student and agricultural trade transit.'),
+    R('blr-dgl', 375, 8, 850, 0.75, 0.45, false, 1600, 2.2, 0, 'Direct interstate link on NH44 via Salem and Karur. Gateway corridor to Dindigul trade and Kodaikanal tourism.'),
+    R('cbe-dgl', 165, 4, 420, 0.7, 0.35, false, 0, 2.0, 0, 'Western Tamil Nadu corridor connecting Manchester of South India to Dindigul via Pollachi and Palani.'),
+    R('try-dgl', 100, 2, 280, 0.7, 0.5, false, 0, 2.0, 0, 'Rapid Central TN connector along NH83. Steady daytime merchant and student movement.'),
   ].map((r) => [r.id, r]),
 )
 

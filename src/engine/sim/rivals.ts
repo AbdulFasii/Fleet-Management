@@ -1,6 +1,7 @@
 import { ROUTES, ROUTE_LIST, RIVALS, canonicalRouteId } from '../data/routes'
 import { RIVALS_DATA, seedRouteShare } from '../data/rivals'
 import { BUS_MODELS } from '../data/busModels'
+import { AVG_PRIVATE_SEATS, corridorSupply } from '../data/corridorSupply'
 import type { GameState } from '../types'
 import type { Rng } from '../core/rng'
 import { marketFare } from './pricing'
@@ -41,10 +42,11 @@ export function calculateRoutePlayerShare(
     return { playerShare: 0, dailySeats: 0 }
   }
 
-  // Corridor total daily passenger capacity across all private operators
-  // Base corridor competitor seats based on route baseDemand and competition saturation
-  const competitorSeats = Math.round(route.baseDemand * 0.40 * (0.8 + route.competition * 0.4))
-  const playerShare = Math.max(1, Math.min(85, Math.round((dailySeats / Math.max(1, competitorSeats + dailySeats)) * 100)))
+  // Rival private seats per day across both directions, from the corridor's
+  // real departure count (our dailySeats also counts both directions).
+  const competitorSeats = corridorSupply(route.id).departures * AVG_PRIVATE_SEATS * 2
+  // One decimal: on a 350-departure corridor a few coaches are well under 1%.
+  const playerShare = Math.max(0.1, Math.min(85, Math.round((dailySeats / Math.max(1, competitorSeats + dailySeats)) * 1000) / 10))
 
   return { playerShare, dailySeats }
 }
