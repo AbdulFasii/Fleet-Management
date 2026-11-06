@@ -55,6 +55,8 @@ export function RoutesPage() {
   const [searchQuery, setSearchQuery] = useState<string>('')
   /** 'all', 'none' (unassigned services) or a brand id. */
   const [brandFilter, setBrandFilter] = useState<string>('all')
+  /** 'all' or a state name: corridors starting or ending in it. */
+  const [stateFilter, setStateFilter] = useState<string>('all')
   const [selectedIntelRoute, setSelectedIntelRoute] = useState<RouteDef | null>(null)
 
   // Sorting: defaults to alphabetical (A-Z) by corridor name
@@ -131,6 +133,13 @@ export function RoutesPage() {
   }
   const countUnscheduled = ROUTE_LIST.length - countScheduled
 
+  // Every state a corridor starts or ends in, with how many corridors touch it.
+  const stateCounts = new Map<string, number>()
+  for (const r of ROUTE_LIST) {
+    for (const st of statesOnRoute(r)) stateCounts.set(st, (stateCounts.get(st) ?? 0) + 1)
+  }
+  const allStates = [...stateCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+
   // 1. Filter routes
   const filteredRoutes = ROUTE_LIST.filter((r) => {
     if (!routeMatchesCategory(r, categoryFilter)) return false
@@ -138,6 +147,7 @@ export function RoutesPage() {
 
     const hasSchedule = scheduledRouteIds.has(canonicalRouteId(r.id))
     if (scheduleFilter === 'scheduled' && !hasSchedule) return false
+    if (stateFilter !== 'all' && !statesOnRoute(r).includes(stateFilter)) return false
     if (brandFilter !== 'all') {
       const brands = brandsByRoute.get(canonicalRouteId(r.id))
       if (!brands?.has(brandFilter === 'none' ? '' : brandFilter)) return false
@@ -379,6 +389,21 @@ export function RoutesPage() {
           </div>
 
           <div className="row gap6">
+            <span className="dim">State:</span>
+            <select
+              value={stateFilter}
+              onChange={(e) => setStateFilter(e.target.value)}
+              style={{ fontSize: 11, padding: '2px 6px' }}
+              title="Corridors that start or end in this state"
+            >
+              <option value="all">All States</option>
+              {allStates.map(([state, n]) => (
+                <option key={state} value={state}>{state} ({n})</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="row gap6">
             <span className="dim">Brand:</span>
             <select
               value={brandFilter}
@@ -413,7 +438,7 @@ export function RoutesPage() {
               Showing <b>{sortedRoutes.length}</b> of {ROUTE_LIST.length} corridors
               {sortCol ? ` · Sorted by ${sortCol} (${sortAsc ? 'asc' : 'desc'})` : ' · Active permits defaulted to top'}
             </span>
-            {(categoryFilter !== 'all' || hoursFilter !== 'all' || scheduleFilter !== 'all' || brandFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
+            {(categoryFilter !== 'all' || hoursFilter !== 'all' || scheduleFilter !== 'all' || stateFilter !== 'all' || brandFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
               <button
                 className="small"
                 onClick={() => {
@@ -421,6 +446,7 @@ export function RoutesPage() {
                   setHoursFilter('all')
                   setScheduleFilter('all')
                   setBrandFilter('all')
+                  setStateFilter('all')
                   setPermitFilter('all')
                   setSearchQuery('')
                   setSortCol('name')
@@ -498,7 +524,7 @@ export function RoutesPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span
                         className="accent bold"
-                        title={[r.notes, routeViaLabel(r.id)].filter(Boolean).join('\n') || undefined}
+                        title={routeViaLabel(r.id) || undefined}
                       >
                         {routeName(r.id)}
                       </span>
@@ -547,6 +573,7 @@ export function RoutesPage() {
                         )
                       })()}
                     </div>
+                    {r.notes && <div className="small faint">{r.notes}</div>}
                   </td>
                   <td>
                     {(() => {
