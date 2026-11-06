@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGame, useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { ROUTES, routeName, canonicalRouteId } from '../../engine/data/routes'
 import { cityName } from '../../engine/data/cities'
 import {
@@ -23,11 +23,12 @@ import {
 } from '../../engine/core/calendar'
 import { rs, toRupees, fmtCompact } from '../../engine/core/money'
 import type { Bus, GameState, Schedule, Trip } from '../../engine/types'
-import { activeGroups, groupForTrip } from '../../engine/sim/groups'
+import { fleetGroups, groupForTrip } from '../../engine/sim/groups'
 import { Bar, M, Panel, KV, ratingTone, GroupBadge, Hint, StatRow, BusLink, CoachCell, Tabs, PageHeader } from '../bits'
 import { tonnes } from '../format'
 import { hybridClassStats } from '../../engine/sim/seatmap'
 import { spareDriverBench, isDriverEligibleForTrip } from '../../engine/sim/staffing'
+import { BrandOptions } from '../BrandOptions'
 
 function seatCap(t: Trip): number {
   return t.seatCount || t.seats.length
@@ -326,8 +327,8 @@ interface ScheduleGroup {
 const SHOW_DAYS = 7
 
 export function TripBoardPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [activeTab, setActiveTab] = useState<'timetable' | 'daily' | 'timeline' | 'history'>('timetable')
   const [routeFilter, setRouteFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'high' | 'cmvr' | 'festival' | 'cargo' | 'charter'>('all')
@@ -337,7 +338,7 @@ export function TripBoardPage() {
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null)
   const uiPrefs = useGame((g) => g.uiPrefs)
   const setFleetGroupFilter = useGame((g) => g.setFleetGroupFilter)
-  const activeBrandList = useMemo(() => activeGroups(s), [s.groups])
+  const activeBrandList = useMemo(() => fleetGroups(s), [s.groups])
 
   const activeTimelineDay = Math.min(Math.max(s.day, timelineDay), s.day + SHOW_DAYS - 1)
 
@@ -741,11 +742,7 @@ export function TripBoardPage() {
             aria-label="Filter by brand"
           >
             <option value="all">All Brands</option>
-            {activeBrandList.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.code} - {g.name}
-              </option>
-            ))}
+            <BrandOptions s={s} brands={activeBrandList} />
             <option value="none">Unassigned</option>
           </select>
           <span className="dim small">Filter Route:</span>

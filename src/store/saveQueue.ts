@@ -20,6 +20,20 @@ interface SaveQueueDependencies {
   write: (payload: string, day: number) => boolean
   persistSync: (state: GameState, mutable: boolean) => boolean
   append: (destination: string, state: GameState, dto: Record<string, unknown>) => Promise<unknown>
+  /**
+   * True while the simulation is part-way through a day or week. The engine advances the live
+   * state in place, so a save taken then would capture a half-finished day: wait instead.
+   */
+  busy?: () => boolean
+}
+
+const RETRY_WHILE_BUSY_MS = 300
+
+/** Run when the browser is idle (bounded wait), so saving never competes with a frame. */
+function whenIdle(fn: () => void): void {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback
+  if (ric) ric(fn, { timeout: 1500 })
+  else fn() // no idle API (Safari, Node): save as soon as the debounce ends, as before
 }
 
 /** Owns deferred work; no ticket may outlive its game session or a newer save. */
@@ -48,6 +62,10 @@ export function createSaveQueue(deps: SaveQueueDependencies) {
     if (!ticket.destination || ticket.cloudGeneration !== cloudGeneration) return
     cloudTimer = setTimeout(() => {
       cloudTimer = undefined
+      if (deps.busy?.()) {
+        queueCloud(ticket)
+        return
+      }
       if (!current(ticket) || cloudToken !== cloudRevision || ticket.cloudGeneration !== cloudGeneration
         || deps.destination() !== ticket.destination || deps.destinationRevision() !== ticket.destinationRevision) return
       // DTOs share live state branches. Snapshot only when actually sending to
@@ -103,9 +121,24 @@ export function createSaveQueue(deps: SaveQueueDependencies) {
   return {
     enqueue(state: GameState, mutable = false) {
       pending = ticketFor(state, mutable)
-      saveTimer = setTimeout(() => {
-        flushAsync().catch((err) => { console.warn('Autosave failed; pending state retained:', err) })
-      }, 500)
+      const arm = (delay: number) => {
+        saveTimer = setTimeout(() => {
+          saveTimer = undefined
+          if (deps.busy?.()) {
+            arm(RETRY_WHILE_BUSY_MS)
+            return
+          }
+          whenIdle(() => {
+            // Something newer (or a running advance) may have arrived while waiting for idle.
+            if (deps.busy?.()) {
+              arm(RETRY_WHILE_BUSY_MS)
+              return
+            }
+            flushAsync().catch((err) => { console.warn('Autosave failed; pending state retained:', err) })
+          })
+        }, delay)
+      }
+      arm(500)
     },
     saveNow(state: GameState, mutable = false): boolean {
       pending = ticketFor(state, mutable)
@@ -114,6 +147,8 @@ export function createSaveQueue(deps: SaveQueueDependencies) {
     flushSync(): boolean {
       clearTimer()
       if (!pending) return true
+      // Mid-day state must never reach disk; the last complete save stays in place.
+      if (deps.busy?.()) return false
       // Supersede an in-flight encode, but retain its state for page-hide.
       // Retain its original cloud destination even if the selected slot changed.
       cancelCloud()

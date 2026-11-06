@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { BusGroup, GameState, ID } from '../engine/types'
 import { GroupBadge } from './bits'
-import { activeGroups } from '../engine/sim/groups'
+import { activeGroups, fleetDescendantIds } from '../engine/sim/groups'
 
 interface TreeNode {
   group?: BusGroup
@@ -71,11 +71,22 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
   // Count fleet in node
   const getGroupMetrics = (groupId?: ID) => {
     if (!groupId) {
-      return { buses: totalBuses, schedules: totalSchedules }
+      return { buses: totalBuses, schedules: totalSchedules, brands: 0, rating: null as number | null }
     }
-    const bCount = Object.values(s.buses ?? {}).filter((b) => b.groupId === groupId).length
-    const sCount = Object.values(s.schedules ?? {}).filter((sch) => sch.groupId === groupId).length
-    return { buses: bCount, schedules: sCount }
+    // Operators own nothing themselves: count everything their fleet brands own.
+    const ids = fleetDescendantIds(s, groupId)
+    const bCount = Object.values(s.buses ?? {}).filter((b) => b.groupId && ids.has(b.groupId)).length
+    const sCount = Object.values(s.schedules ?? {}).filter((sch) => sch.groupId && ids.has(sch.groupId)).length
+    let ratingSum = 0
+    let reviews = 0
+    for (const id of ids) {
+      const g = s.groups?.[id]
+      if (g && g.ratingCount > 0) {
+        ratingSum += g.rating * g.ratingCount
+        reviews += g.ratingCount
+      }
+    }
+    return { buses: bCount, schedules: sCount, brands: ids.size, rating: reviews > 0 ? ratingSum / reviews : null }
   }
 
   // Render Org Chart Node Recursively
@@ -85,6 +96,8 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
     const isCollapsed = Boolean(collapsedNodes[nodeId])
     const hasChildren = node.children.length > 0
     const metrics = getGroupMetrics(node.group?.id)
+    const isOperator = node.group?.kind === 'operator'
+    const campaignRunning = Boolean(node.group?.campaigns?.some((c) => c.endDay >= s.day))
 
     return (
       <div
@@ -105,7 +118,7 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
             background: isRoot
               ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%)'
               : 'var(--panel-alt, #151a21)',
-            border: `1.5px solid ${node.color ?? (isRoot ? 'var(--accent)' : 'var(--border)')}`,
+            border: `1.5px ${isOperator ? 'dashed' : 'solid'} ${node.color ?? (isRoot ? 'var(--accent)' : 'var(--border)')}`,
             borderRadius: 8,
             padding: '10px 14px',
             minWidth: 200,
@@ -143,6 +156,8 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
             ) : null}
 
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {isOperator && <span className="pill info small" style={{ fontSize: '0.68rem' }} title="Owns no coaches; operates the brands below it">Operator</span>}
+              {campaignRunning && <span className="pill good small" style={{ fontSize: '0.68rem' }} title="A campaign is running">📣</span>}
               {node.group?.cargoBrand && <span className="pill warn small" style={{ fontSize: '0.68rem' }}>Cargo</span>}
               {node.group?.primo && <span className="pill good small" style={{ fontSize: '0.68rem' }}>★ Primo</span>}
               {hasChildren && (
@@ -169,14 +184,16 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
           </div>
 
           <div className="small dim mt4" style={{ fontSize: '0.76rem', display: 'flex', justifyContent: 'space-between' }}>
-            <span>🚌 {metrics.buses} coaches</span>
+            <span title={isOperator ? 'Across the brands it operates' : undefined}>🚌 {metrics.buses} coaches{isOperator ? ' (via brands)' : ''}</span>
             <span>🗓️ {metrics.schedules} runs</span>
           </div>
 
           {node.group && (
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
-              <span className="small good" style={{ fontWeight: 600, fontSize: '0.76rem' }}>
-                ★ {node.group.ratingCount > 0 ? node.group.rating.toFixed(1) : s.company.rating.toFixed(1)}
+              <span className="small good" style={{ fontWeight: 600, fontSize: '0.76rem' }} title={isOperator ? `Review-weighted rating of ${metrics.brands} brands` : undefined}>
+                ★ {isOperator
+                  ? (metrics.rating ?? s.company.rating).toFixed(1)
+                  : node.group.ratingCount > 0 ? node.group.rating.toFixed(1) : s.company.rating.toFixed(1)}
               </span>
 
               <div style={{ display: 'flex', gap: 4 }}>
@@ -189,9 +206,9 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
                       e.stopPropagation()
                       onAddSubBrand(node.group?.id)
                     }}
-                    title={`Create a sub-brand under ${node.name}`}
+                    title={isOperator ? `Create a brand operated by ${node.name}` : `Create a sub-brand under ${node.name}`}
                   >
-                    + Sub-brand
+                    {isOperator ? '+ Brand' : '+ Sub-brand'}
                   </button>
                 )}
                 {onSelectBrand && (
@@ -326,6 +343,7 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
           ) : null}
           <span style={{ fontWeight: 600 }}>{node.name}</span>
           <span className="dim small">({metrics.buses} buses · {metrics.schedules} runs)</span>
+          {node.group?.kind === 'operator' && <span className="pill info small">Operator · {metrics.brands} brands</span>}
           {node.group?.cargoBrand && <span className="pill warn small">Cargo</span>}
           {node.group?.primo && <span className="pill good small">★ Primo</span>}
 
@@ -382,7 +400,10 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
           <span style={{ fontWeight: 600 }}>Corporate Structure:</span>
-          <span className="pill info small">{allActive.length} Subsidiary Brands</span>
+          <span className="pill info small">{allActive.filter((g) => g.kind !== 'operator').length} Subsidiary Brands</span>
+          {allActive.some((g) => g.kind === 'operator') && (
+            <span className="pill small">{allActive.filter((g) => g.kind === 'operator').length} Operators</span>
+          )}
           <span className="dim small">· {totalBuses} Active Fleet Buses</span>
         </div>
 
@@ -442,7 +463,7 @@ export function BrandHierarchyTree({ s, onSelectBrand, onAddSubBrand }: BrandHie
         }}
       >
         <div>
-          💡 <b>Multi-Tier Brand Tree:</b> Any brand can have specialized sub-brands (e.g. <i>Keralines Lux</i> under <i>Keralines</i>, or <i>Royal Xpress Cargo</i> under <i>Royal Xpress</i>). Re-assign parent brands anytime from each brand card below.
+          💡 <b>Multi-Tier Brand Tree:</b> Fleet brands own coaches and run services. <b>Operators</b> (dashed cards) own nothing and operate the brands under them; their numbers are the sum of those brands. Re-assign parent brands anytime from each brand card below.
         </div>
         <span className="dim">Shared company balance sheet & workshop</span>
       </div>

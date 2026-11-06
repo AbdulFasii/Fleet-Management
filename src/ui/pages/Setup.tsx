@@ -1,7 +1,7 @@
 import type { Scenario } from '../../engine/types'
 import { useEffect, useRef, useState } from 'react'
 import { fmtDate } from '../../engine/core/calendar'
-import { useGame } from '../../store/gameStore'
+import { useGameActions } from '../../store/gameStore'
 import { listCloudSaves, type CloudSaveHeader } from '../../store/cloudGameSave'
 import { DIFFICULTIES } from '../../engine/data/balance'
 import { starterRoutes } from '../../engine/newGame'
@@ -28,7 +28,7 @@ const SCENARIO_DETAILS: Record<Scenario, { title: string; desc: string; highligh
 }
 
 export function SetupScreen() {
-  const g = useGame()
+  const g = useGameActions()
   const startNew = g.startNew
   const [name, setName] = useState('')
   const [diff, setDiff] = useState<Difficulty>('malik')

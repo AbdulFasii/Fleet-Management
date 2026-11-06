@@ -2,15 +2,15 @@ import { useMemo } from 'react'
 import {
   Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { useGame } from '../store/gameStore'
+import { useDeferredGameState } from '../store/gameStore'
 import { fmtDateShort } from '../engine/core/calendar'
 import { toRupees } from '../engine/core/money'
 import { BAL } from '../engine/data/balance'
 import { APP_TIER_NAMES } from '../engine/sim/channels'
-import { Bar, KV, M, Panel, ratingTone } from './bits'
+import { Bar, Hint, KV, M, Panel, ratingTone } from './bits'
 
 export function FleetHealthPanel() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
 
   const pxSafetyStats = useMemo(() => {
     const buses = Object.values(s.buses)
@@ -76,7 +76,7 @@ export function FleetHealthPanel() {
 }
 
 export function CargoTrendPanel() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
 
   const cargoPerformanceData = useMemo(() => {
     const days = 30
@@ -134,7 +134,7 @@ export function CargoTrendPanel() {
 }
 
 export function ChannelMixPanel() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const app = s.company.app
   const mix = { redbus: 0, abhibus: 0, ownapp: 0, counter: 0 }
   for (const t of Object.values(s.trips)) {
@@ -164,7 +164,95 @@ export function ChannelMixPanel() {
         ['Installs', Math.round(app.installs).toLocaleString()],
         ['MAU', Math.round(app.mau).toLocaleString()],
         ['Marketing', app.tier === 0 ? '—' : <M v={app.monthlyMarketing} />],
+        ...(app.tier > 0 && app.history?.length
+          ? [['Net last month', <M v={app.history[app.history.length - 1].net} colored />] as [React.ReactNode, React.ReactNode]]
+          : []),
       ]} />
     </Panel>
+  )
+}
+
+/**
+ * What the own app earns and costs: installs split into paid and organic, the commission it
+ * avoids against RedBus, and the net after ad spend and hosting.
+ */
+export function AppEconomics() {
+  const s = useDeferredGameState()!
+  const app = s.company.app
+  if (app.tier === 0) return null
+
+  const history = app.history ?? []
+  const recent = history.slice(-6).reverse()
+  const last = history[history.length - 1]
+  const month = app.month
+  const net12 = history.reduce((n, h) => n + h.net, 0)
+  const organicShare = last && last.paidInstalls + last.organicInstalls > 0
+    ? last.organicInstalls / (last.paidInstalls + last.organicInstalls)
+    : null
+
+  return (
+    <>
+      <div className="panel-title" style={{ margin: '12px -10px 8px' }}>
+        <span>Economics</span>
+        <Hint text="Installs come from ad spend (each one costs more the more you spend) and from riders on other channels who find the app. 'Commission saved' is what the same seats would have cost on RedBus, after payment-gateway fees. Net is that saving minus ad spend and hosting; it does not count extra passengers the app brings in." />
+      </div>
+      <KV rows={[
+        [
+          'This month so far',
+          month
+            ? <span>{Math.round(month.seats).toLocaleString('en-IN')} app seats · <M v={month.gross} /> sold · {Math.round(month.organicInstalls).toLocaleString('en-IN')} organic installs</span>
+            : '—',
+        ],
+        ['Organic share of installs', organicShare === null ? '—' : `${Math.round(organicShare * 100)}% last month`],
+        ['Net last month', last ? <M v={last.net} colored /> : <span className="dim">after the first month ends</span>],
+        [`Net, last ${history.length || 0} month${history.length === 1 ? '' : 's'}`, history.length ? <M v={net12} colored /> : '—'],
+      ]} />
+
+      {recent.length > 0 && (
+        <div style={{ overflowX: 'auto', marginTop: 10 }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th className="num">Installs (paid + organic)</th>
+                <th className="num">MAU</th>
+                <th className="num">App seats</th>
+                <th className="num">Sold</th>
+                <th className="num">Commission saved</th>
+                <th className="num">Ads + hosting</th>
+                <th className="num">Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((h) => (
+                <tr key={h.day}>
+                  <td>{fmtDateShort(h.day)}</td>
+                  <td className="num">
+                    {Math.round(h.paidInstalls).toLocaleString('en-IN')} + {Math.round(h.organicInstalls).toLocaleString('en-IN')}
+                  </td>
+                  <td className="num">{h.mau.toLocaleString('en-IN')}</td>
+                  <td className="num">{Math.round(h.seats).toLocaleString('en-IN')}</td>
+                  <td className="num"><M v={h.gross} /></td>
+                  <td className="num"><M v={h.commissionSaved} /></td>
+                  <td className="num"><M v={h.marketing + h.opex} /></td>
+                  <td className="num"><M v={h.net} colored /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {last && last.net < 0 && (
+        <div className="warn small" style={{ marginTop: 8 }}>
+          Last month the app cost more than the commission it saved. Installs get dearer as spend rises, so trimming ad spend usually helps, or wait for more riders to find the app on their own.
+        </div>
+      )}
+      {last && last.net >= 0 && (
+        <div className="good small" style={{ marginTop: 8 }}>
+          The app is paying for itself: it saved more commission than it cost to run last month.
+        </div>
+      )}
+    </>
   )
 }

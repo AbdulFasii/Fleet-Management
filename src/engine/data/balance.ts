@@ -149,7 +149,11 @@ export const BAL = {
   appCac: rs(200), // India Android travel UA ~₹250–450/install; ₹100 was unrealistically cheap
   appInstallToMauRatio: 0.35,
   appMauChurnMonthly: 0.12,
-  appOrganicInstallsPerPax: 0.06, // redbus riders discovering the app
+  appOrganicInstallsPerPax: 0.06, // riders on other channels discovering the app (before rating and tier)
+  /** Monthly ad spend at which the cost per paid install has doubled. Spending more buys fewer installs per rupee. */
+  appCacSpendKnee: L(10),
+  /** Organic discovery by app tier: a better listing is found more often. */
+  appOrganicTierMult: [0, 1, 1.15, 1.3],
   /** MAU at which raw own-app weight ≈ RedBus baseline (1.0) before tier bonuses. */
   appMauForParity: 35_000,
   /** Soft ceiling on own-app channel weight (can exceed RedBus so mix can pass ~50%). */
@@ -1220,6 +1224,15 @@ export const BAL = {
     depotTankInstallCost: rs(450_000), // ₹4.5 L capex
     wholesaleDiscountPerLitre: rs(4.0), // ₹4 discount / litre
     tankerLoadLitres: 8_000,
+    /** Bigger tanks, in order. Each upgrade replaces the tank with the next size up. */
+    depotTankUpgrades: [
+      // Bigger underground tanks need new excavation, PESO licensing and dispensing kit.
+      { capacityLitres: 20_000, cost: rs(1_200_000) },
+      { capacityLitres: 35_000, cost: rs(2_500_000) },
+      { capacityLitres: 50_000, cost: rs(4_000_000) },
+    ],
+    /** Auto-refill triggers at this share of capacity (never below 2,000 L). */
+    autoRefillAtShare: 0.2,
   },
   ecoDriving: {
     bataBonusPerDriver: rs(250), // ₹250 / trip bonus

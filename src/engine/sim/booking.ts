@@ -26,6 +26,7 @@ import { pushLog } from './log'
 import { groupForTrip } from './groups'
 import { fmtCompact } from '../core/money'
 import { isFestivalDay, festivalRunSlot } from '../core/calendar'
+import { appMonthTally, appOrganicRate } from './channels'
 
 export function tripKey(schId: string, busId: string, day: number, dir: 'AB' | 'BA'): string {
   return `tr_${schId}_${busId}_${day}_${dir}`
@@ -1229,6 +1230,11 @@ function flushSaleBatch(s: GameState, trip: Trip, batch: Record<Channel, Channel
       channelDeduction = pg
       earn(s, 'ticket', b.gross, refs, BAL.ownappSettleDays, 'ownapp')
       spendNetted(s, 'pg_fees', pg, refs)
+      const appTally = appMonthTally(s.company.app)
+      appTally.seats += b.seats
+      appTally.gross += b.gross
+      appTally.pgFees += pg
+      appTally.commissionSaved += Math.round((b.gross * s.world.redbusCommissionBps) / 10000) - pg
       const rcv = s.receivables[s.receivables.length - 1]
       if (rcv && rcv.channel === 'ownapp') rcv.amount -= pg
     } else if (ch === 'counter') {
@@ -1295,8 +1301,10 @@ function flushSaleBatch(s: GameState, trip: Trip, batch: Record<Channel, Channel
   }
 
   if (organicPax > 0 && s.company.app.tier > 0) {
-    s.company.app.installs += BAL.appOrganicInstallsPerPax * organicPax
-    s.company.app.mau += BAL.appOrganicInstallsPerPax * BAL.appInstallToMauRatio * organicPax
+    const found = appOrganicRate(s) * organicPax
+    s.company.app.installs += found
+    s.company.app.mau += found * BAL.appInstallToMauRatio
+    appMonthTally(s.company.app).organicInstalls += found
   }
 }
 

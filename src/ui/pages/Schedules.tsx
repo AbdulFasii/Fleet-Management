@@ -1,7 +1,7 @@
 import { routeMaturity } from '../../engine/sim/routeLife'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGame, useGameActions, useDeferredGameState } from '../../store/gameStore'
 import {  } from '../../engine/data/balance'
 import { ROUTES, routeName, cityName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
 import { BUS_MODELS, coachKind, coachKindClass, isCargoModel, modelTitleById } from '../../engine/data/busModels'
@@ -13,9 +13,10 @@ import { fmtTurnaround, fmtCooldownHours, runningMinutes, suggestReturnSlot, rec
 import { clockFromMinutes, clockMinutes, fmtClock, HALF_HOUR_SLOTS } from '../../engine/core/calendar'
 import { toRupees, rs } from '../../engine/core/money'
 import type { Bus, GameState, ID, RouteDef, Schedule, ServiceTier } from '../../engine/types'
-import { activeGroups, resolvedAmenities, sortedGroups } from '../../engine/sim/groups'
+import { fleetGroups, resolvedAmenities } from '../../engine/sim/groups'
 import { AMENITY_CATALOG, FITTING_CATALOG } from '../../engine/data/amenitiesCatalog'
 import { Modal, Panel, GroupBadge, PageHeader } from '../bits'
+import { BrandOptions } from '../BrandOptions'
 
 const ROUTE_PREF_KEY = 'busraj_schedules_route'
 
@@ -317,8 +318,8 @@ function CreateModal({ onClose, defaultRouteId }: {
   onClose: () => void
   defaultRouteId?: string
 }) {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const defaults = getScheduleDefaults(s)
   const rawActive = Object.values(s.permits)
     .filter((p) => p.status === 'active' && ROUTES[p.routeId])
@@ -350,7 +351,7 @@ function CreateModal({ onClose, defaultRouteId }: {
   const [busId, setBusId] = useState('')
   const [serviceKind, setServiceKind] = useState<'passenger' | 'cargo'>('passenger')
   const uiPrefs = useGame((g) => g.uiPrefs)
-  const activeBrandList = useMemo(() => activeGroups(s), [s.groups])
+  const activeBrandList = useMemo(() => fleetGroups(s), [s.groups])
   const defaultGid = uiPrefs.fleetGroupId !== 'all' && uiPrefs.fleetGroupId !== 'none'
     ? uiPrefs.fleetGroupId
     : (activeBrandList[0]?.id ?? '')
@@ -484,11 +485,7 @@ function CreateModal({ onClose, defaultRouteId }: {
       <div className="form-row">
         <label>Subsidiary</label>
         <select value={groupId} onChange={(e) => handleGroupChange(e.target.value)}>
-          {activeBrandList.map((grp) => (
-            <option key={grp.id} value={grp.id}>
-              {grp.code} - {grp.name}
-            </option>
-          ))}
+          <BrandOptions s={s} brands={activeBrandList} />
           <option value="">Unassigned</option>
         </select>
       </div>
@@ -981,11 +978,10 @@ function EditScheduleModal({ sch, s, g, onClose }: {
                   g.updateSchedule(sch.id, patch)
                 }}
               >
-                {sortedGroups(Object.values(s.groups ?? {})).map((g) => (
-                  <option key={g.id} value={g.id}>
-                    [{g.code}] {g.name}{g.status === 'retired' ? ' (retired)' : ''}
-                  </option>
-                ))}
+                <BrandOptions
+                  s={s}
+                  brands={Object.values(s.groups ?? {}).filter((og) => og.kind !== 'operator' && (og.status === 'active' || og.id === sch.groupId))}
+                />
                 <option value="">Unassigned</option>
               </select>
             </label>
@@ -1251,13 +1247,13 @@ type RouteSummary = {
 }
 
 export function SchedulesPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const uiPrefs = useGame((g) => g.uiPrefs)
   const setFleetGroupFilter = useGame((g) => g.setFleetGroupFilter)
   const [searchParams, setSearchParams] = useSearchParams()
   const focusSchId = searchParams.get('sch')
-  const activeBrandList = useMemo(() => activeGroups(s), [s.groups])
+  const activeBrandList = useMemo(() => fleetGroups(s), [s.groups])
   const [creating, setCreating] = useState(false)
   const [railSearch, setRailSearch] = useState('')
   const [openSchId, setOpenSchId] = useState<string | null>(focusSchId)
@@ -1506,11 +1502,7 @@ export function SchedulesPage() {
               aria-label="Filter routes by brand"
             >
               <option value="all">All Brands</option>
-              {activeBrandList.map((grp) => (
-                <option key={grp.id} value={grp.id}>
-                  {grp.code} — {grp.name}
-                </option>
-              ))}
+              <BrandOptions s={s} brands={activeBrandList} />
               <option value="none">Unassigned</option>
             </select>
             <input

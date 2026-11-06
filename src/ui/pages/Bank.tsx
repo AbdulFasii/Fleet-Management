@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import {
   CASH_LOAN_SLABS,
   LOAN_PRODUCTS,
@@ -30,8 +30,8 @@ function getRelTier(score: number): { title: string; color: string } {
 }
 
 export function BankPage({ embedded }: { embedded?: boolean } = {}) {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const loans = Object.values(s.loans)
   const active = loans.filter((l) => l.status === 'active')
   const totalEmi = active.reduce((a, l) => a + l.emi, 0)

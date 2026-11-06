@@ -171,12 +171,48 @@ export function dailyDepotPass(s: GameState): void {
     }
   }
 
-  // 4. Auto-refill depot bulk fuel tank if low
-  if (s.company.depotFuelTank?.installed && s.company.depotFuelTank.autoRefill) {
-    if (s.company.depotFuelTank.litres <= 2_000) {
-      orderDepotFuelRefill(s)
+  // 4. Auto-refill depot bulk fuel tank if low: as many full tanker loads as fit.
+  const tank = s.company.depotFuelTank
+  if (tank?.installed && tank.autoRefill) {
+    if (tank.litres <= autoRefillThreshold(tank.capacityLitres)) {
+      orderDepotFuelRefill(s, tankerLoadsThatFit(tank.capacityLitres - tank.litres))
     }
   }
+}
+
+/** Level at which auto-refill orders a tanker: 20% of capacity, never below 2,000 L. */
+export function autoRefillThreshold(capacityLitres: number): number {
+  return Math.max(2_000, Math.round(capacityLitres * BAL.fuelCommercial.autoRefillAtShare))
+}
+
+/** Whole tanker loads that fit in the free space (at least one load). */
+export function tankerLoadsThatFit(freeLitres: number): number {
+  const load = BAL.fuelCommercial.tankerLoadLitres
+  return Math.max(1, Math.floor(freeLitres / load)) * load
+}
+
+/** The next bigger tank, if any. */
+export function nextDepotTankUpgrade(s: GameState): { capacityLitres: number; cost: number } | undefined {
+  const cap = s.company.depotFuelTank?.capacityLitres ?? 0
+  return BAL.fuelCommercial.depotTankUpgrades.find((u) => u.capacityLitres > cap)
+}
+
+/** Replace the depot tank with the next size up. Fuel already in it stays. */
+export function upgradeDepotFuelTank(s: GameState): string | null {
+  const tank = s.company.depotFuelTank
+  if (!tank?.installed) return 'Install a depot fuel tank first.'
+  const next = nextDepotTankUpgrade(s)
+  if (!next) return 'The depot tank is already the largest size.'
+  if (!canAfford(s, next.cost)) return `Upgrading to ${next.capacityLitres.toLocaleString('en-IN')} L costs ${fmtCompact(next.cost)}.`
+  spend(s, 'depot_fuel_capex', next.cost, { note: `Depot fuel tank upgrade to ${next.capacityLitres.toLocaleString('en-IN')} L` })
+  const from = tank.capacityLitres
+  tank.capacityLitres = next.capacityLitres
+  pushLog(
+    s,
+    'good',
+    `Depot fuel tank upgraded from ${from.toLocaleString('en-IN')} L to ${next.capacityLitres.toLocaleString('en-IN')} L. More litres at the ₹4/L wholesale saving between tankers.`,
+  )
+  return null
 }
 
 /** Install a 10,000L underground diesel yard tank at the home depot. */
@@ -232,7 +268,11 @@ export function toggleAutoRefillDepotTank(s: GameState, enabled?: boolean): stri
   const tank = s.company.depotFuelTank
   if (!tank?.installed) return 'No depot fuel tank installed.'
   tank.autoRefill = enabled !== undefined ? enabled : !tank.autoRefill
-  pushLog(s, 'info', `Depot fuel tank auto-refill ${tank.autoRefill ? 'ENABLED (auto-orders 8,000L tanker at 2,000L)' : 'DISABLED'}.`)
+  pushLog(
+    s,
+    'info',
+    `Depot fuel tank auto-refill ${tank.autoRefill ? `ENABLED (orders tanker loads when the level drops to ${autoRefillThreshold(tank.capacityLitres).toLocaleString('en-IN')} L)` : 'DISABLED'}.`,
+  )
   return null
 }
 

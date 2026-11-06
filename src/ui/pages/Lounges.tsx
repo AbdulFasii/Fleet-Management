@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { fmtDate } from '../../engine/core/calendar'
 import { Link } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { Panel, Modal, StatRow, Empty, PageHeader } from '../bits'
 import { fmtCompact } from '../../engine/core/money'
 import { CITIES, cityName } from '../../engine/data/cities'
@@ -113,8 +113,8 @@ function PackagePicker({ tier, seating, setSeating, amenities, setAmenities }: {
 }
 
 export function LoungesPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
 
   const lounges = s.company.lounges ?? []
   const [showOpenModal, setShowOpenModal] = useState(false)

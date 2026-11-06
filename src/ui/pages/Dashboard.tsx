@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { computeAdvisor } from '../../engine/sim/advisor'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { fmtDateShort } from '../../engine/core/calendar'
 import { fmtCompact, toRupees } from '../../engine/core/money'
 import { routeName } from '../../engine/data/routes'
@@ -11,8 +11,8 @@ import { Bar, BusLink, Panel, PageHeader } from '../bits'
 import { FleetHealthPanel, CargoTrendPanel, ChannelMixPanel } from '../opsPanels'
 
 export function Dashboard() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [logOpen, setLogOpen] = useState(false)
 
   const tasks = computeAdvisor(s)

@@ -461,6 +461,10 @@ export function createSchedule(s: GameState, input: ScheduleInput): { id: ID } |
     ? (outboundDuty === 'festival' && returnDuty === 'festival')
     : (outboundDuty === 'festival')
 
+  if (input.groupId && s.groups?.[input.groupId]?.kind === 'operator') {
+    return { error: `${s.groups[input.groupId].name} is an operator and runs no services. Pick one of its brands.` }
+  }
+
   const sch: Schedule = {
     id: nextId(s.ids, 's'),
     routeId: input.routeId,

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { BUS_MODELS, CLASS_LABEL, coachKind, isCargoModel, isCharterModel } from '../../engine/data/busModels'
 import { FITTING_CATALOG, busHasFitting } from '../../engine/data/amenitiesCatalog'
 import { ROUTES, routeName } from '../../engine/data/routes'
@@ -50,9 +50,9 @@ import { canCrewBus, crewLimit, crewOnBus, freeCrew } from '../crew'
 import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
 import { Bar, KV, M, Panel, ratingTone, GroupBadge, Hint } from '../bits'
-import { activeGroups } from '../../engine/sim/groups'
 import { canAfford } from '../../engine/sim/finance'
 import { pushLog } from '../../engine/sim/log'
+import { BrandOptions } from '../BrandOptions'
 
 
 function VitalGroup({ title, rows }: { title: string; rows: [React.ReactNode, React.ReactNode][] }) {
@@ -67,8 +67,8 @@ function VitalGroup({ title, rows }: { title: string; rows: [React.ReactNode, Re
 
 
 function SlotRow({ busId, role, label, slots }: { busId: string; role: StaffRole; label: string; slots: number }) {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const posted = crewOnBus(s, busId, role)
   const free = freeCrew(s, role)
   const opsStaffing = !!s.company.opsId && !!s.company.opsAutoStaff
@@ -179,8 +179,8 @@ function SlotRow({ busId, role, label, slots }: { busId: string; role: StaffRole
 export function BusDetailPage() {
   const { busId } = useParams()
   const nav = useNavigate()
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const bus = busId ? s.buses[busId] : undefined
 
   if (!bus) {
@@ -1043,11 +1043,7 @@ export function BusDetailPage() {
                     }}
                     style={{ minWidth: 160 }}
                   >
-                    {activeGroups(s).map((grp) => (
-                      <option key={grp.id} value={grp.id}>
-                        {grp.code} - {grp.name}
-                      </option>
-                    ))}
+                    <BrandOptions s={s} />
                     <option value="">Unassigned</option>
                   </select>
                   <button

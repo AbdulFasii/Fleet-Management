@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import {
   BAL,
@@ -38,7 +38,7 @@ import {
 import { fmtCompact, rs } from '../../engine/core/money'
 import { CITIES, cityName } from '../../engine/data/cities'
 import { ROUTES } from '../../engine/data/routes'
-import { yardMonthlyRent, busesParkedInCity, outstationNightlyFee } from '../../engine/sim/depot'
+import { yardMonthlyRent, busesParkedInCity, outstationNightlyFee, nextDepotTankUpgrade, autoRefillThreshold } from '../../engine/sim/depot'
 import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays } from '../../engine/sim/staffing'
 import { spanMeters } from '../../engine/sim/span'
 import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand, WorkshopLocation, ID } from '../../engine/types'
@@ -81,9 +81,16 @@ function OwnershipCell({ ownership, attachShare }: { ownership: Ownership; attac
   )
 }
 
+/** Two side-by-side halves so a long list of bays does not run a single tall column. */
+function splitColumns<T>(items: T[]): T[][] {
+  if (items.length < 2) return [items]
+  const half = Math.ceil(items.length / 2)
+  return [items.slice(0, half), items.slice(half)]
+}
+
 export function WorkshopPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [activeTab, setActiveTab] = useState<'jobs' | 'due' | 'upgrades' | 'depot' | 'claims'>('jobs')
   const [serviceFilter, setServiceFilter] = useState<'all' | 'overhaul' | 'service_b' | 'service_a' | 'tyres' | 'gps'>('all')
   const [overhaulFilter, setOverhaulFilter] = useState<'candidates' | 'all' | 'semi_sleeper' | 'low_condition' | 'in_progress'>('candidates')
@@ -415,19 +422,21 @@ export function WorkshopPage() {
                     </span>
                   }
                 >
-                  <table className="data" style={{ tableLayout: 'fixed', width: '100%' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(540px, 1fr))', gap: 16, alignItems: 'start' }}>
+                  {splitColumns(locBays).map((list, col) => (
+                  <table key={col} className="data" style={{ tableLayout: 'fixed', width: '100%' }}>
                     <colgroup>
-                      <col style={{ width: 55 }} />
-                      <col style={{ width: 300 }} />
+                      <col style={{ width: 50 }} />
+                      <col style={{ width: 235 }} />
                       <col />
-                      <col style={{ width: 110 }} />
-                      <col style={{ width: 65 }} />
+                      <col style={{ width: 95 }} />
+                      <col style={{ width: 55 }} />
                     </colgroup>
                     <thead>
                       <tr><th>Bay</th><th>Mechanic</th><th>Job</th><th>Owner</th><th className="num">Left</th></tr>
                     </thead>
                     <tbody>
-                      {locBays.map((bay) => {
+                      {list.map((bay) => {
                         const onLeave = Boolean(bay.mechanic?.onLeaveUntilDay && bay.mechanic.onLeaveUntilDay >= s.day)
                         const vacant = !bay.mechanic
                         return (
@@ -479,6 +488,8 @@ export function WorkshopPage() {
                       })}
                     </tbody>
                   </table>
+                  ))}
+                  </div>
                 </Panel>
               )
             })
@@ -778,22 +789,44 @@ export function WorkshopPage() {
                   const tank = s.company.depotFuelTank
                   const wholesale = Math.max(rs(70), s.world.dieselPaise - BAL.fuelCommercial.wholesaleDiscountPerLitre)
                   const cost8k = Math.round(8_000 * wholesale)
-                  const canFill = tank.capacityLitres - tank.litres >= 1000
+                  const free = tank.capacityLitres - tank.litres
+                  const canFill = free >= 1000
+                  const fillLitres = Math.floor(free / 1000) * 1000
+                  const next = nextDepotTankUpgrade(s)
+                  const threshold = autoRefillThreshold(tank.capacityLitres)
                   return (
                     <>
                       <KV rows={[
-                        ['Level', <span><Bar value={tank.litres / 10000} tone="auto" /> <b>{Math.round(tank.litres).toLocaleString('en-IN')} L</b> <span className="muted">of 10,000</span></span>],
+                        ['Level', <span><Bar value={tank.litres / tank.capacityLitres} tone="auto" /> <b>{Math.round(tank.litres).toLocaleString('en-IN')} L</b> <span className="muted">of {tank.capacityLitres.toLocaleString('en-IN')}</span></span>],
                         ['Saving', <span className="good" title="₹4.00 a litre below pump price">₹4/L</span>],
                         ['Auto-refill', (
-                          <label className="row gap6" title="Orders an 8,000 L tanker when the level drops to 2,000 L">
+                          <label className="row gap6" title={`Orders full 8,000 L tanker loads when the level drops to ${threshold.toLocaleString('en-IN')} L`}>
                             <input type="checkbox" checked={!!tank.autoRefill} onChange={(e) => g.toggleAutoRefillDepotTank(e.target.checked)} />
                             <span>{tank.autoRefill ? 'on' : 'off'}</span>
                           </label>
                         )],
                       ]} />
-                      <button className="primary small mt12" disabled={!canFill} onClick={() => g.orderDepotFuelRefill(8_000)}>
-                        Order 8,000 L · {fmtCompact(cost8k)}
-                      </button>
+                      <div className="row gap6 wrap mt12">
+                        <button className="primary small" disabled={!canFill} onClick={() => g.orderDepotFuelRefill(8_000)}>
+                          Order 8,000 L · {fmtCompact(cost8k)}
+                        </button>
+                        {fillLitres > 8_000 && (
+                          <button className="small" onClick={() => g.orderDepotFuelRefill(fillLitres)}>
+                            Fill up {fillLitres.toLocaleString('en-IN')} L · {fmtCompact(Math.round(fillLitres * wholesale))}
+                          </button>
+                        )}
+                        {next ? (
+                          <button
+                            className="small"
+                            title="A bigger tank holds more cheap wholesale diesel between tankers. Fuel already in the tank stays."
+                            onClick={() => g.upgradeDepotFuelTank()}
+                          >
+                            Upgrade to {next.capacityLitres.toLocaleString('en-IN')} L · {fmtCompact(next.cost)}
+                          </button>
+                        ) : (
+                          <span className="muted small">Largest tank size</span>
+                        )}
+                      </div>
                     </>
                   )
                 })()

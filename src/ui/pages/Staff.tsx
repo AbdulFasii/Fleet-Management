@@ -1,7 +1,7 @@
 import { careerInfo, careerRank } from '../../engine/sim/careers'
 import { useState, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { BAL } from '../../engine/data/balance'
 import { routeName } from '../../engine/data/routes'
 import {
@@ -105,7 +105,7 @@ function ManagerPick({
 }
 
 function DeskAssistants({ s, desk }: { s: GameState; desk: DeskPost }) {
-  const g = useGame()
+  const g = useGameActions()
   const list = s.company.deskAssistants?.[desk] ?? []
   return (
     <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--panel-border, rgba(255,255,255,0.1))' }}>
@@ -678,8 +678,8 @@ function staffTabFromSearch(raw: string | null): StaffTab | null {
 }
 
 export function StaffPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<StaffTab>(
     () => staffTabFromSearch(searchParams.get('tab')) ?? 'payroll',

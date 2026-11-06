@@ -3,7 +3,7 @@ import { fmtDateShort } from '../../engine/core/calendar'
 import {
   Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
-import { useGame } from '../../store/gameStore'
+import { useDeferredGameState } from '../../store/gameStore'
 import { routeName, canonicalRouteId, ROUTES } from '../../engine/data/routes'
 import { BAL } from '../../engine/data/balance'
 import { routeStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '../../engine/sim/finance'
@@ -11,7 +11,8 @@ import { getSeasonalStatsForPeriod } from '../../engine/sim/festival'
 import { toRupees } from '../../engine/core/money'
 import type { RouteLayoutStats, RouteStats, BusGroup } from '../../engine/types'
 import { KV, M, Panel, ratingTone, GroupBadge, StatRow, PageHeader } from '../bits'
-import { activeGroups, brandStars, compareGroupsPassengerFirst } from '../../engine/sim/groups'
+import { activeGroups, brandStars, compareGroupsPassengerFirst, fleetDescendantIds } from '../../engine/sim/groups'
+import { BrandOptions } from '../BrandOptions'
 
 type PeriodId = 'lifetime' | '7' | '30' | '90' | '180' | '365'
 
@@ -129,7 +130,7 @@ function buildRouteRows(stats: Record<string, RouteStats>, recent: Record<string
 }
 
 export function AnalyticsPage() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const [period, setPeriod] = useState<PeriodId>('lifetime')
   const periodDef = PERIODS.find((p) => p.id === period) ?? PERIODS[0]!
 
@@ -168,7 +169,7 @@ export function AnalyticsPage() {
   }, [routeRows, routeSortKey, routeSortDesc])
 
   const brandFilterOptions = useMemo(() => {
-    return activeGroups(s)
+    return activeGroups(s).filter((grp) => grp.kind !== 'operator')
   }, [s.groups])
 
   const routeBrandFilterKey = routeBrandFilter === 'all'
@@ -570,6 +571,11 @@ export function AnalyticsPage() {
       ratingCount: number
       primo: boolean
       stars: number | null
+      /** Operator rows hold the sum of their fleet brands and are left out of the total. */
+      isOperator: boolean
+      /** Fleet brands an operator row adds up. */
+      fleetCount: number
+      depth: number
     }
 
     const emptyRow = (id: string, name: string, extras: Partial<BrandEconRow> = {}): BrandEconRow => ({
@@ -589,6 +595,9 @@ export function AnalyticsPage() {
       ratingCount: 0,
       primo: false,
       stars: null,
+      isOperator: false,
+      fleetCount: 0,
+      depth: 0,
       ...extras,
     })
 
@@ -606,13 +615,12 @@ export function AnalyticsPage() {
       }))
     }
 
+    // Keys for brands that no longer exist (deleted brands, old saves) count as Unassigned.
+    const rowFor = (key: string | undefined): BrandEconRow =>
+      map.get(key ?? UNASSIGNED_BRAND_KEY) ?? map.get(UNASSIGNED_BRAND_KEY)!
+
     for (const b of Object.values(s.buses)) {
-      const gid = b.groupId ?? UNASSIGNED_BRAND_KEY
-      let row = map.get(gid)
-      if (!row) {
-        row = emptyRow(gid, gid)
-        map.set(gid, row)
-      }
+      const row = rowFor(b.groupId)
       row.buses += 1
       row.trips += b.lifeTrips
       row.revenue += b.lifeRevenue
@@ -621,9 +629,7 @@ export function AnalyticsPage() {
     }
 
     for (const sch of Object.values(s.schedules)) {
-      const gid = sch.groupId ?? UNASSIGNED_BRAND_KEY
-      const row = map.get(gid)
-      if (row) row.services += 1
+      rowFor(sch.groupId).services += 1
     }
 
     // Lifetime load factor from corridor brand splits (pax-km / seat-km).
@@ -631,23 +637,38 @@ export function AnalyticsPage() {
       const brands = st.byBrand
       if (!brands) continue
       for (const [brandKey, b] of Object.entries(brands)) {
-        let row = map.get(brandKey)
-        if (!row) {
-          const grp = brandKey !== UNASSIGNED_BRAND_KEY && s.groups ? s.groups[brandKey] : undefined
-          row = emptyRow(brandKey, grp?.name ?? brandKey, {
-            group: grp,
-            rating: grp
-              ? (grp.ratingCount >= BAL.groupRatingMinReviews ? grp.rating : s.company.rating)
-              : s.company.rating,
-            ratingCount: grp?.ratingCount ?? 0,
-            primo: Boolean(grp?.primo),
-            stars: grp ? brandStars(s, grp.id) : null,
-          })
-          map.set(brandKey, row)
-        }
+        const row = rowFor(brandKey)
         row.paxKm += b.paxKm
         row.seatKm += b.seatKm
       }
+    }
+
+    // Operators: sum every fleet brand beneath them (sums of pax-km and seat-km, so the
+    // occupancy is a true load factor; rating weighted by review count).
+    for (const grp of Object.values(s.groups ?? {})) {
+      if (grp.kind !== 'operator') continue
+      const row = map.get(grp.id)!
+      row.isOperator = true
+      row.stars = null
+      let ratingSum = 0
+      let reviews = 0
+      for (const fid of fleetDescendantIds(s, grp.id)) {
+        const child = map.get(fid)
+        if (!child) continue
+        row.fleetCount += 1
+        row.buses += child.buses
+        row.services += child.services
+        row.trips += child.trips
+        row.revenue += child.revenue
+        row.cost += child.cost
+        row.profit += child.profit
+        row.paxKm += child.paxKm
+        row.seatKm += child.seatKm
+        ratingSum += child.rating * child.ratingCount
+        reviews += child.ratingCount
+      }
+      row.ratingCount = reviews
+      row.rating = reviews > 0 ? ratingSum / reviews : s.company.rating
     }
 
     for (const row of map.values()) {
@@ -655,13 +676,28 @@ export function AnalyticsPage() {
       row.occupancy = row.seatKm > 0 ? row.paxKm / row.seatKm : null
     }
 
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.id === UNASSIGNED_BRAND_KEY) return -1
-      if (b.id === UNASSIGNED_BRAND_KEY) return 1
-      if (a.group && b.group) return compareGroupsPassengerFirst(a.group, b.group)
-      if (a.group?.cargoBrand !== b.group?.cargoBrand) return a.group?.cargoBrand ? 1 : -1
-      return a.name.localeCompare(b.name)
-    })
+    // Tree order: Unassigned first, then each top-level brand followed by the brands under it.
+    const groups = s.groups ?? {}
+    const childrenOf = new Map<string, BusGroup[]>()
+    for (const grp of Object.values(groups)) {
+      const parent = grp.parentGroupId && groups[grp.parentGroupId] ? grp.parentGroupId : ''
+      if (!childrenOf.has(parent)) childrenOf.set(parent, [])
+      childrenOf.get(parent)!.push(grp)
+    }
+    const ordered: BrandEconRow[] = [map.get(UNASSIGNED_BRAND_KEY)!]
+    const seen = new Set<string>()
+    const walk = (parent: string, depth: number) => {
+      for (const grp of (childrenOf.get(parent) ?? []).sort(compareGroupsPassengerFirst)) {
+        if (seen.has(grp.id)) continue
+        seen.add(grp.id)
+        const row = map.get(grp.id)!
+        row.depth = depth
+        ordered.push(row)
+        walk(grp.id, depth + 1)
+      }
+    }
+    walk('', 0)
+    return ordered
   }, [s.buses, s.schedules, s.groups, s.company.rating, s.routeStats, s])
 
   const brandTotals = useMemo(() => {
@@ -674,6 +710,7 @@ export function AnalyticsPage() {
     let cost = 0
     let profit = 0
     for (const r of brandEconomicsRows) {
+      if (r.isOperator) continue
       buses += r.buses
       services += r.services
       trips += r.trips
@@ -821,12 +858,21 @@ export function AnalyticsPage() {
               {brandEconomicsRows.map((row) => {
                 const margin = row.revenue > 0 ? (row.profit / row.revenue) * 100 : null
                 return (
-                <tr key={row.id}>
+                <tr key={row.id} style={row.isOperator ? { background: 'var(--bg3)', fontStyle: 'italic' } : undefined}>
                   <td>
                     {row.group ? (
-                      <div className="flex" style={{ alignItems: 'center', gap: 6 }}>
+                      <div className="flex" style={{ alignItems: 'center', gap: 6, paddingLeft: row.depth * 16 }}>
+                        {row.depth > 0 && <span className="dim">↳</span>}
                         <GroupBadge group={row.group} />
                         <b>{row.name}</b>
+                        {row.isOperator && (
+                          <span
+                            className="pill info small"
+                            title={`Operator: owns no coaches. Its numbers are the sum of its ${row.fleetCount} fleet brands and are not added again to the total.`}
+                          >
+                            Operator · {row.fleetCount}
+                          </span>
+                        )}
                         {row.group.status === 'retired' && <span className="pill dim small">Retired</span>}
                         {row.primo && <span className="pill good small">PRIMO</span>}
                       </div>
@@ -858,7 +904,13 @@ export function AnalyticsPage() {
             {brandEconomicsRows.length > 0 && (
               <tfoot>
                 <tr className="total">
-                  <td><b>Total</b> <span className="dim">({brandEconomicsRows.length} brands)</span></td>
+                  <td>
+                    <b>Total</b>{' '}
+                    <span className="dim">
+                      ({brandEconomicsRows.filter((r) => r.group && !r.isOperator).length} brands
+                      {brandEconomicsRows.some((r) => r.isOperator) ? ', operators not double-counted' : ''})
+                    </span>
+                  </td>
                   <td className="num"><b>{brandTotals.buses}</b></td>
                   <td className="num"><b>{brandTotals.services}</b></td>
                   <td className="num"><b>{brandTotals.trips.toLocaleString()}</b></td>
@@ -915,11 +967,7 @@ export function AnalyticsPage() {
             style={{ minWidth: 160 }}
           >
             <option value="all">All Brands</option>
-            {brandFilterOptions.map((grp) => (
-              <option key={grp.id} value={grp.id}>
-                {grp.code} — {grp.name}
-              </option>
-            ))}
+            <BrandOptions s={s} brands={brandFilterOptions} />
             <option value="none">Unassigned</option>
           </select>
           <select

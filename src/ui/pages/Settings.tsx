@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { BAL, CANCELLATION_POLICY_RULES, DIFFICULTIES } from '../../engine/data/balance'
 import { AMENITY_CATALOG, FITTING_CATALOG } from '../../engine/data/amenitiesCatalog'
-import { APP_TIER_DESC, APP_TIER_NAMES } from '../../engine/sim/channels'
+import { APP_TIER_DESC, APP_TIER_NAMES, appCacPerInstall, appPaidInstalls } from '../../engine/sim/channels'
 import { getScheduleDefaults } from '../../engine/sim/schedules'
 import { monthlyDepreciationFor, depreciationLifeYears } from '../../engine/sim/finance'
 import { docsManagerOnDuty } from '../../engine/sim/staffing'
@@ -16,7 +16,7 @@ import { fmtDate } from '../../engine/core/calendar'
 import { cityName } from '../../engine/data/cities'
 import { getLoungeTierDef } from '../../engine/data/loungeCatalog'
 import { getLoungeSchedulesHandled } from '../../engine/sim/lounge'
-import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BusGroup, BodyDesign, DriverDormitoryTier, FestivalBonusTier } from '../../engine/types'
+import type { CancellationPolicy, Channel, DepreciationMethod, FuelPartner, ServiceTier, BodyDesign, DriverDormitoryTier, FestivalBonusTier } from '../../engine/types'
 import {
   BODY_QUALITY_TIERS,
   DEFAULT_BODY_BUILDERS,
@@ -28,7 +28,7 @@ import {
   COACH_LAYOUT_OPTIONS,
   type CoachLayoutKind,
 } from '../../engine/data/bodyBuilders'
-import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
+import { GROUP_PALETTE, isLightBadgeColor, brandStars, activeGroups, fleetGroups, fleetDescendantIds, sortedGroups, getDescendantGroupIds } from '../../engine/sim/groups'
 import { KV, Panel, Modal, GroupBadge, Hint, StatRow, Tabs, PageHeader } from '../bits'
 import { BrandHierarchyTree } from '../BrandHierarchyTree'
 import { AmenityPicker } from '../AmenityPicker'
@@ -39,6 +39,13 @@ import { CloudSavesPanel } from '../CloudSavesPanel'
 import { TABS, GLOBAL_SHORTCUTS } from '../navigation'
 import { getLastCloudSyncTime } from '../../store/sharedBodyDesigns'
 import { isCloudImagesConfigured } from '../../lib/supabase'
+import { BrandOptions } from '../BrandOptions'
+import { AppEconomics } from '../opsPanels'
+import { AgeCapInput } from '../BrandStandards'
+import { BrandActionsModal, type BrandActionTab } from '../BrandActions'
+import { BrandCampaignsModal } from '../BrandCampaigns'
+import { TIER_STANDARD } from '../../engine/sim/brandModifiers'
+import { belowStandardBuses } from '../../engine/sim/brandPolicy'
 
 const EXPORT_SERIES_KEY = 'busraj_export_series'
 
@@ -111,8 +118,8 @@ function BadgeColorPellets({
 
 
 export function SettingsPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [searchParams] = useSearchParams()
   const initialTab = searchParams.get('tab') as any
   const [activeTab, setActiveTab] = useState<'flow' | 'fleet' | 'commercial' | 'policies' | 'subsidiaries' | 'body_designs' | 'welfare' | 'lounges' | 'system'>(
@@ -132,8 +139,9 @@ export function SettingsPage() {
   const [newBrandCargo, setNewBrandCargo] = useState(false)
   const [newBrandPic, setNewBrandPic] = useState<string | undefined>(undefined)
   const [newBrandParentId, setNewBrandParentId] = useState('')
-  const [retireTarget, setRetireTarget] = useState<BusGroup | null>(null)
-  const [retireDestination, setRetireDestination] = useState<string>('')
+  const [newBrandKind, setNewBrandKind] = useState<'fleet' | 'operator'>('fleet')
+  const [actionsTarget, setActionsTarget] = useState<{ id: string; tab: BrandActionTab } | null>(null)
+  const [campaignTarget, setCampaignTarget] = useState<string | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
@@ -786,14 +794,14 @@ export function SettingsPage() {
 
           <Panel
             title="Fleet Odometer Milestone Display"
-            info="Highlight odometer readings at or above this mark wherever a coach's kilometres are shown. Each brand can have its own milestone threshold."
+            info="Highlight odometer readings at or above this mark wherever a coach's kilometres are shown. Each brand can have its own milestone threshold and a coach age cap (older coaches are flagged for replacement)."
           >
-            {activeGroups(s).length > 0 && (
+            {fleetGroups(s).length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   Brand Specific Limits
                 </div>
-                {activeGroups(s).map((grp) => {
+                {fleetGroups(s).map((grp) => {
                   const brandMark = grp.odoHighlightKm ?? odoMark
                   const isCustom = grp.odoHighlightKm != null
                   return (
@@ -825,6 +833,8 @@ export function SettingsPage() {
                         title={`Milestone mark for ${grp.name}`}
                       />
 
+                      <AgeCapInput group={grp} />
+
                       <div className="flex" style={{ alignItems: 'center', gap: 8, minWidth: 135, justifyContent: 'flex-end', flexShrink: 0 }}>
                         <b style={{ textAlign: 'right' }}>
                           {brandMark.toLocaleString('en-IN')} km
@@ -847,6 +857,38 @@ export function SettingsPage() {
                     </div>
                   )
                 })}
+              </div>
+            )}
+
+            {activeGroups(s).some((grp) => grp.kind === 'operator') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-dim, #888)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Operator Coach Age Cap (applies to brands beneath)
+                </div>
+                {activeGroups(s)
+                  .filter((grp) => grp.kind === 'operator')
+                  .map((grp) => (
+                    <div
+                      key={grp.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        padding: '8px 12px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255, 255, 255, 0.07)',
+                      }}
+                    >
+                      <div className="flex" style={{ alignItems: 'center', gap: 8, minWidth: 160, flexShrink: 0 }}>
+                        <GroupBadge group={grp} />
+                        <b style={{ fontSize: '0.92rem', whiteSpace: 'nowrap' }}>{grp.name}</b>
+                        <span className="pill info small">Operator</span>
+                      </div>
+                      <span className="spacer" />
+                      <AgeCapInput group={grp} />
+                    </div>
+                  ))}
               </div>
             )}
 
@@ -1124,12 +1166,22 @@ export function SettingsPage() {
                     onBlur={() => commitMarketing(mktDraft)}
                     onKeyDown={(e) => { if (e.key === 'Enter') commitMarketing(mktDraft) }}
                   />
-                  <span className="dim small">₹/mo (CAC ~{fmtCompact(BAL.appCac)})</span>
+                  {(() => {
+                    const draft = rs(Math.max(0, Number(mktDraft) || 0))
+                    return draft > 0 ? (
+                      <span className="dim small">
+                        ₹/mo · about {fmtCompact(appCacPerInstall(s, draft))} per install, ~{Math.round(appPaidInstalls(s, draft)).toLocaleString('en-IN')} installs a month
+                      </span>
+                    ) : (
+                      <span className="dim small">₹/mo · no paid installs</span>
+                    )
+                  })()}
                 </div>
               )],
             ]} />
+            <AppEconomics />
             {app.tier < 3 && (
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 12 }}>
                 <button className="primary small" onClick={() => g.buildAppTier((app.tier + 1) as 1 | 2 | 3)}>
                   Upgrade to {APP_TIER_NAMES[app.tier + 1]} ({fmtCompact(BAL.appBuildCost[app.tier + 1])})
                 </button>
@@ -1159,7 +1211,7 @@ export function SettingsPage() {
             >
               Gallery {(() => { const n = companyGalleryUrls(s.company.gallery, Object.values(s.groups ?? {})).length; return n ? `(${n})` : '' })()}
             </button>
-            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined); setNewBrandParentId('') }}>
+            <button className="primary small" onClick={() => { setShowCreateModal(true); setNewBrandName(''); setNewBrandCode(''); setNewBrandColor(GROUP_PALETTE[0]); setNewBrandCargo(false); setNewBrandPic(undefined); setNewBrandParentId(''); setNewBrandKind('fleet') }}>
               + Create Subsidiary Brand
             </button>
             </div>
@@ -1211,6 +1263,59 @@ export function SettingsPage() {
                 const parentGroup = group.parentGroupId ? s.groups?.[group.parentGroupId] : undefined
                 const descendants = getDescendantGroupIds(s.groups ?? {}, group.id)
                 const eligibleParents = activeGroups(s).filter((b) => b.id !== group.id && !descendants.has(b.id))
+                const isOperator = group.kind === 'operator'
+                const opFleetIds = isOperator ? fleetDescendantIds(s, group.id) : new Set<string>()
+                const opBuses = isOperator ? Object.values(s.buses).filter((b) => b.groupId && opFleetIds.has(b.groupId)).length : 0
+                const opSchedules = isOperator ? Object.values(s.schedules).filter((sch) => sch.groupId && opFleetIds.has(sch.groupId)).length : 0
+                let opRatingSum = 0
+                let opReviews = 0
+                for (const fid of opFleetIds) {
+                  const fg = s.groups?.[fid]
+                  if (fg && fg.ratingCount > 0) {
+                    opRatingSum += fg.rating * fg.ratingCount
+                    opReviews += fg.ratingCount
+                  }
+                }
+                const directChildren = activeGroups(s).filter((c) => c.parentGroupId === group.id)
+                const parentRoleControls = (
+                  <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
+                      <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Parent Brand</label>
+                      <select
+                        style={{ width: '100%', maxWidth: 170 }}
+                        value={group.parentGroupId ?? ''}
+                        onChange={(e) => {
+                          const newParent = e.target.value || undefined
+                          const err = g.updateGroup(group.id, { parentGroupId: newParent })
+                          if (err) g.toast(err, 'bad')
+                          else g.toast(newParent ? `Parent brand set to ${s.groups?.[newParent]?.name}.` : 'Set as top-level brand under company holding.', 'good')
+                        }}
+                      >
+                        <option value="">{s.company.name || 'Company Holding'} (Direct)</option>
+                        <BrandOptions s={s} brands={eligibleParents} mode="tree" />
+                      </select>
+                      <label className="flex" style={{ alignItems: 'center', gap: 6, marginLeft: 10, whiteSpace: 'nowrap', cursor: isCargoBrand ? 'not-allowed' : 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={isOperator}
+                          disabled={isCargoBrand}
+                          onChange={(e) => {
+                            const kind = e.target.checked ? 'operator' : 'fleet'
+                            const err = g.updateGroup(group.id, { kind })
+                            if (err) g.toast(err, 'bad')
+                            else g.toast(kind === 'operator' ? `${group.name} is now an operator.` : `${group.name} is now a fleet brand.`, 'good')
+                          }}
+                        />
+                        <span>Operator</span>
+                        <Hint
+                          text={
+                            isCargoBrand
+                              ? 'A cargo brand owns coaches, so it cannot be an operator.'
+                              : 'An operator owns no coaches and runs no services. It operates the brands placed under it, and its finances are the sum of theirs. A brand can become an operator once it has no coaches and no services; it can go back once no brands sit under it.'
+                          }
+                        />
+                      </label>
+                  </div>
+                )
 
                 return (
                   <div key={group.id} id={`brand-card-${group.id}`}>
@@ -1220,9 +1325,10 @@ export function SettingsPage() {
                           <GroupBadge group={group} />
                           <span>{group.name}</span>
                           {isCargoBrand && <span className="pill warn small">Cargo</span>}
+                          {isOperator && <span className="pill info small">Operator</span>}
                           {parentGroup && (
                             <span className="dim small" style={{ fontWeight: 'normal' }}>
-                              (Sub-brand of <b>{parentGroup.name}</b>)
+                              ({parentGroup.kind === 'operator' ? 'Operated by' : 'Sub-brand of'} <b>{parentGroup.name}</b>)
                             </span>
                           )}
                         </div>
@@ -1240,10 +1346,11 @@ export function SettingsPage() {
                               setNewBrandCargo(false)
                               setNewBrandPic(undefined)
                               setNewBrandParentId(group.id)
+                              setNewBrandKind('fleet')
                             }}
                             title={`Create a new sub-brand under ${group.name}`}
                           >
-                            + Sub-brand
+                            {isOperator ? '+ Brand' : '+ Sub-brand'}
                           </button>
                           <BrandPicActions
                             value={group.brandingPic}
@@ -1257,13 +1364,19 @@ export function SettingsPage() {
                             onError={(msg) => g.toast(msg, 'bad')}
                           />
                           <button
-                            className="danger small"
-                            onClick={() => {
-                              setRetireTarget(group)
-                              setRetireDestination('')
-                            }}
+                            type="button"
+                            className="small"
+                            onClick={() => setCampaignTarget(group.id)}
+                            title="Launch campaigns and corridor pushes"
                           >
-                            Close Brand...
+                            📣 Campaigns
+                          </button>
+                          <button
+                            className="danger small"
+                            onClick={() => setActionsTarget({ id: group.id, tab: 'close' })}
+                            title="Close, move coaches, merge, spin off or sell this brand"
+                          >
+                            Brand actions…
                           </button>
                         </div>
                       }
@@ -1272,12 +1385,11 @@ export function SettingsPage() {
                           {/* Brand identity: brand detail | fleet detail | pic */}
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(120px, 180px)', gap: 16, alignItems: 'start' }}>
                             <div className="stack10">
-                              <div className="dim small">Brand detail</div>
                               <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
                                 <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>
                                 <input
                                   type="text"
-                                  style={{ width: '100%', maxWidth: 220 }}
+                                  style={{ width: '100%', maxWidth: 170 }}
                                   defaultValue={group.name}
                                   onBlur={(e) => {
                                     const val = e.target.value.trim()
@@ -1291,9 +1403,7 @@ export function SettingsPage() {
                                     if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
                                   }}
                                 />
-                              </div>
-                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
-                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Code</label>
+                                <label style={{ minWidth: 'auto', whiteSpace: 'nowrap', marginLeft: 10 }}>Code</label>
                                 <input
                                   type="text"
                                   maxLength={5}
@@ -1325,33 +1435,41 @@ export function SettingsPage() {
                                   size={18}
                                 />
                               </div>
-
-                              {/* Parent Brand Hierarchy Assignment */}
-                              <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
-                                <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Parent Brand</label>
-                                <select
-                                  style={{ width: '100%', maxWidth: 220 }}
-                                  value={group.parentGroupId ?? ''}
-                                  onChange={(e) => {
-                                    const newParent = e.target.value || undefined
-                                    const err = g.updateGroup(group.id, { parentGroupId: newParent })
-                                    if (err) g.toast(err, 'bad')
-                                    else g.toast(newParent ? `Parent brand set to ${s.groups?.[newParent]?.name}.` : 'Set as top-level brand under company holding.', 'good')
-                                  }}
-                                >
-                                  <option value="">{s.company.name || 'Company Holding'} (Direct)</option>
-                                  {eligibleParents.map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      {p.code} — {p.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
+                              {parentRoleControls}
                             </div>
 
                           <div>
-                            <div className="dim small" style={{ marginBottom: 6 }}>Fleet detail</div>
+                            <div className="dim small" style={{ marginBottom: 6 }}>{isOperator ? 'Operator detail' : 'Fleet detail'}</div>
                             <div style={{ background: 'var(--bg3)', padding: '10px 14px', borderRadius: 6, border: '1px solid var(--border)' }}>
+                              {isOperator ? (
+                              <KV
+                                rows={[
+                                  [
+                                    'Brands operated',
+                                    directChildren.length > 0 ? (
+                                      <span className="flex" style={{ gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                        {directChildren.map((c) => <GroupBadge key={c.id} group={c} />)}
+                                      </span>
+                                    ) : (
+                                      <span className="dim">None yet. Use + Brand, or pick this operator as another brand's parent.</span>
+                                    ),
+                                  ],
+                                  ['Combined fleet', `${opBuses} coaches · ${opSchedules} services across ${opFleetIds.size} fleet brands`],
+                                  [
+                                    'Combined rating',
+                                    opReviews > 0 ? (
+                                      <span>
+                                        <b className="good">★ {(opRatingSum / opReviews).toFixed(2)}</b>{' '}
+                                        <span className="dim">({opReviews} reviews)</span>
+                                      </span>
+                                    ) : (
+                                      <span className="dim">No reviews yet</span>
+                                    ),
+                                  ],
+                                  ['Finances', <span className="dim">Sum of its brands: see Analytics → Brands</span>],
+                                ]}
+                              />
+                              ) : (
                               <KV
                                 rows={[
                                   ['Fleet size', `${busesInBrand.length} coaches · ${schsInBrand.length} active schedules`],
@@ -1384,6 +1502,7 @@ export function SettingsPage() {
                                   ['Avg Fleet Stars', stars != null ? `${stars.toFixed(1)} / 5.0 Quality Rating` : '— (No active coaches)'],
                                 ]}
                               />
+                              )}
                             </div>
                           </div>
 
@@ -1404,8 +1523,9 @@ export function SettingsPage() {
                         </div>
 
 
-                        {/* Amenities & fittings — passenger brands only */}
-                        {!isCargoBrand && (
+
+                        {/* Amenities & fittings — passenger fleet brands only */}
+                        {!isCargoBrand && !isOperator && (
                         <div style={{ background: 'var(--bg2)', borderRadius: 6, border: '1px solid var(--border)' }}>
                           <div
                             className="flex"
@@ -1442,6 +1562,16 @@ export function SettingsPage() {
                                   <option value="premium">Premium</option>
                                   <option value="gold">Deluxe (Luxury)</option>
                                 </select>
+                                {(() => {
+                                  const bar = TIER_STANDARD[group.defaultServiceTier ?? 'standard']
+                                  if (bar.minQuality <= 0) return null
+                                  const short = belowStandardBuses(s, group).length
+                                  return (
+                                    <Hint
+                                      text={`${bar.label} service promises coaches of quality ${bar.minQuality.toFixed(1)} stars or better. Coaches that meet it earn +${Math.round(bar.prestige * 100)}% demand; those that do not lose ${Math.round(bar.shortfall * 100)}%.${short > 0 ? ` ${short} coach${short === 1 ? '' : 'es'} fall short now.` : ''}`}
+                                    />
+                                  )
+                                })()}
                               </div>
                               <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
                                 <label style={{ minWidth: 'auto', whiteSpace: 'nowrap' }}>Default Policy</label>
@@ -1569,7 +1699,11 @@ export function SettingsPage() {
                         <div>
                           <b>{grp.name}</b>
                           {grp.cargoBrand && <span className="pill warn small ml6">Cargo</span>}
-                          <span className="dim small"> (closed {fmtDate(grp.retiredDay ?? 0)})</span>
+                          {grp.soldDay !== undefined ? (
+                            <span className="dim small"> (sold {fmtDate(grp.soldDay)} for {fmtCompact(grp.soldPrice ?? 0)})</span>
+                          ) : (
+                            <span className="dim small"> (closed {fmtDate(grp.retiredDay ?? 0)})</span>
+                          )}
                           <div className="dim small">
                             Rating: ★ {grp.rating.toFixed(2)} ({grp.ratingCount} reviews)
                             {!grp.cargoBrand && <> · Primo: {grp.primo ? 'Yes' : 'No'}</>}
@@ -1577,6 +1711,7 @@ export function SettingsPage() {
                         </div>
                       </div>
                       <div className="flex" style={{ gap: 8 }}>
+                        {grp.soldDay === undefined && (
                         <button
                           className="small primary"
                           onClick={() => {
@@ -1587,6 +1722,7 @@ export function SettingsPage() {
                         >
                           Restore Brand
                         </button>
+                        )}
                         <button
                           className="small danger"
                           onClick={() => setDeleteConfirmId(grp.id)}
@@ -2615,7 +2751,7 @@ export function SettingsPage() {
 
       {showCreateModal && (
         <Modal
-          title="Create Subsidiary Brand"
+          title={newBrandKind === 'operator' ? 'Create Operator' : 'Create Subsidiary Brand'}
           onClose={() => setShowCreateModal(false)}
           actions={
             <>
@@ -2628,9 +2764,10 @@ export function SettingsPage() {
                     name: newBrandName.trim(),
                     code: newBrandCode.trim().toUpperCase(),
                     color: newBrandColor,
-                    cargoBrand: newBrandCargo || undefined,
+                    cargoBrand: (newBrandKind === 'fleet' && newBrandCargo) || undefined,
                     brandingPic: newBrandPic,
                     parentGroupId: newBrandParentId || undefined,
+                    kind: newBrandKind,
                   })
                   if ('error' in res) {
                     g.toast(res.error, 'bad')
@@ -2642,6 +2779,7 @@ export function SettingsPage() {
                     setNewBrandCargo(false)
                     setNewBrandPic(undefined)
                     setNewBrandParentId('')
+                    setNewBrandKind('fleet')
                   }
                 }}
               >
@@ -2684,11 +2822,7 @@ export function SettingsPage() {
                   style={{ minWidth: 200 }}
                 >
                   <option value="">None — top-level brand</option>
-                  {activeGroups(s).map((grp) => (
-                    <option key={grp.id} value={grp.id}>
-                      {grp.code} — {grp.name}
-                    </option>
-                  ))}
+                  <BrandOptions s={s} brands={activeGroups(s)} mode="tree" />
                 </select>
               </div>
             )}
@@ -2703,6 +2837,32 @@ export function SettingsPage() {
               />
             </div>
             <div className="form-row">
+              <label>Brand Role</label>
+              <div className="flex" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <label className="flex" style={{ alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="new-brand-kind"
+                    checked={newBrandKind === 'fleet'}
+                    onChange={() => setNewBrandKind('fleet')}
+                  />
+                  <span>Fleet brand</span>
+                  <Hint text="Owns coaches and runs services under its own badge." />
+                </label>
+                <label className="flex" style={{ alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="radio"
+                    name="new-brand-kind"
+                    checked={newBrandKind === 'operator'}
+                    onChange={() => setNewBrandKind('operator')}
+                  />
+                  <span>Operator</span>
+                  <Hint text="Owns no coaches and runs no services. It operates the brands placed under it, and its finances are the sum of theirs." />
+                </label>
+              </div>
+            </div>
+            {newBrandKind === 'fleet' && (
+            <div className="form-row">
               <label>Brand Type</label>
               <label className="flex" style={{ alignItems: 'center', gap: 8 }}>
                 <input
@@ -2714,68 +2874,19 @@ export function SettingsPage() {
                 <Hint text={"Hides amenities, fittings, tier & refund policy"} />
               </label>
             </div>
+            )}
           </div>
         </Modal>
       )}
 
-      {retireTarget && (
-        <Modal
-          title={`Close Subsidiary Brand: ${retireTarget.name} (${retireTarget.code})`}
-          onClose={() => setRetireTarget(null)}
-          actions={
-            <>
-              <button onClick={() => setRetireTarget(null)}>Cancel</button>
-              <button
-                className="danger"
-                onClick={() => {
-                  const err = g.retireGroup(retireTarget.id, retireDestination || undefined)
-                  if (err) {
-                    g.toast(err, 'bad')
-                  } else {
-                    g.toast(`Closed brand ${retireTarget.name}.`, 'good')
-                    setRetireTarget(null)
-                  }
-                }}
-              >
-                Confirm Close
-              </button>
-            </>
-          }
-        >
-          <div className="stack12">
-            <p>
-              Retire <b>{retireTarget.name}</b>? It leaves pickers and scheduling; ledger and trip history stay.
-            </p>
-            {(() => {
-              const bCount = Object.values(s.buses).filter((b) => b.groupId === retireTarget.id).length
-              const sCount = Object.values(s.schedules).filter((sch) => sch.groupId === retireTarget.id).length
-              const otherBrands = activeGroups(s).filter((grp) => grp.id !== retireTarget.id)
-              return (
-                <>
-                  <div style={{ background: 'var(--bg3)', padding: 10, borderRadius: 6, border: '1px solid var(--border)' }}>
-                    <div><b>Coaches to reassign:</b> {bCount}</div>
-                    <div><b>Schedules to reassign:</b> {sCount}</div>
-                  </div>
-                  <div className="form-row">
-                    <label>Transfer fleet & schedules to:</label>
-                    <select
-                      value={retireDestination}
-                      onChange={(e) => setRetireDestination(e.target.value)}
-                    >
-                      {otherBrands.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name} ({b.code})
-                        </option>
-                      ))}
-                      <option value="">Unassigned</option>
-                    </select>
-                  </div>
-                </>
-              )
-            })()}
-          </div>
-        </Modal>
+      {actionsTarget && (
+        <BrandActionsModal
+          groupId={actionsTarget.id}
+          initial={actionsTarget.tab}
+          onClose={() => setActionsTarget(null)}
+        />
       )}
+      {campaignTarget && <BrandCampaignsModal groupId={campaignTarget} onClose={() => setCampaignTarget(null)} />}
 
       {deleteConfirmId && (
         <Modal

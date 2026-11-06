@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
 import { Bar, BusLink, CoachCell, Empty, M, PageHeader, Panel, StatRow, Tabs } from '../bits'
@@ -34,8 +34,8 @@ const LAYOUT_LABEL: Record<string, string> = { semi: 'Semi-sleeper', sleeper: 'S
 const catLabel = (id: string) => CHARTER_CATEGORIES.find((c) => c.id === id)?.label ?? id
 
 export function ChartersPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
 
   const [tab, setTab] = useState<Tab>('inquiries')
   const [pick, setPick] = useState<Record<string, string>>({})

@@ -265,6 +265,48 @@ const FOLDED_HEADS: ReadonlySet<string> = new Set([
   'pg_fees',
 ])
 
+/**
+ * Index of today's foldable ledger rows, keyed by the identity pushTxn folds on. It mirrors the
+ * old walk-back exactly: only the contiguous run of rows at the end of the ledger that share the
+ * posting's day can absorb it, and the newest matching row wins. Kept outside the game state
+ * (keyed by the ledger array itself), so saves and reference hashes are untouched; a ledger that
+ * is replaced (trimmed, filtered, a new draft) simply rebuilds its index on first use.
+ */
+interface FoldIndex {
+  day: number
+  /** Ledger rows already looked at. */
+  scanned: number
+  rows: Map<string, Txn>
+}
+const foldIndexes = new WeakMap<Txn[], FoldIndex>()
+const NONE = '\u0000'
+const SEP = '\u0001'
+
+function foldKey(t: Pick<Txn, 'head' | 'kind' | 'busId' | 'routeId' | 'refundCategory'>): string {
+  return t.head + SEP + t.kind + SEP + (t.busId ?? NONE) + SEP + (t.routeId ?? NONE) + SEP + (t.refundCategory ?? NONE)
+}
+
+function foldIndexFor(txns: Txn[], day: number): FoldIndex {
+  let ix = foldIndexes.get(txns)
+  if (!ix || ix.day !== day || ix.scanned > txns.length) {
+    // Find where today's contiguous tail starts, then index it oldest-first so the newest row wins.
+    let start = txns.length
+    while (start > 0 && txns[start - 1]!.day === day) start--
+    ix = { day, scanned: start, rows: new Map() }
+    foldIndexes.set(txns, ix)
+  }
+  // Rows appended since the last fold (other heads, other code paths).
+  for (; ix.scanned < txns.length; ix.scanned++) {
+    const row = txns[ix.scanned]!
+    if (row.day !== day) {
+      ix.rows.clear() // the walk-back would stop here: nothing before it can fold
+      continue
+    }
+    if (FOLDED_HEADS.has(row.head)) ix.rows.set(foldKey(row), row)
+  }
+  return ix
+}
+
 export function pushTxn(s: GameState, t: Omit<Txn, 'id'>): void {
   // Every posting that names a bus carries that bus's brand, so charter and other
   // non-route income can still be rolled up per subsidiary.
@@ -281,23 +323,18 @@ export function pushTxn(s: GameState, t: Omit<Txn, 'id'>): void {
     s.txns.push({ ...t, id: nextId(s.ids, 't') })
     return
   }
-  // Walking back over today's tail stays cheap (one day of rows, not the window).
-  for (let i = s.txns.length - 1; i >= 0; i--) {
-    const prev = s.txns[i]!
-    if (prev.day !== t.day) break
-    if (
-      prev.head === t.head &&
-      prev.kind === t.kind &&
-      prev.busId === t.busId &&
-      prev.routeId === t.routeId &&
-      prev.refundCategory === t.refundCategory
-    ) {
-      prev.amount += t.amount
-      prev.count = (prev.count ?? 1) + 1
-      return
-    }
+  const ix = foldIndexFor(s.txns, t.day)
+  const key = foldKey(t)
+  const prev = ix.rows.get(key)
+  if (prev) {
+    prev.amount += t.amount
+    prev.count = (prev.count ?? 1) + 1
+    return
   }
-  s.txns.push({ ...t, id: nextId(s.ids, 't') })
+  const row = { ...t, id: nextId(s.ids, 't') }
+  s.txns.push(row)
+  ix.rows.set(key, row)
+  ix.scanned = s.txns.length
 }
 
 function bumpRouteStats(

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGame, useDeferredGameState } from '../../store/gameStore'
 import { fmtDate } from '../../engine/core/calendar'
 import { ACHIEVEMENT_DEFS } from '../../engine/sim/reputation'
 import type { LogCat } from '../../engine/types'
@@ -31,7 +31,7 @@ function catPillTone(cat: LogCat): string {
 }
 
 export function InboxPage() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const markInboxRead = useGame((g) => g.markInboxRead)
   const markAllInboxRead = useGame((g) => g.markAllInboxRead)
   const [filter, setFilter] = useState<FilterCat>('all')

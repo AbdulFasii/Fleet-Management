@@ -34,11 +34,16 @@ import { dailyCrmPass } from './sim/crm'
 import { dailyHealthPass } from './sim/health'
 import { dailyBrandPass, monthlyBrandPass } from './sim/brandPolicy'
 import { dailyRouteLifePass } from './sim/routeLife'
-import { dailyHedgePass, monthlyHedgePass } from './sim/hedge'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
 
-export function advanceDay(s: GameState): void {
+/**
+ * One simulated day as a sequence of stages. Each `yield` sits between two passes, so a caller
+ * can pause there to let the browser paint and pick up again later. Nothing else may touch the
+ * state while a day is part-way through; run to the end, the work and its order are exactly
+ * those of `advanceDay`.
+ */
+export function* advanceDaySteps(s: GameState): Generator<void, void, void> {
   if (s.gameOver) return
   pruneRetiredRoutes(s)
   s.day += 1
@@ -58,12 +63,15 @@ export function advanceDay(s: GameState): void {
   // 3. festival fleet & charters — park/release idle coaches before trip gen, process group charters
   festivalFleetPass(s)
   dailyCharterPass(s)
+  yield
 
   // 4. booking window
   cmvrResetPass(s)
   sanitizeScheduleAssignments(s)
   generateTrips(s)
+  yield
   const booked = bookingPass(s)
+  yield
 
   // 5. today's departures
   hrFatiguePass(s)
@@ -73,18 +81,19 @@ export function advanceDay(s: GameState): void {
   settleCargoShortfall(s)
   dailyCheckpostPass(s)
   dailyDepotPass(s)
+  yield
 
   // 6. fleet & people upkeep
   dailyMaintenancePass(s)
   dailyBrandPass(s)
   dailyRouteLifePass(s)
-  dailyHedgePass(s)
   dailyClaimsPass(s)
   dailyStaffPass(s)
   dailyCrmPass(s)
   dailyLoungePass(s)
   // One more crew fill after leave/fatigue — same indexed pass, not a third full scan.
   opsAutoStaffPass(s)
+  yield
 
   // 7. money movements
   settleReceivables(s)
@@ -115,7 +124,6 @@ export function advanceDay(s: GameState): void {
     monthlyTaxPass(s)
     monthlyBankingPass(s)
     monthlyBrandPass(s)
-    monthlyHedgePass(s)
     const m = closeMonth(s)
     pushLog(
       s,
@@ -123,6 +131,7 @@ export function advanceDay(s: GameState): void {
       `MONTH CLOSED ${fmtDate(s.day)}: revenue ${fmtCompact(m.revenueTotal)}, expenses ${fmtCompact(m.expenseTotal)}, ${m.profit >= 0 ? 'profit' : 'LOSS'} ${fmtCompact(Math.abs(m.profit))}, load factor ${(m.loadFactor * 100).toFixed(0)}%.`,
     )
     coverWithOd(s)
+    yield
   }
 
   // 8. standing & failure
@@ -135,6 +144,14 @@ export function advanceDay(s: GameState): void {
   // 9. bookkeeping & daily retention
   snapshotKpis(s, dispatched.pax, dispatched.seats, booked.seatsSold)
   retainDay(s)
+}
+
+/** Advance one whole day in a single call. */
+export function advanceDay(s: GameState): void {
+  const steps = advanceDaySteps(s)
+  while (!steps.next().done) {
+    // run every stage
+  }
 }
 
 /** Stop a week-skip only for things that need an answer, not daily inbox noise. */

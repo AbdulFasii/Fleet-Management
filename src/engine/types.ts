@@ -1043,6 +1043,32 @@ export interface AppState {
   installs: number
   mau: number
   monthlyMarketing: Money
+  /** Month in progress: filled as bookings settle, closed into history at month end. */
+  month?: AppMonthTally
+  /** The last 12 closed months, oldest first. */
+  history?: AppMonthRecord[]
+}
+
+export interface AppMonthTally {
+  organicInstalls: number
+  /** Seats and ticket value sold through the own app. */
+  seats: number
+  gross: Money
+  pgFees: Money
+  /** Commission avoided against selling the same seats through RedBus, after payment-gateway fees. */
+  commissionSaved: Money
+}
+
+export interface AppMonthRecord extends AppMonthTally {
+  day: number
+  paidInstalls: number
+  /** Effective cost of one paid install that month (0 when nothing was spent). */
+  cac: Money
+  mau: number
+  marketing: Money
+  opex: Money
+  /** Commission saved minus ad spend and hosting. */
+  net: Money
 }
 
 export type CargoCargoType = 'mixed' | 'textiles' | 'hardware' | 'agri' | 'fmcg'
@@ -1269,22 +1295,10 @@ export interface Grievance {
   amount: Money // suggested refund, ₹100–₹800
 }
 
-export interface FuelHedge {
-  strikePaise: Money // locked price per litre
-  litresPerMonth: number
-  startDay: number
-  untilDay: number
-  priceSum: number
-  days: number
-  premiumPaid: Money
-  netSettled: Money
-}
 
 export interface Company {
   name: string
   cash: Money
-  /** The running fuel hedge, if any. See sim/hedge.ts. */
-  fuelHedge?: FuelHedge
   /** 0-100, recomputed daily. See sim/health.ts. */
   fleetHealth?: number
   /** 0-100, recomputed daily. See sim/health.ts. */
@@ -1656,9 +1670,16 @@ export interface BusGroup {
   /** Optional brand gallery showcase photos (stored as public HTTPS URLs, capped at 12). */
   gallery?: string[]
   /**
-   * UI-only parent subsidiary reference. Not used by sim/finance; for org chart display.
+   * Parent brand in the org chart. Operator brands roll up the finances of
+   * everything beneath them; a fleet brand under another fleet brand is display-only.
    */
   parentGroupId?: ID
+  /**
+   * 'fleet' (default): owns coaches and runs services.
+   * 'operator': owns nothing; acts as the operator of the brands below it and
+   * reports their combined numbers.
+   */
+  kind?: 'fleet' | 'operator'
   foundedDay: number
   /** Retired brands stay for reporting and can be restored; only purged on request. */
   status: 'active' | 'retired'
@@ -1701,6 +1722,24 @@ export interface BusGroup {
   primoSinceDay?: number
   /** Earliest day RedBus may invite again after a decline or delist. */
   primoNextEligibleDay?: number
+  /** Running marketing pushes. An operator's campaigns also lift every brand beneath it. */
+  campaigns?: BrandCampaign[]
+  /** Repeat-passenger discount in percent of fare (0 = no scheme). Costs that share of revenue monthly. */
+  loyaltyPct?: number
+  /** Set when the brand was sold to another company; a sold brand cannot be restored. */
+  soldDay?: number
+  soldPrice?: Money
+}
+
+export interface BrandCampaign {
+  id: ID
+  kind: 'launch' | 'route'
+  /** Corridor push only: the route it targets. */
+  routeId?: string
+  startDay: number
+  endDay: number
+  /** Demand lift at the start; fades to zero by endDay. */
+  boost: number
 }
 
 export type Scenario = 'standard' | 'sandbox' | 'ironman'

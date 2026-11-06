@@ -52,6 +52,20 @@ export function attackChance(p: RivalPersonality, m: RivalMemory): number {
 }
 
 /** Check if player's trip is actively targeted by rival predatory timing (within 20 mins of rival counter-departure) */
+const parsedClocks = new WeakMap<CorridorRivalAction, { src: string[]; minutes: number[] }>()
+
+/** Rival departure clocks as minutes after midnight, parsed once per action. */
+function rivalClockMinutes(action: CorridorRivalAction): number[] {
+  const hit = parsedClocks.get(action)
+  if (hit && hit.src === action.targetDepartureClocks) return hit.minutes
+  const minutes = action.targetDepartureClocks.map((c) => {
+    const [hStr, mStr] = c.split(':')
+    return Number(hStr) * 60 + Number(mStr)
+  })
+  parsedClocks.set(action, { src: action.targetDepartureClocks, minutes })
+  return minutes
+}
+
 export function isTripFrontRun(
   s: GameState,
   routeId: string,
@@ -65,11 +79,11 @@ export function isTripFrontRun(
   }
 
   const tripMinutes = depHour * 60 + depMin
+  const minutes = rivalClockMinutes(action)
 
-  for (const clockStr of action.targetDepartureClocks) {
-    const [hStr, mStr] = clockStr.split(':')
-    const rivalMinutes = Number(hStr) * 60 + Number(mStr)
-    const diff = tripMinutes - rivalMinutes
+  for (let i = 0; i < action.targetDepartureClocks.length; i++) {
+    const clockStr = action.targetDepartureClocks[i]!
+    const diff = tripMinutes - minutes[i]!
     // Rival scheduled 5 to 25 minutes before player's coach
     if (diff >= 5 && diff <= 25) {
       return {

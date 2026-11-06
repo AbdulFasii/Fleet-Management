@@ -1,4 +1,4 @@
-import * as hedgeSim from '../engine/sim/hedge'
+import { useDeferredValue } from 'react'
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { setAutoFreeze } from 'immer'
@@ -7,11 +7,12 @@ import { setAutoFreeze } from 'immer'
 setAutoFreeze(false)
 import type { BusDuty, CharterPricingStrategy, CorridorStance, DepreciationMethod, Difficulty, GameState, ID, RouteLayoutStats, ScheduleDefaults, SubsystemId, Schedule, ServiceTierId, TyreBrand, TyreAxle, SeasonId, CargoCargoType, CargoPricingType, PassengerAmenities, ServiceTier, FuelPartner, PlayerConfig, BusGroup, DeskPost, BodyDesign, LoungeTier, LoungeSeating, LoungeAmenityId, PassengerHandlingConfig, Scenario } from '../engine/types'
 import { type Money, fmtCompact } from '../engine/core/money'
-import { advanceDay, needsAttention } from '../engine/tick'
+import { advanceDaySteps, needsAttention } from '../engine/tick'
 import { newGame, SAVE_VERSION, initialBrandCode } from '../engine/newGame'
 import { nextId } from '../engine/core/ids'
 import * as groups from '../engine/sim/groups'
 import * as fleet from '../engine/sim/fleet'
+import * as brandActions from '../engine/sim/brandActions'
 import * as banking from '../engine/sim/banking'
 import * as staffing from '../engine/sim/staffing'
 import * as schedules from '../engine/sim/schedules'
@@ -116,11 +117,50 @@ export function sanitizeUiPrefs(prefs: UiPrefs, s: GameState | null): UiPrefs {
 let toastSeq = 1
 /** A multi-day skip is slicing its work across tasks; ignore further advances. */
 let skipInFlight = false
+/** Bumped by each advance; a runner that is no longer the latest must not touch shared flags. */
+let advanceRun = 0
+
+/** Main-thread budget per slice of a day or week advance, so the browser paints in between. */
+const ADVANCE_SLICE_MS = 10
+
+/**
+ * Hand control back to the browser and continue soon after. A MessageChannel task does not get
+ * the 4 ms clamp that nested setTimeout(0) calls get, and unlike requestAnimationFrame it keeps
+ * running in a background tab.
+ */
+const yieldToBrowser: (fn: () => void) => void = (() => {
+  if (typeof MessageChannel === 'undefined') return (fn: () => void) => { setTimeout(fn, 0) }
+  const channel = new MessageChannel()
+  const queue: (() => void)[] = []
+  channel.port1.onmessage = () => { queue.shift()?.() }
+  // Node (scripts, tests) would otherwise stay alive forever on an open port; browsers ignore this.
+  ;(channel.port1 as { unref?: () => void }).unref?.()
+  return (fn: () => void) => {
+    queue.push(fn)
+    channel.port2.postMessage(0)
+  }
+})()
+
+/**
+ * A new state object whose top-level containers are new too. The engine mutates in place, so
+ * without this, screens that memoise on `s.trips`, `s.buses` and the like would keep showing the
+ * pre-advance numbers. Copies are one level deep: cheap, and nothing below is duplicated.
+ */
+function withFreshContainers(s: GameState): GameState {
+  const out = { ...s } as Record<string, unknown>
+  for (const [key, value] of Object.entries(out)) {
+    if (Array.isArray(value)) out[key] = value.slice()
+    else if (value && typeof value === 'object') out[key] = { ...(value as object) }
+  }
+  return out as unknown as GameState
+}
 
 interface GameStore {
   state: GameState | null
   toasts: Toast[]
   busy: boolean
+  /** Days done and asked for while a day or week advance runs; null when idle. */
+  skipProgress: { done: number; total: number } | null
   skipStopReason: string | null
   uiPrefs: UiPrefs
   setFleetGroupFilter: (id: 'all' | 'none' | ID) => void
@@ -132,6 +172,7 @@ interface GameStore {
     cargoBrand?: boolean
     brandingPic?: string
     parentGroupId?: ID
+    kind?: 'fleet' | 'operator'
   }) => { id: ID } | { error: string }
   updateGroup: (id: ID, patch: Partial<Omit<BusGroup, 'id'>>) => string | null
   retireGroup: (id: ID, moveTo: ID | undefined) => string | null
@@ -139,6 +180,15 @@ interface GameStore {
   deleteGroup: (id: ID) => string | null
   assignBusToGroup: (busId: ID, groupId: ID | undefined, opts?: { chargeRebrand?: boolean }) => string | null
   assignScheduleToGroup: (schId: ID, groupId: ID | undefined) => string | null
+  launchBrandCampaign: (
+    groupId: ID,
+    input: { kind: 'launch'; tier: 'local' | 'regional' | 'statewide' } | { kind: 'route'; routeId: string },
+  ) => string | null
+  stopBrandCampaign: (groupId: ID, campaignId: ID) => string | null
+  transferCoaches: (busIds: ID[], toGroupId: ID | undefined, rebrand: boolean) => string | null
+  mergeBrands: (fromId: ID, intoId: ID) => string | null
+  spinOffBrand: (input: brandActions.SpinOffInput) => { id: ID } | { error: string }
+  sellBrand: (groupId: ID, opts: { includeCoaches: boolean; moveTo: ID | undefined }) => string | null
 
   startNew: (name: string, difficulty: Difficulty, homeRouteId: string, scenario?: Scenario) => void
   loadSave: () => boolean
@@ -276,7 +326,6 @@ interface GameStore {
   setCharterOperatingBase: (cityId: string) => void
   setCharterAutoAccept: (enabled: boolean) => void
   setCharterMinCondition: (minCondition: number) => void
-  buyFuelHedge: (months: number, litresPerMonth: number) => void
   setCharterMinMargin: (pct: number) => void
   setCharterDeposit: (pct: number) => void
   acceptCharterInquiry: (inquiryId: ID, busId: ID) => void
@@ -302,6 +351,7 @@ interface GameStore {
   retrofitBus: (busId: ID, feature: string) => void
   setFuelContract: (partner: FuelPartner) => void
   installDepotFuelTank: () => void
+  upgradeDepotFuelTank: () => void
   orderDepotFuelRefill: (litres?: number) => void
   toggleAutoRefillDepotTank: (enabled?: boolean) => void
   toggleEcoIncentive: (enabled?: boolean) => void
@@ -322,6 +372,7 @@ const saveQueue = createSaveQueue({
   write: writeSave,
   persistSync: (state) => persistState(state),
   append: appendCloudSave,
+  busy: () => skipInFlight,
 })
 
 function dropPendingSave(): void {
@@ -535,6 +586,8 @@ function migrate(raw: unknown): GameState | null {
   if (typeof s.version !== 'number' || s.version > SAVE_VERSION) return null
 
   migrateLegacyRouteIds(s)
+  // The fuel hedge feature was removed; a contract stored in an old save is simply dropped.
+  if (s.company) delete (s.company as { fuelHedge?: unknown }).fuelHedge
 
   if (!s.groups || Object.keys(s.groups).length === 0) {
     const initCode = initialBrandCode(s.company?.name ?? 'Main')
@@ -583,7 +636,7 @@ function migrate(raw: unknown): GameState | null {
     }
   }
 
-  const primaryBrandId = Object.keys(s.groups)[0]
+  const primaryBrandId = Object.values(s.groups).find((g) => g.kind !== 'operator')?.id
 
   for (const b of Object.values(s.buses ?? {})) {
     if (!b.duty) b.duty = 'line'
@@ -1404,6 +1457,7 @@ export const useGame = create<GameStore>()(
     state: null,
     toasts: [],
     busy: false,
+    skipProgress: null,
     skipStopReason: null,
     uiPrefs: loadUiPrefs(),
 
@@ -1587,50 +1641,66 @@ export const useGame = create<GameStore>()(
       const prev = get().state
       if (!prev || prev.gameOver) return
       if (skipInFlight) return
-      // For single-day advance, mutate in-place rather than deep-cloning multi-MB state trees.
-      // Shallow container update in commit() lets React detect the new state reference in <0.01ms.
-      // For multi-day background skips, clone up front so asynchronous chunking is isolated.
-      const draft = days === 1 ? prev : (structuredClone(prev) as GameState)
+      // The engine advances the live state in place, a slice at a time, yielding to the browser
+      // between slices so the page keeps painting. Player actions wait until it is done (see
+      // `intent`), and screens only re-read the state at day boundaries, when it is consistent.
+      const draft = prev
+      const startCash = prev.company.cash
+      const startRating = prev.company.rating
+      const startDay = prev.day
       let stop: string | null = null
       let advanced = 0
+      let steps: Generator<void, void, void> | null = null
+      // The state object the store holds while this runs (replaced only by a reset or import).
+      const live: GameState = prev
+      const run = ++advanceRun
       skipInFlight = true
+      set({ busy: true, skipProgress: { done: 0, total: days } })
 
       const commit = (): void => {
+        // After a reset, a newer advance may already own the flags: leave them alone.
+        if (run !== advanceRun) return
         skipInFlight = false
-        // A save import / reset while the skip was yielding: drop the stale draft.
-        if (days > 1 && get().state !== prev) {
-          set({ busy: false })
+        // A save import / reset while the advance was yielding: leave the new game alone.
+        if (get().state !== live) {
+          set({ busy: false, skipProgress: null })
           return
         }
         if (advanced > 0) {
-          const nextState = days === 1 ? { ...draft } : draft
-          set({ state: nextState, skipStopReason: stop, busy: false })
+          const nextState = withFreshContainers(draft)
+          set({ state: nextState, skipStopReason: stop, busy: false, skipProgress: null })
           persistSoon(nextState, { alreadyMutable: true })
           if (days > 1 && advanced >= 2) {
             // One-line recap of what a multi-day skip did, so nothing passes unseen.
-            const cashDelta = draft.company.cash - prev.company.cash
-            const ratingDelta = draft.company.rating - prev.company.rating
-            const alerts = (draft.inbox ?? []).filter((m) => m.day > prev.day && m.cat === 'alert').length
+            const cashDelta = nextState.company.cash - startCash
+            const ratingDelta = nextState.company.rating - startRating
+            const alerts = (nextState.inbox ?? []).filter((m) => m.day > startDay && m.cat === 'alert').length
             get().toast(
-              `${advanced} days: cash ${cashDelta >= 0 ? '+' : '-'}${fmtCompact(Math.abs(cashDelta))} · rating ${draft.company.rating.toFixed(2)}★ (${ratingDelta >= 0 ? '+' : ''}${ratingDelta.toFixed(2)}) · ${alerts} alert${alerts === 1 ? '' : 's'}`,
+              `${advanced} days: cash ${cashDelta >= 0 ? '+' : '-'}${fmtCompact(Math.abs(cashDelta))} · rating ${nextState.company.rating.toFixed(2)}★ (${ratingDelta >= 0 ? '+' : ''}${ratingDelta.toFixed(2)}) · ${alerts} alert${alerts === 1 ? '' : 's'}`,
               cashDelta >= 0 && alerts === 0 ? 'good' : cashDelta < 0 ? 'bad' : 'warn',
             )
           }
           return
         }
-        set({ busy: false, skipStopReason: stop })
+        set({ busy: false, skipProgress: null, skipStopReason: stop })
       }
 
-      // A week skip is a few seconds of simulation. Run it in short slices with
-      // a yield between them so the browser keeps painting instead of freezing
-      // the whole tab. A single day still runs to completion in this same tick.
-      const CHUNK_MS = 120
-      if (days > 1) set({ busy: true })
-      const runChunk = (): void => {
-        const chunkStart = performance.now()
+      const runSlice = (): void => {
+        if (run !== advanceRun) return
+        if (get().state !== live) {
+          commit()
+          return
+        }
+        const sliceStart = performance.now()
         try {
-          while (advanced < days) {
-            advanceDay(draft)
+          while (advanced < days && !stop) {
+            if (!steps) steps = advanceDaySteps(draft)
+            if (!steps.next().done) {
+              if (performance.now() - sliceStart > ADVANCE_SLICE_MS) break
+              continue
+            }
+            // A whole day is done: the state is consistent again.
+            steps = null
             advanced++
             if (draft.gameOver) {
               stop = 'Game Over'
@@ -1643,22 +1713,29 @@ export const useGame = create<GameStore>()(
                 break
               }
             }
-            if (performance.now() - chunkStart > CHUNK_MS) break
+            if (days > 1 && advanced < days) {
+              // Only the small progress readout updates mid-week. Re-rendering every page after
+              // each day cost more than the day itself; the pages update once at the end.
+              set({ skipProgress: { done: advanced, total: days } })
+            }
+            if (performance.now() - sliceStart > ADVANCE_SLICE_MS) break
           }
         } catch (err: any) {
           console.error('advanceDay error:', err)
           stop = `Error: ${err?.message || err}`
           get().toast(`Simulation paused: ${err?.message || err}`, 'bad')
+          // Whole days before the failure are kept; the failed day is not counted in the recap.
+          steps = null
           commit()
           return
         }
-        if (advanced < days && !stop) {
-          setTimeout(runChunk, 0)
+        if ((advanced < days || steps) && !stop) {
+          yieldToBrowser(runSlice)
           return
         }
         commit()
       }
-      runChunk()
+      runSlice()
     },
 
     toast: (text, kind = 'info') => {
@@ -1675,6 +1752,11 @@ export const useGame = create<GameStore>()(
     }),
 
     intent: (fn, successMsg) => {
+      // The engine is part-way through a day or week; acting now would land mid-day.
+      if (skipInFlight) {
+        get().toast('Wait for the simulation to finish.', 'warn')
+        return false
+      }
       let err: string | null = null
       set((st) => {
         if (!st.state) return
@@ -1728,6 +1810,56 @@ export const useGame = create<GameStore>()(
         }
         return err
       }, 'Brand updated.')
+      return err
+    },
+    launchBrandCampaign: (groupId, input) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = brandActions.launchCampaign(s, groupId, input)
+        return err
+      }, 'Campaign launched.')
+      return err
+    },
+    stopBrandCampaign: (groupId, campaignId) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = brandActions.stopCampaign(s, groupId, campaignId)
+        return err
+      }, 'Campaign stopped.')
+      return err
+    },
+    transferCoaches: (busIds, toGroupId, rebrand) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = brandActions.transferCoaches(s, busIds, toGroupId, rebrand)
+        return err
+      }, 'Coaches moved.')
+      return err
+    },
+    mergeBrands: (fromId, intoId) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = brandActions.mergeBrands(s, fromId, intoId)
+        return err
+      }, 'Brands merged.')
+      if (!err && get().uiPrefs.fleetGroupId === fromId) get().setFleetGroupFilter('all')
+      return err
+    },
+    spinOffBrand: (input) => {
+      let res: { id: ID } | { error: string } = { error: 'No state' }
+      get().intent((s) => {
+        res = brandActions.spinOffBrand(s, input)
+        return 'error' in res ? res.error : null
+      }, 'New brand created.')
+      return res
+    },
+    sellBrand: (groupId, opts) => {
+      let err: string | null = null
+      get().intent((s) => {
+        err = brandActions.sellBrand(s, groupId, opts)
+        return err
+      }, 'Brand sold.')
+      if (!err && get().uiPrefs.fleetGroupId === groupId) get().setFleetGroupFilter('all')
       return err
     },
     retireGroup: (id, moveTo) => {
@@ -2107,7 +2239,6 @@ export const useGame = create<GameStore>()(
       cfg.minConditionScore = minCondition
       return null
     }),
-    buyFuelHedge: (months, litresPerMonth) => get().intent((s) => hedgeSim.buyFuelHedge(s, months, litresPerMonth)),
     setCharterMinMargin: (pct) => get().intent((s) => {
       charterSim.getCharterConfig(s).minMarginPct = pct
       return null
@@ -2196,6 +2327,7 @@ export const useGame = create<GameStore>()(
     retrofitBus: (busId, feature) => get().intent((s) => maintenance.retrofitBus(s, busId, feature)),
     setFuelContract: (partner) => get().intent((s) => depot.setFuelContract(s, partner)),
     installDepotFuelTank: () => get().intent((s) => depot.installDepotFuelTank(s)),
+    upgradeDepotFuelTank: () => get().intent((s) => depot.upgradeDepotFuelTank(s), 'Depot fuel tank upgraded.'),
     orderDepotFuelRefill: (litres) => get().intent((s) => depot.orderDepotFuelRefill(s, litres)),
     toggleAutoRefillDepotTank: (enabled) => get().intent((s) => depot.toggleAutoRefillDepotTank(s, enabled)),
     toggleEcoIncentive: (enabled) => get().intent((s) => {
@@ -2247,6 +2379,24 @@ export const useGame = create<GameStore>()(
 /** Narrow selector helpers */
 export function useGameState(): GameState | null {
   return useGame((g) => g.state)
+}
+
+/**
+ * The game state for a page body. React renders the new value as low-priority, interruptible
+ * work: the header (date, cash) updates at once and a heavy page catches up in small slices
+ * instead of freezing the tab for one long render after each day.
+ */
+export function useDeferredGameState(): GameState | null {
+  return useDeferredValue(useGame((g) => g.state))
+}
+
+/**
+ * Store actions without subscribing to the store. A component that only calls actions should use
+ * this instead of `useGame()`, which re-renders on every store change (each day of a week skip,
+ * every toast). Do not read data through it: values read here are not reactive.
+ */
+export function useGameActions(): GameStore {
+  return useGame.getState()
 }
 
 export type { Schedule }

@@ -83,6 +83,8 @@ try {
       const median = a => a.sort((x, y) => x - y)[Math.floor(a.length / 2)]
       const times = { clone: [], savePreparation: [], workerDispatch: [], workerRoundTrip: [], renderUpdateToCommitAndLayout: [], engineDay: [], dayToPaint: [], weekToPaint: [] }
       const longTasks = []
+      // Long tasks seen while a day or a week is advancing: what the player actually feels.
+      const advanceLongTasks = { day: [], week: [] }
       const observer = new PerformanceObserver(list => longTasks.push(...list.getEntries().map(e => e.duration)))
       observer.observe({ type: 'longtask', buffered: false })
       for (let sample = 0; sample < 3; sample++) {
@@ -108,21 +110,30 @@ try {
         times.renderUpdateToCommitAndLayout.push(performance.now() - start)
         await paint()
         if (!document.body.innerText.includes('Dashboard')) throw new Error('The game dashboard did not render')
-        start = performance.now(); useGame.getState().advance(1); await paint()
+        let seen = longTasks.length
+        start = performance.now(); useGame.getState().advance(1)
+        // A day may run in slices across frames; wait for it, then for the paint.
+        while (useGame.getState().busy) await new Promise(r => setTimeout(r, 5))
+        await paint()
         times.dayToPaint.push(performance.now() - start)
+        advanceLongTasks.day.push(...longTasks.slice(seen))
         if (useGame.getState().state.day !== fixture.day + 1) throw new Error('Single day did not advance')
         useGame.getState().resetToNewGame()
         useGame.setState({ state: structuredClone(fixture), busy: false })
         await paint()
+        seen = longTasks.length
         start = performance.now(); useGame.getState().advance(7)
         while (useGame.getState().busy) await new Promise(r => setTimeout(r, 5))
         await paint(); times.weekToPaint.push(performance.now() - start)
+        advanceLongTasks.week.push(...longTasks.slice(seen))
         if (useGame.getState().state.day !== fixture.day + 7) throw new Error('Week skip did not advance seven days')
       }
       useGame.getState().resetToNewGame()
       observer.disconnect()
       return { fleet: ${fleet}, mediansMs: Object.fromEntries(Object.entries(times).map(([k, v]) => [k, median(v)])), samplesMs: times,
-        longTaskCount: longTasks.length, maxLongTaskMs: Math.max(0, ...longTasks) }
+        longTaskCount: longTasks.length, maxLongTaskMs: Math.max(0, ...longTasks),
+        dayMaxLongTaskMs: Math.max(0, ...advanceLongTasks.day), weekMaxLongTaskMs: Math.max(0, ...advanceLongTasks.week),
+        weekLongTasksPerRun: advanceLongTasks.week.length / 3 }
     })()` })
     if (response.exceptionDetails) throw new Error(JSON.stringify(response.exceptionDetails))
     results.push(response.result.value)

@@ -51,14 +51,19 @@ function encodePending(): Request {
 }
 try {
   const { useGame } = await import('../src/store/gameStore')
-  const start = () => {
+  // A day may run in slices (yielding through MessageChannel, not the faked timers): wait it out.
+  const advanceOneDay = async () => {
+    useGame.getState().advance(1)
+    while (useGame.getState().busy) await new Promise<void>((r) => setImmediate(r))
+  }
+  const start = async () => {
     useGame.getState().resetToNewGame()
     useGame.getState().startNew('Original company', 'malik', 'maa-mdu')
-    useGame.getState().advance(1)
+    await advanceOneDay()
     return encodePending()
   }
   for (const action of ['reset', 'abandon', 'start', 'import', 'load'] as const) {
-    const request = start()
+    const request = await start()
     const g = useGame.getState()
     if (action === 'reset') g.resetToNewGame()
     if (action === 'abandon') g.abandon()
@@ -72,8 +77,8 @@ try {
     console.log(`✓ Worker completion after ${action} cannot overwrite storage`)
   }
   {
-    const request = start()
-    useGame.getState().advance(1)
+    const request = await start()
+    await advanceOneDay()
     assert(useGame.getState().save())
     const expected = readSave()
     FakeWorker.instance.finish(request, true)
@@ -81,7 +86,7 @@ try {
     assert.equal(readSave(), expected, 'obsolete worker failure cannot trigger a stale fallback')
   }
   {
-    const request = start()
+    const request = await start()
     listeners.get('pagehide')!()
     const saved = decodeSaveString(readSave()!) as GameState
     assert.equal(saved.day, useGame.getState().state!.day)
@@ -91,18 +96,18 @@ try {
     assert.equal(readSave(), expected, 'page-hide save supersedes its active worker')
   }
   {
-    const request = start()
+    const request = await start()
     FakeWorker.instance.finish(request, true)
     await settle()
     assert.equal((decodeSaveString(readSave()!) as GameState).day, request.day, 'current failure uses sync fallback')
   }
   {
-    start()
+    await start()
     FakeWorker.instance.onerror?.(new Error('Expected worker crash'))
     await settle()
     assert.equal((decodeSaveString(readSave()!) as GameState).day, useGame.getState().state!.day)
     const requests = FakeWorker.instance.requests.length
-    useGame.getState().advance(1)
+    await advanceOneDay()
     encodePending()
     await settle()
     assert.equal(FakeWorker.instance.requests.length, requests, 'a failed worker is not reused')

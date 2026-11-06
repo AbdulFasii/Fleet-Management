@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { fmtDate, fmtDateShort, fmtYm, ymKey } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
 import { calcGstDue, incomeTaxOn } from '../../engine/sim/tax'
@@ -15,9 +15,8 @@ import {
   getMonthlyCharterBreakdown,
 } from '../../engine/sim/finance'
 import type { MonthlySummary, Txn, TxnHead } from '../../engine/types'
-import { M, Panel, StatRow, Tabs, PageHeader } from '../bits'
+import { Bar, M, Panel, StatRow, Tabs, PageHeader } from '../bits'
 import { BankPage } from './Bank'
-import { HEDGE_LITRES, HEDGE_MONTHS, quoteFuelHedge } from '../../engine/sim/hedge'
 
 const INCOME_LABELS: Partial<Record<TxnHead, string>> = {
   ticket: 'Ticket sales',
@@ -105,62 +104,9 @@ const EXPENSE_GROUPS: { label: string; heads: [TxnHead, string][] }[] = [
   },
 ]
 
-/** Lock a diesel price. Pays out when pump prices rise above it, costs money when they fall below. */
-function FuelHedgePanel() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
-  const [months, setMonths] = useState<number>(6)
-  const [litres, setLitres] = useState<number>(25_000)
-  const h = s.company.fuelHedge
-  const q = quoteFuelHedge(s, months, litres)
-  const diesel = s.world.dieselPaise
-  return (
-    <Panel
-      title="Fuel hedge"
-      right={<span className="muted" title="Diesel today">diesel {fmtCompact(diesel)}/L</span>}
-    >
-      {h ? (
-        <div className="stack10">
-          <div className="row gap wrap">
-            <span className="pill good small">active</span>
-            <span>Locked at <b>{fmtCompact(h.strikePaise)}/L</b> on <b>{h.litresPerMonth.toLocaleString('en-IN')} L</b> a month</span>
-            <span className="muted">until {fmtDate(h.untilDay)}</span>
-          </div>
-          <div className="muted">
-            Diesel {fmtCompact(diesel)}/L now, {diesel >= h.strikePaise ? 'above' : 'below'} the locked price: this month is {diesel >= h.strikePaise ? 'paying you' : 'costing you'} about{' '}
-            <b className={diesel >= h.strikePaise ? 'good' : 'bad'}>{fmtCompact(Math.abs(diesel - h.strikePaise) * h.litresPerMonth)}</b>.
-            Settled so far <b><M v={h.netSettled} colored /></b> after a {fmtCompact(h.premiumPaid)} premium.
-          </div>
-        </div>
-      ) : (
-        <div className="stack10">
-          <div className="row gap wrap">
-            <label className="row gap6" title="How long the price is locked">
-              <span className="muted">Term</span>
-              <Tabs inline tabs={HEDGE_MONTHS.map((m) => [String(m), `${m} months`] as const)} value={String(months)} onChange={(v) => setMonths(Number(v))} />
-            </label>
-            <label className="row gap6" title="Notional litres a month. You still buy your real fuel at the pump.">
-              <span className="muted">Volume</span>
-              <select value={litres} onChange={(e) => setLitres(Number(e.target.value))}>
-                {HEDGE_LITRES.map((l) => <option key={l} value={l}>{l.toLocaleString('en-IN')} L a month</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="row gap wrap">
-            <span>Lock <b>{fmtCompact(q.strikePaise)}/L</b></span>
-            <span className="muted" title="Paid now, 1% of the contract value">premium {fmtCompact(q.premium)}</span>
-            <span className="grow" />
-            <button className="primary small" onClick={() => g.buyFuelHedge(months, litres)}>Buy hedge</button>
-          </div>
-        </div>
-      )}
-    </Panel>
-  )
-}
-
 function PnlPanel() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const gstInfo = calcGstDue(s)
   const months: MonthlySummary[] = [...s.monthly.slice(-5), s.curMonth]
   const cargoMtd = (s.curMonth.income.cargo ?? 0) + (s.curMonth.income.cargo_spot ?? 0)
@@ -203,139 +149,106 @@ function PnlPanel() {
 
   return (
     <>
-      {/* 4 Financial Control Cards (2x2 Grid) */}
-      <div className="grid-2" style={{ gap: 14, marginBottom: 16 }}>
-        {/* Card 1: Passenger Ticket Sales */}
-        <Panel title="Passenger Ticketing & Channel Distribution (Live Month)">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div className="flex" style={{ justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-              <span className="dim">Gross Ticket Sales (MTD):</span>
-              <b className={curTicketBd.gross > 0 ? 'good' : 'faint'} style={{ fontSize: 15 }}>
-                <M v={curTicketBd.gross} />
-              </b>
-            </div>
-
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ RedBus OTA (11.5% comm.):</span>
-              <span className="small">
-                {curTicketBd.channels.redbus.seats > 0 && (
-                  <span className="dim">{curTicketBd.channels.redbus.seats.toLocaleString('en-IN')} seats · </span>
-                )}
-                <b><M v={curTicketBd.channels.redbus.revenue} /></b>
-                {curTicketBd.gross > 0 && curTicketBd.channels.redbus.revenue > 0 && (
-                  <span className="dim small ml6">
-                    ({Math.round((curTicketBd.channels.redbus.revenue / curTicketBd.gross) * 100)}%)
-                  </span>
+      {/* 4 Financial Control Cards in three columns: ticketing | freight | GST over direct tax */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+        {/* Card 1: Passenger Ticket Sales, compact */}
+        <Panel title="Ticket Sales by Channel (This Month)" style={{ flex: 1, marginBottom: 0 }}>
+          <div className="small" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <span>
+                <span className="dim">Gross </span>
+                <b className={curTicketBd.gross > 0 ? 'good' : 'faint'}><M v={curTicketBd.gross} /></b>
+              </span>
+              <span title="Net realisation after channel commission and payment-gateway fees">
+                <span className="dim">Net </span>
+                <b className="good"><M v={curTicketBd.netRevenue} /></b>
+                {curTicketBd.totalDeductions > 0 && (
+                  <span className="dim"> (fees −<M v={curTicketBd.totalDeductions} />)</span>
                 )}
               </span>
             </div>
 
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ AbhiBus / Aggregators:</span>
-              <span className="small">
-                {curTicketBd.channels.abhibus.seats > 0 && (
-                  <span className="dim">{curTicketBd.channels.abhibus.seats.toLocaleString('en-IN')} seats · </span>
-                )}
-                <b><M v={curTicketBd.channels.abhibus.revenue} /></b>
-                {curTicketBd.gross > 0 && curTicketBd.channels.abhibus.revenue > 0 && (
-                  <span className="dim small ml6">
-                    ({Math.round((curTicketBd.channels.abhibus.revenue / curTicketBd.gross) * 100)}%)
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Direct Mobile App & Web (1.8% PG):</span>
-              <span className="small">
-                {curTicketBd.channels.ownapp.seats > 0 && (
-                  <span className="dim">{curTicketBd.channels.ownapp.seats.toLocaleString('en-IN')} seats · </span>
-                )}
-                <b><M v={curTicketBd.channels.ownapp.revenue} /></b>
-                {curTicketBd.gross > 0 && curTicketBd.channels.ownapp.revenue > 0 && (
-                  <span className="dim small ml6">
-                    ({Math.round((curTicketBd.channels.ownapp.revenue / curTicketBd.gross) * 100)}%)
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Counter & Agent Stand (5.0% comm.):</span>
-              <span className="small">
-                {curTicketBd.channels.counter.seats > 0 && (
-                  <span className="dim">{curTicketBd.channels.counter.seats.toLocaleString('en-IN')} seats · </span>
-                )}
-                <b><M v={curTicketBd.channels.counter.revenue} /></b>
-                {curTicketBd.gross > 0 && curTicketBd.channels.counter.revenue > 0 && (
-                  <span className="dim small ml6">
-                    ({Math.round((curTicketBd.channels.counter.revenue / curTicketBd.gross) * 100)}%)
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 4 }}>
-              <div className="small flex" style={{ justifyContent: 'space-between' }}>
-                <span className="dim">Net realization after channel deductions:</span>
-                <span className="good">
-                  <b><M v={curTicketBd.netRevenue} /></b>
-                  {curTicketBd.totalDeductions > 0 && (
-                    <span className="dim small" style={{ marginLeft: 4 }}>
-                      (commission & fees -<M v={curTicketBd.totalDeductions} />)
-                    </span>
-                  )}
-                </span>
-              </div>
-            </div>
+            <table className="data small" style={{ margin: 0 }}>
+              <tbody>
+                {([
+                  ['RedBus', '11.5% commission', curTicketBd.channels.redbus],
+                  ['AbhiBus', 'Aggregators', curTicketBd.channels.abhibus],
+                  ['Own app', 'Mobile app & web, 1.8% payment gateway', curTicketBd.channels.ownapp],
+                  ['Counter', 'Counter & agent stand, 5.0% commission', curTicketBd.channels.counter],
+                ] as const).map(([label, detail, ch]) => {
+                  const share = curTicketBd.gross > 0 ? ch.revenue / curTicketBd.gross : 0
+                  return (
+                    <tr key={label} title={detail}>
+                      <td style={{ padding: '2px 6px' }}>{label}</td>
+                      <td className="num dim" style={{ padding: '2px 6px' }}>
+                        {ch.seats > 0 ? `${ch.seats.toLocaleString('en-IN')} seats` : '—'}
+                      </td>
+                      <td className="num" style={{ padding: '2px 6px' }}><b><M v={ch.revenue} /></b></td>
+                      <td className="num" style={{ padding: '2px 6px', width: 110 }}>
+                        <span className="flex" style={{ alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                          <Bar value={share} width={6} />
+                          <span style={{ minWidth: 28, textAlign: 'right' }}>{Math.round(share * 100)}%</span>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </Panel>
 
+
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
         {/* Card 2: Freight & Ancillary Earnings */}
-        <Panel title="Freight Logistics & Ancillary Revenue">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <div className="flex" style={{ justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-              <span className="dim">Total Logistics & Ancillary (MTD):</span>
-              <b className="good" style={{ fontSize: 15 }}>
+        <Panel title="Freight & Ancillary Revenue (This Month)" style={{ flex: 1, marginBottom: 0 }}>
+          <div className="small" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div>
+              <span className="dim">Total </span>
+              <b className="good">
                 <M v={cargoMtd + (s.curMonth.income.advertising ?? 0) + (s.curMonth.income.insurance_claim ?? 0)} />
               </b>
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', columnGap: 20, rowGap: 3 }}>
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Bus Belly Luggage Parcels:</span>
+              <span className="dim">Luggage parcels</span>
               <b><M v={s.curMonth.cargoCoachRevenue ?? s.curMonth.income.cargo ?? 0} /></b>
             </div>
 
             {s.company.dedicatedCargoSubsidiary && (
               <div className="flex" style={{ justifyContent: 'space-between' }}>
-                <span className="dim small">↳ Dedicated Cargo Truck Fleet:</span>
+                <span className="dim">Cargo trucks</span>
                 <b><M v={s.curMonth.cargoTruckRevenue ?? 0} /></b>
               </div>
             )}
 
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Coach Body Branding Advertising:</span>
+              <span className="dim">Coach branding ads</span>
               <b><M v={s.curMonth.income.advertising ?? 0} /></b>
             </div>
 
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Retained Ticket Cancellation Fees:</span>
+              <span className="dim">Cancellation fees kept</span>
               <span className="good"><b><M v={s.curMonth.income.cancellation_fee ?? 0} /></b></span>
             </div>
 
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim small">↳ Insurance Claim Settlements:</span>
+              <span className="dim">Insurance claims</span>
               <b><M v={s.curMonth.income.insurance_claim ?? 0} /></b>
             </div>
 
             {(s.curMonth.income.charter ?? 0) > 0 && (
               <>
                 <div className="flex" style={{ justifyContent: 'space-between' }}>
-                  <span className="dim small">↳ Private Tour Charters:</span>
+                  <span className="dim">Private charters</span>
                   <b><M v={getMonthlyCharterBreakdown(s, s.curMonth).privateTour} /></b>
                 </div>
                 <div className="flex" style={{ justifyContent: 'space-between' }}>
-                  <span className="dim small">↳ Festival & Seasonal Charters:</span>
+                  <span className="dim">Festival charters</span>
                   <b><M v={getMonthlyCharterBreakdown(s, s.curMonth).festival} /></b>
                 </div>
               </>
@@ -343,48 +256,62 @@ function PnlPanel() {
 
             {hasLounges && (
               <div className="flex" style={{ justifyContent: 'space-between' }}>
-                <span className="dim small">↳ Passenger Lounges Net P/L:</span>
+                <span className="dim">Lounges net P/L</span>
                 <span className={((s.curMonth.income.lounge_revenue ?? 0) - (s.curMonth.expense.lounge_opex ?? 0)) >= 0 ? 'good' : 'bad'}>
                   <b><M v={(s.curMonth.income.lounge_revenue ?? 0) - (s.curMonth.expense.lounge_opex ?? 0)} colored /></b>
                 </span>
               </div>
             )}
+            </div>
           </div>
         </Panel>
 
-        {/* Card 3: GST Compliance & ITC */}
-        <Panel title="GST Compliance & Input Tax Credit (ITC)">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim">Output GST Collected (5% on AC tickets):</span>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+        {/* Card 3: GST, income tax and TDS, side by side in one compact card */}
+        <Panel title="Tax: GST · Income Tax · TDS" style={{ flex: 1, marginBottom: 0 }}>
+          <div className="small" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 20, rowGap: 3 }}>
+            <div className="flex" style={{ justifyContent: 'space-between' }} title="5% output GST on AC tickets">
+              <span className="dim">Output GST</span>
               <b><M v={s.company.gstPayable ?? 0} /></b>
             </div>
             <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim" title="5% on diesel and energy">Input tax credit balance:</span>
+              <span className="dim">FY net profit</span>
+              <b><M v={fyProfit} colored /></b>
+            </div>
+
+            <div className="flex" style={{ justifyContent: 'space-between' }} title="5% on diesel and energy">
+              <span className="dim">Input credit</span>
               <span className="good"><b><M v={s.company.gstInputCredit ?? 0} /></b></span>
             </div>
-            {s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' && (
-              <div className="flex" style={{ justifyContent: 'space-between' }}>
-                <span className="dim">Fleet Fuel Card ({fuelPartnerLabel}):</span>
-                <span className="good">
-                  <b>+<M v={s.company.fuelCashbackAccrued ?? 0} /></b> accrued (2.5% rebate)
-                </span>
-              </div>
-            )}
-            <div className="flex" style={{ justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-              <span className="dim"><b>Net GST Remittance Payable:</b></span>
-              <b className={gstInfo.netDue > 0 ? 'warn' : 'good'} style={{ fontSize: 14 }}>
-                <M v={gstInfo.netDue} />
-              </b>
+            <div
+              className="flex"
+              style={{ justifyContent: 'space-between' }}
+              title={`Advance income tax at ${Math.round(BAL.incomeTaxRate * 100)}%. Next close: ${fmtCompact(nextProvision)}${chargedAtClose > 0 ? ` · last close: ${fmtCompact(chargedAtClose)}` : ''}`}
+            >
+              <span className="dim">Advance tax ({Math.round(BAL.incomeTaxRate * 100)}%)</span>
+              <b><M v={provided} /></b>
             </div>
-            <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-              <span className="small dim">
-                {s.company.gstDueDay !== undefined
-                  ? s.day > s.company.gstDueDay
-                    ? <span className="bad">OVERDUE (due {fmtDate(s.company.gstDueDay)}, 1%/mo penalty)</span>
-                    : `Due ${fmtDate(s.company.gstDueDay)}`
-                  : 'Due within 7 days of month-end close'}
-              </span>
+
+            {s.company.fuelContract?.active && s.company.fuelContract.partner !== 'none' ? (
+              <div className="flex" style={{ justifyContent: 'space-between' }} title={`${fuelPartnerLabel} fleet card, 2.5% rebate accrued this month`}>
+                <span className="dim">Fuel rebate</span>
+                <span className="good"><b>+<M v={s.company.fuelCashbackAccrued ?? 0} /></b></span>
+              </div>
+            ) : <span />}
+            <div className="flex" style={{ justifyContent: 'space-between' }} title="1% withheld on attached coach payouts">
+              <span className="dim">TDS withheld</span>
+              <b><M v={s.company.tdsPayable ?? 0} /></b>
+            </div>
+
+            <div className="flex" style={{ justifyContent: 'space-between' }}>
+              <b>Net GST payable</b>
+              <b className={gstInfo.netDue > 0 ? 'warn' : 'good'}><M v={gstInfo.netDue} /></b>
+            </div>
+            <span />
+
+            <div className="flex" style={{ alignItems: 'center', gap: 6, marginTop: 4 }}>
               <button
                 className="small primary"
                 disabled={gstInfo.netDue <= 0 && (s.company.gstPayable ?? 0) <= 0}
@@ -392,48 +319,33 @@ function PnlPanel() {
               >
                 Remit GST {gstInfo.netDue > 0 ? `(${fmtCompact(gstInfo.netDue)})` : ''}
               </button>
-            </div>
-          </div>
-        </Panel>
-
-        {/* Card 4: TDS & Corporate Tax */}
-        <Panel title="Direct Tax Compliance & TDS">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim">TDS Withheld (1% on attached coach payouts):</span>
-              <b><M v={s.company.tdsPayable ?? 0} /></b>
-            </div>
-            <div className="flex" style={{ justifyContent: 'space-between' }}>
-              <span className="dim">FY Cumulative Net Profit:</span>
-              <b><M v={fyProfit} colored /></b>
-            </div>
-            <div className="flex" style={{ justifyContent: 'space-between', paddingBottom: 6, borderBottom: '1px solid var(--border)' }}>
-              <span className="dim">Advance Income Tax Provided ({Math.round(BAL.incomeTaxRate * 100)}%):</span>
-              <span>
-                <b><M v={provided} /></b>
-                <span className="dim small ml6">
-                  (Next close: <M v={nextProvision} />{chargedAtClose > 0 ? <> · Last close: <M v={chargedAtClose} /></> : ''})
-                </span>
+              <span className="dim">
+                {s.company.gstDueDay !== undefined
+                  ? s.day > s.company.gstDueDay
+                    ? <span className="bad">overdue, 1%/mo</span>
+                    : `due ${fmtDate(s.company.gstDueDay)}`
+                  : 'due after month close'}
               </span>
             </div>
-            <div className="flex" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
-              <span className="small dim">
-                {s.company.tdsDueDay !== undefined
-                  ? s.day > s.company.tdsDueDay
-                    ? <span className="bad">TDS OVERDUE (due {fmtDate(s.company.tdsDueDay)})</span>
-                    : `TDS due ${fmtDate(s.company.tdsDueDay)}`
-                  : 'TDS due quarterly'}
-              </span>
+            <div className="flex" style={{ alignItems: 'center', gap: 6, marginTop: 4 }}>
               <button
                 className="small primary"
                 disabled={(s.company.tdsPayable ?? 0) <= 0}
                 onClick={() => g.fileTds()}
               >
-                File & Remit TDS {(s.company.tdsPayable ?? 0) > 0 ? `(${fmtCompact(s.company.tdsPayable)})` : ''}
+                Remit TDS {(s.company.tdsPayable ?? 0) > 0 ? `(${fmtCompact(s.company.tdsPayable)})` : ''}
               </button>
+              <span className="dim">
+                {s.company.tdsDueDay !== undefined
+                  ? s.day > s.company.tdsDueDay
+                    ? <span className="bad">overdue</span>
+                    : `due ${fmtDate(s.company.tdsDueDay)}`
+                  : 'quarterly'}
+              </span>
             </div>
           </div>
         </Panel>
+        </div>
       </div>
 
       {/* Multi-Month P&L Comparative Statement */}
@@ -677,7 +589,7 @@ function PnlPanel() {
 }
 
 function BooksPanel() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const [bookTab, setBookTab] = useState<'bs' | 'cf' | 'ledger'>('bs')
   const months: MonthlySummary[] = [...s.monthly.slice(-5), s.curMonth]
 
@@ -895,7 +807,7 @@ function BooksPanel() {
 }
 
 export function MoneyPage() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const [tab, setTab] = useState<'ops' | 'bank' | 'books'>('ops')
   const receivables = receivablesTotal(s)
   const equity = netWorth(s)
@@ -924,7 +836,6 @@ export function MoneyPage() {
       {/* Main Sub-View */}
       {tab === 'ops' && (
         <>
-          <FuelHedgePanel />
           <PnlPanel />
         </>
       )}

@@ -90,6 +90,39 @@ export function activeGroups(s: GameState): BusGroup[] {
   return sortedGroups(Object.values(s.groups ?? {}).filter((g) => g.status === 'active'))
 }
 
+export function isOperatorGroup(g: BusGroup | undefined): boolean {
+  return g?.kind === 'operator'
+}
+
+/** Active brands that can own coaches and services (everything except operators). */
+export function fleetGroups(s: GameState): BusGroup[] {
+  return activeGroups(s).filter((g) => !isOperatorGroup(g))
+}
+
+/** Active operator brands. */
+export function operatorGroups(s: GameState): BusGroup[] {
+  return activeGroups(s).filter(isOperatorGroup)
+}
+
+/** Fleet brands at any depth below a brand (the brand itself when it is a fleet brand). */
+export function fleetDescendantIds(s: GameState, groupId: ID): Set<ID> {
+  const groups = s.groups ?? {}
+  const out = new Set<ID>()
+  const self = groups[groupId]
+  if (self && !isOperatorGroup(self)) out.add(groupId)
+  for (const id of getDescendantGroupIds(groups, groupId)) {
+    if (!isOperatorGroup(groups[id])) out.add(id)
+  }
+  return out
+}
+
+function brandOwnsAnything(s: GameState, id: ID): { buses: number; schedules: number } {
+  return {
+    buses: Object.values(s.buses ?? {}).filter((b) => b.groupId === id).length,
+    schedules: Object.values(s.schedules ?? {}).filter((sch) => sch.groupId === id).length,
+  }
+}
+
 export function createGroup(
   s: GameState,
   input: {
@@ -99,8 +132,13 @@ export function createGroup(
     cargoBrand?: boolean
     brandingPic?: string
     parentGroupId?: ID
+    kind?: 'fleet' | 'operator'
   },
 ): { id: ID } | { error: string } {
+  const isOperator = input.kind === 'operator'
+  if (isOperator && input.cargoBrand) {
+    return { error: 'An operator owns no coaches, so it cannot be a cargo brand.' }
+  }
   const name = input.name?.trim()
   if (!name) return { error: 'Brand name cannot be empty.' }
 
@@ -119,7 +157,7 @@ export function createGroup(
   if (!s.groups) s.groups = {}
   const id = nextId(s.ids, 'grp')
   const color = input.color ?? GROUP_PALETTE[Object.keys(s.groups).length % GROUP_PALETTE.length]
-  const cargoBrand = Boolean(input.cargoBrand)
+  const cargoBrand = !isOperator && Boolean(input.cargoBrand)
   const brandingPic =
     input.brandingPic && (input.brandingPic.startsWith('data:image/') || /^https?:\/\//i.test(input.brandingPic))
       ? input.brandingPic
@@ -132,6 +170,7 @@ export function createGroup(
     color,
     ...(brandingPic ? { brandingPic } : {}),
     ...(parentGroupId ? { parentGroupId } : {}),
+    ...(isOperator ? { kind: 'operator' as const } : {}),
     foundedDay: s.day,
     status: 'active',
     cargoBrand: cargoBrand || undefined,
@@ -140,7 +179,7 @@ export function createGroup(
     cancelRate: 0,
     primo: false,
     primoOffered: false,
-    ...(cargoBrand
+    ...(cargoBrand || isOperator
       ? {}
       : {
           defaultAmenities: { waterBottle: false, snackHamper: false, sanitizedBedding: false },
@@ -206,6 +245,22 @@ export function updateGroup(
     }
   }
 
+  if (patch.kind !== undefined && (patch.kind ?? 'fleet') !== (g.kind ?? 'fleet')) {
+    if (patch.kind === 'operator') {
+      const owned = brandOwnsAnything(s, id)
+      if (owned.buses > 0 || owned.schedules > 0) {
+        return `Move its ${owned.buses} coaches and ${owned.schedules} services to another brand before making it an operator.`
+      }
+      if (g.cargoBrand || patch.cargoBrand) return 'A cargo brand cannot become an operator.'
+    } else {
+      const hasChildren = Object.values(s.groups ?? {}).some((o) => o.parentGroupId === id && o.status === 'active')
+      if (hasChildren) return 'Move its brands to another parent before making it a fleet brand.'
+    }
+  }
+  if (patch.cargoBrand && (patch.kind ?? g.kind) === 'operator') {
+    return 'An operator cannot be a cargo brand.'
+  }
+
   if (patch.brandingPic !== undefined && patch.brandingPic !== '') {
     if (!patch.brandingPic.startsWith('data:image/') && !/^https?:\/\//i.test(patch.brandingPic)) {
       return 'Invalid branding picture.'
@@ -213,8 +268,13 @@ export function updateGroup(
   }
 
   Object.assign(g, patch)
+  // A field patched to undefined is cleared (e.g. "inherit from operator").
+  for (const k of Object.keys(patch) as (keyof BusGroup)[]) {
+    if ((patch as Record<string, unknown>)[k] === undefined) delete g[k]
+  }
   if (!g.brandingPic) delete g.brandingPic
   if (!g.parentGroupId) delete g.parentGroupId
+  if (g.kind !== 'operator') delete g.kind
   if (g.gallery && g.gallery.length === 0) delete g.gallery
   if (patch.odoHighlightKm === undefined && 'odoHighlightKm' in patch) delete g.odoHighlightKm
   return null
@@ -229,6 +289,7 @@ export function retireGroup(s: GameState, id: ID, moveTo: ID | undefined): strin
     const dest = s.groups?.[moveTo]
     if (!dest || dest.status === 'retired') return 'Invalid destination brand.'
     if (moveTo === id) return 'Destination brand must be different.'
+    if (isOperatorGroup(dest)) return 'Coaches cannot move to an operator brand; pick a fleet brand.'
   }
 
   let busesMoved = 0
@@ -247,6 +308,16 @@ export function retireGroup(s: GameState, id: ID, moveTo: ID | undefined): strin
     }
   }
 
+  // Brands under it move up to its own parent so nothing is left orphaned.
+  let brandsMoved = 0
+  for (const child of Object.values(s.groups ?? {})) {
+    if (child.parentGroupId === id) {
+      if (g.parentGroupId) child.parentGroupId = g.parentGroupId
+      else delete child.parentGroupId
+      brandsMoved++
+    }
+  }
+
   g.status = 'retired'
   g.retiredDay = s.day
 
@@ -254,7 +325,8 @@ export function retireGroup(s: GameState, id: ID, moveTo: ID | undefined): strin
   pushLog(
     s,
     'info',
-    `Brand ${g.name} (${g.code}) retired. Moved ${busesMoved} coaches and ${schedulesMoved} schedules to ${destName}.`,
+    `Brand ${g.name} (${g.code}) retired. Moved ${busesMoved} coaches and ${schedulesMoved} schedules to ${destName}` +
+      (brandsMoved > 0 ? `; ${brandsMoved} brands moved up a level.` : '.'),
   )
 
   return null
@@ -264,6 +336,7 @@ export function restoreGroup(s: GameState, id: ID): string | null {
   const g = s.groups?.[id]
   if (!g) return 'Brand not found.'
   if (g.status !== 'retired') return 'Brand is not retired.'
+  if (g.soldDay !== undefined) return 'A sold brand cannot be restored.'
 
   g.status = 'active'
   delete g.retiredDay
@@ -292,6 +365,13 @@ export function deleteGroup(s: GameState, id: ID): string | null {
     }
   }
 
+  for (const child of Object.values(s.groups ?? {})) {
+    if (child.parentGroupId === id) {
+      if (g.parentGroupId) child.parentGroupId = g.parentGroupId
+      else delete child.parentGroupId
+    }
+  }
+
   if (s.groups) delete s.groups[id]
   return null
 }
@@ -308,6 +388,7 @@ export function assignBusToGroup(
   if (groupId !== undefined) {
     const g = s.groups?.[groupId]
     if (!g || g.status === 'retired') return 'Invalid or retired brand.'
+    if (isOperatorGroup(g)) return `${g.name} is an operator and owns no coaches. Pick one of its brands.`
   }
 
   if (bus.groupId === groupId) return null
@@ -336,6 +417,7 @@ export function assignScheduleToGroup(s: GameState, schId: ID, groupId: ID | und
   if (groupId !== undefined) {
     const g = s.groups?.[groupId]
     if (!g || g.status === 'retired') return 'Invalid or retired brand.'
+    if (isOperatorGroup(g)) return `${g.name} is an operator and runs no services. Pick one of its brands.`
   }
 
   sch.groupId = groupId

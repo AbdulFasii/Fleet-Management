@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGame, useDeferredGameState } from '../../store/gameStore'
 import { BUS_MODELS, coachKind, coachKindClass, modelTitleById, isCargoModel } from '../../engine/data/busModels'
 import { coachTitle, fleetModelLabel } from '../../engine/data/bodyBuilders'
 import { ROUTES, routeName } from '../../engine/data/routes'
@@ -9,23 +9,24 @@ import { festivalEffect, fmtClock, fmtDate } from '../../engine/core/calendar'
 import { worstSubsystem, busAgeYears, busStatusDetail } from '../../engine/sim/fleet'
 import { isBusInTransit } from '../../engine/sim/depot'
 import { ownerPaysService, serviceDueKm, axleTyresDue } from '../../engine/sim/maintenance'
-import { activeGroups } from '../../engine/sim/groups'
+import { fleetGroups } from '../../engine/sim/groups'
 import { BAL } from '../../engine/data/balance'
 import type { Bus } from '../../engine/types'
 import { canCrewBus, crewLimit, crewOnBus, crewShort } from '../crew'
 import { Bar, DataTable, M, Panel, ratingTone, GroupBadge, type Col, PageHeader } from '../bits'
+import { BrandOptions } from '../BrandOptions'
 
 export { ratingTone } from '../bits'
 
 export function FleetPage() {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const uiPrefs = useGame((g) => g.uiPrefs)
   const setFleetGroupFilter = useGame((g) => g.setFleetGroupFilter)
   const nav = useNavigate()
   const [busFilter, setBusFilter] = useState('')
   const [dutyFilter, setDutyFilter] = useState<'all' | 'line' | 'charter' | 'workshop'>('all')
   const allBuses = Object.values(s.buses)
-  const activeBrandList = useMemo(() => activeGroups(s), [s.groups])
+  const activeBrandList = useMemo(() => fleetGroups(s), [s.groups])
 
   const buses = useMemo(() => {
     let list = allBuses
@@ -560,11 +561,7 @@ export function FleetPage() {
           aria-label="Filter by brand"
         >
           <option value="all">All Brands</option>
-          {activeBrandList.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.code} - {g.name}
-            </option>
-          ))}
+          <BrandOptions s={s} brands={activeBrandList} />
           <option value="none">Unassigned</option>
         </select>
         <input

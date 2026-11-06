@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import {
   ROUTE_LIST,
   RIVALS,
@@ -28,7 +28,8 @@ import { cargoContractsOnCorridor, cargoLicence, cargoPermitActive, cargoPermitF
 import { getLoungeDemandBoost } from '../../engine/sim/lounge'
 import { cityName } from '../../engine/data/cities'
 import type { GameState, Permit, CorridorStance, RouteDef } from '../../engine/types'
-import { Empty, M, Modal, Panel, PageHeader } from '../bits'
+import { Empty, M, Modal, Panel, PageHeader, GroupBadge } from '../bits'
+import { BrandOptions } from '../BrandOptions'
 
 function getPermitForRoute(s: GameState, routeId: string): Permit | undefined {
   return (
@@ -41,8 +42,8 @@ function getPermitForRoute(s: GameState, routeId: string): Permit | undefined {
 type SortCol = 'name' | 'states' | 'km' | 'hours' | 'fare' | 'demand' | 'permit'
 
 export function RoutesPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [confirmCargoId, setConfirmCargoId] = useState<string | null>(null)
 
@@ -52,6 +53,8 @@ export function RoutesPage() {
   const [scheduleFilter, setScheduleFilter] = useState<'all' | 'scheduled' | 'unscheduled'>('all')
   const [permitFilter, setPermitFilter] = useState<'all' | 'active_applied' | 'active' | 'applied' | 'available' | 'cargo' | 'threats'>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
+  /** 'all', 'none' (unassigned services) or a brand id. */
+  const [brandFilter, setBrandFilter] = useState<string>('all')
   const [selectedIntelRoute, setSelectedIntelRoute] = useState<RouteDef | null>(null)
 
   // Sorting: defaults to alphabetical (A-Z) by corridor name
@@ -113,6 +116,19 @@ export function RoutesPage() {
     Object.values(s.schedules).map((sch) => canonicalRouteId(sch.routeId)),
   )
   const countScheduled = ROUTE_LIST.filter((r) => scheduledRouteIds.has(canonicalRouteId(r.id))).length
+
+  // Services per brand on each corridor ('' = unassigned).
+  const brandsByRoute = new Map<string, Map<string, number>>()
+  for (const sch of Object.values(s.schedules)) {
+    const key = canonicalRouteId(sch.routeId)
+    let m = brandsByRoute.get(key)
+    if (!m) {
+      m = new Map()
+      brandsByRoute.set(key, m)
+    }
+    const gid = sch.groupId ?? ''
+    m.set(gid, (m.get(gid) ?? 0) + 1)
+  }
   const countUnscheduled = ROUTE_LIST.length - countScheduled
 
   // 1. Filter routes
@@ -122,6 +138,10 @@ export function RoutesPage() {
 
     const hasSchedule = scheduledRouteIds.has(canonicalRouteId(r.id))
     if (scheduleFilter === 'scheduled' && !hasSchedule) return false
+    if (brandFilter !== 'all') {
+      const brands = brandsByRoute.get(canonicalRouteId(r.id))
+      if (!brands?.has(brandFilter === 'none' ? '' : brandFilter)) return false
+    }
     if (scheduleFilter === 'unscheduled' && hasSchedule) return false
 
     const permit = getPermitForRoute(s, r.id)
@@ -359,6 +379,20 @@ export function RoutesPage() {
           </div>
 
           <div className="row gap6">
+            <span className="dim">Brand:</span>
+            <select
+              value={brandFilter}
+              onChange={(e) => setBrandFilter(e.target.value)}
+              style={{ fontSize: 11, padding: '2px 6px' }}
+              title="Corridors where this brand runs at least one service"
+            >
+              <option value="all">All Brands</option>
+              <BrandOptions s={s} />
+              <option value="none">Unassigned</option>
+            </select>
+          </div>
+
+          <div className="row gap6">
             <span className="dim">Permit status:</span>
             <select
               value={permitFilter}
@@ -379,13 +413,14 @@ export function RoutesPage() {
               Showing <b>{sortedRoutes.length}</b> of {ROUTE_LIST.length} corridors
               {sortCol ? ` · Sorted by ${sortCol} (${sortAsc ? 'asc' : 'desc'})` : ' · Active permits defaulted to top'}
             </span>
-            {(categoryFilter !== 'all' || hoursFilter !== 'all' || scheduleFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
+            {(categoryFilter !== 'all' || hoursFilter !== 'all' || scheduleFilter !== 'all' || brandFilter !== 'all' || permitFilter !== 'all' || searchQuery || sortCol !== 'name') && (
               <button
                 className="small"
                 onClick={() => {
                   setCategoryFilter('all')
                   setHoursFilter('all')
                   setScheduleFilter('all')
+                  setBrandFilter('all')
                   setPermitFilter('all')
                   setSearchQuery('')
                   setSortCol('name')
@@ -400,23 +435,21 @@ export function RoutesPage() {
         </div>
 
         <div className="xscroll">
-        <table className="data">
+        <table className="data" style={{ fontSize: 12 }}>
           <thead>
             <tr>
               <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('name')}>
                 Corridor {renderSortArrow('name')}
               </th>
+              <th title="Brands running services on this corridor (× number of services)">Brands</th>
               <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('states')}>
-                States {renderSortArrow('states')}
+                States · papers {renderSortArrow('states')}
               </th>
-              <th>Papers</th>
-              <th>Seasonal</th>
-              <th>Cargo licence</th>
-              <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('km')}>
-                Km {renderSortArrow('km')}
-              </th>
-              <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('hours')}>
-                Hours {renderSortArrow('hours')}
+              <th>Seasonal · cargo</th>
+              <th className="num nowrap">
+                <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('km')}>Km {renderSortArrow('km')}</span>
+                {' · '}
+                <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('hours')}>h {renderSortArrow('hours')}</span>
               </th>
               <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('fare')}>
                 Mkt fare (AC slpr) {renderSortArrow('fare')}
@@ -463,7 +496,12 @@ export function RoutesPage() {
                 >
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span className="accent bold">{routeName(r.id)}</span>
+                      <span
+                        className="accent bold"
+                        title={[r.notes, routeViaLabel(r.id)].filter(Boolean).join('\n') || undefined}
+                      >
+                        {routeName(r.id)}
+                      </span>
                       <span
                         className="pill small"
                         style={{ fontSize: 10, padding: '0 4px' }}
@@ -509,51 +547,65 @@ export function RoutesPage() {
                         )
                       })()}
                     </div>
-                    <div className="small faint">{r.notes}</div>
-                    {routeViaLabel(r.id) && (
-                      <div className="small" style={{ color: 'var(--gray)' }} title="Cities this run passes through — all of them are already on our network">
-                        {routeViaLabel(r.id)}
-                      </div>
-                    )}
                   </td>
-                  <td className="small">{statesOnRoute(r).join(', ')}</td>
-                  <td className="small">{r.interstate ? 'AITP' : 'State carriage'}</td>
+                  <td>
+                    {(() => {
+                      const brands = brandsByRoute.get(canonicalRouteId(r.id))
+                      if (!brands || brands.size === 0) return <span className="faint">—</span>
+                      return (
+                        <span className="flex" style={{ gap: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {[...brands.entries()]
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([gid, n]) => {
+                              const grp = gid ? s.groups?.[gid] : undefined
+                              return (
+                                <span key={gid || 'none'} className="nowrap" title={`${grp?.name ?? 'Unassigned'}: ${n} service${n === 1 ? '' : 's'}`}>
+                                  {grp ? <GroupBadge group={grp} /> : <span className="pill small dim">none</span>}
+                                  {n > 1 && <span className="dim small">×{n}</span>}
+                                </span>
+                              )
+                            })}
+                        </span>
+                      )
+                    })()}
+                  </td>
+                  <td className="small">
+                    {statesOnRoute(r).join(', ')}
+                    <div className="dim">{r.interstate ? 'AITP' : 'State carriage'}</div>
+                  </td>
                   <td className="small">
                     {permit?.seasonal?.status === 'active' && (
                       <span className="good">
-                        Active until {fmtDateShort(permit.seasonal.expiryDay!)}
+                        seasonal to {fmtDateShort(permit.seasonal.expiryDay!)}
                       </span>
                     )}
                     {permit?.seasonal?.status === 'applied' && (
-                      <span className="warn">applied ({s.day - permit.seasonal.appliedDay}d ago)</span>
+                      <span className="warn">seasonal applied ({s.day - permit.seasonal.appliedDay}d)</span>
                     )}
                     {permit?.seasonal?.status === 'expired' && (
-                      <span className="bad">expired</span>
+                      <span className="bad">seasonal expired</span>
                     )}
-                    {!permit?.seasonal && <span className="dim">none</span>}
-                  </td>
-                  <td className="small">
+                    {!permit?.seasonal && <span className="dim">no seasonal</span>}
+                    <div>
                     {cargoLicensed ? (
                       <span className="good">
-                        licensed
+                        cargo licensed
                         {cargoLeft <= 45 && <span className="warn"> · renews in {cargoLeft}d</span>}
                       </span>
                     ) : cargoLicenceRow ? (
-                      <span className="bad">lapsed</span>
+                      <span className="bad">cargo lapsed</span>
                     ) : permit?.status === 'active' ? (
-                      <span className="dim">none · {fmtCompact(cargoFee)}/yr</span>
+                      <span className="dim">no cargo · {fmtCompact(cargoFee)}/yr</span>
                     ) : (
-                      <span className="faint">needs corridor permit</span>
+                      <span className="faint">cargo needs permit</span>
                     )}
                     {liveCargoContracts > 0 && (
-                      <div className="dim" style={{ fontSize: '0.75rem' }}>
-                        {liveCargoContracts} contract{liveCargoContracts === 1 ? '' : 's'}
-                      </div>
+                      <span className="dim"> · {liveCargoContracts} contract{liveCargoContracts === 1 ? '' : 's'}</span>
                     )}
+                    </div>
                   </td>
-                  <td className="num">{r.km}</td>
-                  <td className="num font-bold">
-                    {displayRouteHours(r.hours)}h
+                  <td className="num nowrap">
+                    {r.km} <span className="dim">·</span> <b>{displayRouteHours(r.hours)}h</b>
                   </td>
                   <td className="num">
                     <M v={Math.round(r.marketFareAC * idx)} />
@@ -598,12 +650,6 @@ export function RoutesPage() {
 
                       return (
                         <div>
-                          <div>
-                            <b>Competitors</b> <span className="dim small">({competitorShare}%)</span>
-                            <div className="dim small">
-                              Fare: {avgFare}× · Comfort: {avgComfort}
-                            </div>
-                          </div>
                           <div
                             className={`small ${pShare > 0 ? 'good' : 'dim'}`}
                             style={{ fontWeight: 600 }}
@@ -615,9 +661,10 @@ export function RoutesPage() {
                                 : '0% market share (no route permit)'
                             }
                           >
-                            You: {pShare}%{capInfo.dailySeats > 0 ? ` (${capInfo.dailySeats} seats/day)` : ''}
+                            You {pShare}%{capInfo.dailySeats > 0 ? ` · ${capInfo.dailySeats} seats/day` : ''}
                           </div>
-                          <div className="dim small" style={{ fontSize: '0.75rem', marginTop: 2 }}>
+                          <div className="dim small" title={`Rivals average ${avgFare}× fare, comfort ${avgComfort}`}>
+                            rivals {competitorShare}% ·{' '}
                             <span className={r.competition > 0.8 ? 'bad' : r.competition > 0.65 ? 'warn' : 'good'}>
                               {r.competition > 0.8 ? 'brutal' : r.competition > 0.65 ? 'heavy' : 'moderate'}
                             </span>

@@ -187,7 +187,21 @@ export function festivalRunEffect(day: number): FestivalEffect {
   return festivalEffectCore(day, FESTIVAL_RUN_PAD_DAYS)
 }
 
+const festivalCache = new Map<number, FestivalEffect>()
+const FESTIVAL_CACHE_MAX = 4096
+
 function festivalEffectCore(day: number, padDays: number): FestivalEffect {
+  // Pure in (day, padDays). Frozen so a caller can never alter a shared answer.
+  const key = day * 16 + padDays
+  const hit = festivalCache.get(key)
+  if (hit) return hit
+  if (festivalCache.size >= FESTIVAL_CACHE_MAX) festivalCache.clear()
+  const fresh = Object.freeze(festivalEffectUncached(day, padDays)) as FestivalEffect
+  festivalCache.set(key, fresh)
+  return fresh
+}
+
+function festivalEffectUncached(day: number, padDays: number): FestivalEffect {
   const c = toCivil(day)
   let best: FestivalEffect = { name: null, id: null, homebound: 1, returning: 1, delta: undefined, phase: null }
   for (const f of FESTIVALS) {

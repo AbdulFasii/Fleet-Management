@@ -45,6 +45,7 @@ import { busFittingsDemandMult } from '../data/amenitiesCatalog'
 import { isTripFrontRun, getCorridorStance } from './rivalIntelligence'
 import { getLoungeDemandBoost } from './lounge'
 import { routeLifeMult } from './routeLife'
+import { brandDemandMult, tierLift } from './brandModifiers'
 
 export { isHomebound } from './corridor'
 
@@ -873,7 +874,10 @@ export function tripLoadFactor(s: GameState, trip: Trip, daysToDep: number, ctx?
       rating = ratingAttrFrom(grpInfo.rating, grpInfo.count)
     }
   }
-  const brand = ctx?.brand ?? brandAttr(s.company)
+  const brand =
+    (ctx?.brand ?? brandAttr(s.company)) *
+    brandDemandMult(s.groups, tripGroup, sch.routeId, trip.day) *
+    (1 + tierLift(sch.serviceTier, bus.qualityScore ?? 3))
   const punctuality = ctx?.punctuality ?? punctualityAttr(s.company)
   const coach = coachAttr(model, bus, trip.day, s)
   const subsystems = busConditionAttr(bus, route)

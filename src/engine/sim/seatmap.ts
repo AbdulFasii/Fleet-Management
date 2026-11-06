@@ -249,8 +249,13 @@ export function avgSeatMult(model: BusModel): number {
  * first (lower/single/window), leaving unpopular seats to sell last.
  */
 export function preferenceOrder(seats: TripSeat[], rand: () => number): number[] {
-  return seats
-    .map((s, i) => ({ i, score: s.mult + rand() * 0.18 }))
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.i)
+  // Same random draws, same stable ordering as building {i, score} objects, without the garbage.
+  const n = seats.length
+  const score = new Float64Array(n)
+  const order = new Array<number>(n)
+  for (let i = 0; i < n; i++) {
+    score[i] = seats[i]!.mult + rand() * 0.18
+    order[i] = i
+  }
+  return order.sort((a, b) => score[b]! - score[a]!)
 }

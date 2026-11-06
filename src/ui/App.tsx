@@ -42,6 +42,7 @@ function StatusStrip() {
   const s = useGame((g) => g.state)!
   const advance = useGame((g) => g.advance)
   const busy = useGame((g) => g.busy)
+  const skipProgress = useGame((g) => g.skipProgress)
   const nav = useNavigate()
   const fest = festivalEffect(s.day)
   const season = seasonInfo(s.day)
@@ -244,7 +245,22 @@ function StatusStrip() {
       <div className="time-controls">
         <button className="primary" onClick={() => advance(1)} disabled={busy} title="N">▸ Day</button>
         <button onClick={() => advance(7)} disabled={busy} title="W">▸▸ Week</button>
-        {busy && <span className="dim" style={{ fontSize: '0.8rem', alignSelf: 'center' }}>simulating…</span>}
+        {busy && skipProgress && skipProgress.total > 1 && (
+          <span className="dim" style={{ fontSize: '0.8rem', alignSelf: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            day {Math.min(skipProgress.done + 1, skipProgress.total)}/{skipProgress.total}
+            <span style={{ width: 60, height: 4, borderRadius: 2, background: 'var(--border)', overflow: 'hidden', display: 'inline-block' }}>
+              <span
+                style={{
+                  display: 'block',
+                  height: '100%',
+                  width: `${Math.round((skipProgress.done / skipProgress.total) * 100)}%`,
+                  background: 'var(--accent)',
+                  transition: 'width 120ms linear',
+                }}
+              />
+            </span>
+          </span>
+        )}
         <button onClick={onSave} title="Save now (S)">Save</button>
         <button
           onClick={() => setShowNewGameModal(true)}

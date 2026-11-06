@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import {
   BUS_MODELS,
   CLASS_LABEL,
@@ -17,7 +17,7 @@ import {
 import { BAL } from '../../engine/data/balance'
 import { quoteLoan, availableLoanProducts } from '../../engine/sim/banking'
 import { effectiveNewPrice, worstSubsystem, usedPrice, type FinancePlan } from '../../engine/sim/fleet'
-import { activeGroups } from '../../engine/sim/groups'
+import { fleetGroups } from '../../engine/sim/groups'
 import { fmtCompact, type Money } from '../../engine/core/money'
 import {
   designsForModel,
@@ -31,6 +31,7 @@ import {
   resolveModelForChassisAndDesign,
 } from '../../engine/data/bodyBuilders'
 import { Bar, KV, M, Modal, Panel, PageHeader } from '../bits'
+import { BrandOptions } from '../BrandOptions'
 
 export function FinanceModal({ price: initialPrice, title, isNew, modelId, onConfirm, onClose }: {
   price: Money
@@ -40,7 +41,7 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
   onConfirm: (plan: FinancePlan, bodyDesignId?: string, orderedModelId?: string) => void
   onClose: () => void
 }) {
-  const s = useGame((g) => g.state)!
+  const s = useDeferredGameState()!
   const seedModel = modelId ? BUS_MODELS[modelId] : undefined
   const supportsCustomBody = Boolean(isNew && seedModel && modelSupportsBodyDesigns(seedModel))
   const designOptions = supportsCustomBody && seedModel ? designsForModel(s, seedModel) : []
@@ -245,9 +246,9 @@ export function FinanceModal({ price: initialPrice, title, isNew, modelId, onCon
 }
 
 export function MarketPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
-  const activeBrandList = activeGroups(s)
+  const s = useDeferredGameState()!
+  const g = useGameActions()
+  const activeBrandList = fleetGroups(s)
   const [selectedBrand, setSelectedBrand] = useState('')
   const [leaseBrand, setLeaseBrand] = useState<Record<string, string>>({})
   const [attachBrand, setAttachBrand] = useState<Record<string, string>>({})
@@ -276,11 +277,7 @@ export function MarketPage() {
             style={{ minWidth: 160 }}
           >
             <option value="">Select brand…</option>
-            {activeBrandList.map((grp) => (
-              <option key={grp.id} value={grp.id}>
-                {grp.code} - {grp.name}
-              </option>
-            ))}
+            <BrandOptions s={s} brands={activeBrandList} />
           </select>
           {!selectedBrand && <span className="warn small">Pick a brand to order, lease or attach</span>}
         </label>
@@ -467,9 +464,7 @@ export function MarketPage() {
                         onChange={(e) => setLeaseBrand((prev) => ({ ...prev, [o.id]: e.target.value }))}
                       >
                         <option value="">—</option>
-                        {activeBrandList.map((b) => (
-                          <option key={b.id} value={b.id}>{b.code}</option>
-                        ))}
+                        <BrandOptions s={s} brands={activeBrandList} label="code" />
                       </select>
                       <button
                         className="small"
@@ -535,9 +530,7 @@ export function MarketPage() {
                             onChange={(e) => setAttachBrand((prev) => ({ ...prev, [o.id]: e.target.value }))}
                           >
                             <option value="">—</option>
-                            {activeBrandList.map((b) => (
-                              <option key={b.id} value={b.id}>{b.code}</option>
-                            ))}
+                            <BrandOptions s={s} brands={activeBrandList} label="code" />
                           </select>
                           <button
                             className="small"

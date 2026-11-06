@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useGame } from '../../store/gameStore'
+import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { ROUTES } from '../../engine/data/routes'
 import { CITIES } from '../../engine/data/cities'
 import { ymKey } from '../../engine/core/calendar'
@@ -224,8 +224,8 @@ function groupContracts(rows: ContractRow[]): ContractGroup[] {
 type Tab = 'today' | 'corridors' | 'contracts' | 'spot' | 'desk'
 
 export function CargoPage() {
-  const s = useGame((g) => g.state)!
-  const g = useGame()
+  const s = useDeferredGameState()!
+  const g = useGameActions()
   const [tab, setTab] = useState<Tab>('today')
   const [laneDays, setLaneDays] = useState<7 | 30 | 90>(30)
   const [sortKey, setSortKey] = useState<CorridorSortKey>('revenue')
