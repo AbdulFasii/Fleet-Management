@@ -1381,9 +1381,12 @@ export function SettingsPage() {
                         </div>
                       }
                     >
-                      <div className="stack14">
-                          {/* Brand identity: brand detail | fleet detail | pic */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(150px, 220px)', gap: 16, alignItems: 'start' }}>
+                      {/* Details and amenities on the left; the picture has its own column on the right,
+                          so the amenities panel ends where the fleet detail ends. */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(160px, 300px)', gap: 16, alignItems: 'stretch' }}>
+                      <div className="stack14" style={{ minWidth: 0 }}>
+                          {/* Brand identity: brand detail | fleet detail */}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
                             <div className="stack10">
                               <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
                                 <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>
@@ -1506,20 +1509,6 @@ export function SettingsPage() {
                             </div>
                           </div>
 
-                          <div>
-                            <BrandPicPicker
-                              showActions={false}
-                              value={group.brandingPic}
-                              ownerKey={`group:${group.id}`}
-                              kind="branding"
-                              onChange={(pic) => {
-                                const err = g.updateGroup(group.id, { brandingPic: pic })
-                                if (err) g.toast(err, 'bad')
-                                else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
-                              }}
-                              onError={(msg) => g.toast(msg, 'bad')}
-                            />
-                          </div>
                         </div>
 
 
@@ -1640,6 +1629,23 @@ export function SettingsPage() {
                         </div>
                       )}
                     </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', minHeight: 0 }}>
+                            <BrandPicPicker
+                              fill
+                              fillMaxHeight={170}
+                              showActions={false}
+                              value={group.brandingPic}
+                              ownerKey={`group:${group.id}`}
+                              kind="branding"
+                              onChange={(pic) => {
+                                const err = g.updateGroup(group.id, { brandingPic: pic })
+                                if (err) g.toast(err, 'bad')
+                                else g.toast(pic ? 'Branding pic updated.' : 'Branding pic removed.', 'good')
+                              }}
+                              onError={(msg) => g.toast(msg, 'bad')}
+                            />
+                      </div>
+                      </div>
                   </Panel>
                 </div>
               )

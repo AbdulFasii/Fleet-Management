@@ -138,6 +138,12 @@ export interface BrandPicPickerProps {
   ownerKey?: string
   kind?: ImageKind
   allowOfflineFallback?: boolean
+  /**
+   * Grow to the height of the space it sits in (up to `fillMaxHeight`), for a picture column
+   * beside taller content. The whole picture still shows; nothing is cropped.
+   */
+  fill?: boolean
+  fillMaxHeight?: number
 }
 
 export function BrandPicPicker({
@@ -148,20 +154,21 @@ export function BrandPicPicker({
   ownerKey = 'general',
   kind = 'branding',
   allowOfflineFallback = false,
+  fill = false,
+  fillMaxHeight = 260,
 }: BrandPicPickerProps) {
+  const maxH = fill ? fillMaxHeight : 160
   const [lightboxOpen, setLightboxOpen] = useState(false)
-  // Real pixel size of the stored picture, so a small or low-quality upload is easy to spot.
-  const [natural, setNatural] = useState<{ src: string; w: number; h: number } | null>(null)
-  const size = natural && natural.src === value ? natural : null
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', ...(fill ? { height: '100%', maxHeight: maxH } : {}) }}>
       <div
         style={{
           width: value ? 'fit-content' : '100%',
           maxWidth: '100%',
           minHeight: value ? undefined : 90,
-          maxHeight: 160,
+          maxHeight: maxH,
+          ...(fill && value ? { height: '100%' } : {}),
           borderRadius: 6,
           border: '1px solid var(--border)',
           background: 'var(--bg3)',
@@ -182,15 +189,11 @@ export function BrandPicPicker({
             <img
               src={value}
               alt="Brand or design pic"
-              onLoad={(e) => {
-                const img = e.currentTarget
-                setNatural({ src: value, w: img.naturalWidth, h: img.naturalHeight })
-              }}
               style={{
                 maxWidth: '100%',
-                maxHeight: 160,
+                maxHeight: maxH,
                 width: 'auto',
-                height: 'auto',
+                height: fill ? '100%' : 'auto',
                 display: 'block',
                 objectFit: 'contain',
               }}
@@ -211,24 +214,6 @@ export function BrandPicPicker({
             >
               Zoom 🔍
             </div>
-            {size && (
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: 6,
-                  left: 6,
-                  background: 'rgba(0,0,0,0.65)',
-                  color: size.w < 800 ? '#fbbf24' : '#fff',
-                  fontSize: '0.7rem',
-                  padding: '2px 6px',
-                  borderRadius: 4,
-                  pointerEvents: 'none',
-                }}
-                title={size.w < 800 ? 'This picture is small; upload a larger original for a sharp image' : 'Stored at full size'}
-              >
-                {size.w} × {size.h} px{size.w < 800 ? ' · low-res' : ''}
-              </div>
-            )}
           </>
         ) : (
           <span className="dim small">No pic</span>
