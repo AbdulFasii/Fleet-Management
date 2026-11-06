@@ -1383,7 +1383,7 @@ export function SettingsPage() {
                     >
                       <div className="stack14">
                           {/* Brand identity: brand detail | fleet detail | pic */}
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(120px, 180px)', gap: 16, alignItems: 'start' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr minmax(150px, 220px)', gap: 16, alignItems: 'start' }}>
                             <div className="stack10">
                               <div className="form-row" style={{ marginBottom: 0, flexWrap: 'nowrap' }}>
                                 <label style={{ minWidth: 90, width: 90, whiteSpace: 'nowrap' }}>Brand Name</label>

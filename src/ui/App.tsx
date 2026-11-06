@@ -56,8 +56,6 @@ function StatusStrip() {
   const fmtOcc = (o: number | null) => (o === null ? '—' : `${Math.round(o * 100)}%`)
   const saveGame = useGame((g) => g.save)
   const toast = useGame((g) => g.toast)
-  const resetToNewGame = useGame((g) => g.resetToNewGame ?? g.abandon)
-  const [showNewGameModal, setShowNewGameModal] = useState(false)
 
   const activeBuses = fleet.filter((b) => b.status === 'active')
   const hasExpiredOrMissingGps = activeBuses.some(
@@ -262,49 +260,8 @@ function StatusStrip() {
           </span>
         )}
         <button onClick={onSave} title="Save now (S)">Save</button>
-        <button
-          onClick={() => setShowNewGameModal(true)}
-          title="Create New Game (empty all data and start fresh)"
-          style={{ marginLeft: 4 }}
-        >
-          + New Game
-        </button>
       </div>
 
-      {showNewGameModal && (
-        <Modal title="CREATE NEW GAME">
-          <p style={{ marginTop: 0, fontSize: '0.95rem' }}>
-            Start a <b>New Game</b> and reset all company progress?
-          </p>
-          <div className="callout warn" style={{ padding: '10px 14px', marginBottom: 14, fontSize: '0.85rem' }}>
-            ⚠️ <b>This will empty all existing game data:</b>
-            <ul style={{ margin: '6px 0 0 16px', padding: 0 }}>
-              <li>Current company (<b>{s.company.name}</b>) and cash balance</li>
-              <li>Fleet of <b>{fleet.length}</b> bus{fleet.length === 1 ? '' : 'es'} and all attached/leased vehicles</li>
-              <li>All route permits, schedules, and staff payroll</li>
-              <li>All transaction books, financial history, and saved data</li>
-            </ul>
-          </div>
-          <p className="small dim" style={{ marginBottom: 14 }}>
-            Tip: You can export a backup of your current company first from the <b>Settings</b> tab (Export Save File) if you want to save it to your disk.
-          </p>
-          <div className="flex" style={{ justifyContent: 'flex-end', gap: 10 }}>
-            <button onClick={() => setShowNewGameModal(false)}>Cancel</button>
-            <button
-              className="danger"
-              style={{ padding: '6px 16px' }}
-              onClick={() => {
-                setShowNewGameModal(false)
-                resetToNewGame()
-                toast('Save data emptied. Ready to register a new company.', 'good')
-                nav('/')
-              }}
-            >
-              Empty Data & Start New Game
-            </button>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }
