@@ -375,7 +375,7 @@ export const BUS_MODELS: Record<string, BusModel> = {
   // 4. Eicher Mini Bus (Midi coach variants)
   eicher24: {
     id: 'eicher24', name: 'Skyline Pro 24S', maker: 'Eicher',
-    cls: 'CHARTER', priceNew: L(27), seats: 24,
+    cls: 'CHARTER', priceNew: L(27), seats: 30,
     layout: { kind: 'semi', cols: '2+2', rows: 6 },
     mileage: 6.5, electric: false, ac: true, sleeper: false,
     comfort: 6.8, leadTimeDays: 15, fareIndex: 0.52, maintCostIndex: 0.75,
@@ -384,52 +384,11 @@ export const BUS_MODELS: Record<string, BusModel> = {
   },
   eicher32: {
     id: 'eicher32', name: 'Starline 32S Midi', maker: 'Eicher',
-    cls: 'CHARTER', priceNew: L(32), seats: 32,
+    cls: 'CHARTER', priceNew: L(32), seats: 36,
     layout: { kind: 'semi', cols: '2+2', rows: 8 },
     mileage: 5.8, electric: false, ac: true, sleeper: false,
     comfort: 6.8, leadTimeDays: 18, fareIndex: 0.52, maintCostIndex: 0.80,
     launchedYear: 2017, cargoCapKg: 1100, cargoVolumeCbm: 7.5,
-    isCharterOnly: true,
-  },
-
-  // 5. BharatBenz 1017 Maxi-cab: the one midi charter coach on sale.
-  bb1017_maxi: {
-    id: 'bb1017_maxi', name: 'Maxi-cab', maker: 'BharatBenz',
-    cls: 'CHARTER', priceNew: L(39), seats: 36,
-    layout: { kind: 'semi', cols: '2+2', rows: 9 },
-    mileage: 4.7, electric: false, ac: true, sleeper: false,
-    comfort: 7.1, leadTimeDays: 20, fareIndex: 0.55, maintCostIndex: 0.89,
-    launchedYear: 2018, cargoCapKg: 1250, cargoVolumeCbm: 8.2,
-    isCharterOnly: true,
-  },
-
-  // Older 1017 variants: no longer offered (see REMOVED_CHASSIS_MODEL_IDS); kept so coaches
-  // already in a fleet keep working.
-  bb1017_33: {
-    id: 'bb1017_33', name: '1017 33S Semi-Sleeper', maker: 'BharatBenz',
-    cls: 'CHARTER', priceNew: L(38), seats: 33,
-    layout: { kind: 'semi', cols: '2+2', rows: 8 },
-    mileage: 4.8, electric: false, ac: true, sleeper: false,
-    comfort: 7.2, leadTimeDays: 20, fareIndex: 0.55, maintCostIndex: 0.88,
-    launchedYear: 2018, cargoCapKg: 1200, cargoVolumeCbm: 8.0,
-    isCharterOnly: true,
-  },
-  bb1017_39: {
-    id: 'bb1017_39', name: '1017 39S High-Cap', maker: 'BharatBenz',
-    cls: 'CHARTER', priceNew: L(39), seats: 39,
-    layout: { kind: 'semi', cols: '2+2', rows: 10 },
-    mileage: 4.6, electric: false, ac: true, sleeper: false,
-    comfort: 6.8, leadTimeDays: 20, fareIndex: 0.54, maintCostIndex: 0.90,
-    launchedYear: 2018, cargoCapKg: 1300, cargoVolumeCbm: 8.5,
-    isCharterOnly: true,
-  },
-  bb1017_24slp: {
-    id: 'bb1017_24slp', name: '1017 24-Berth Sleeper', maker: 'BharatBenz',
-    cls: 'CHARTER', priceNew: L(43), seats: 24,
-    layout: { kind: 'sleeper', cols: '2+1', rows: 8 },
-    mileage: 4.5, electric: false, ac: true, sleeper: true,
-    comfort: 7.6, leadTimeDays: 22, fareIndex: 0.65, maintCostIndex: 0.95,
-    launchedYear: 2019, cargoCapKg: 1000, cargoVolumeCbm: 7.0,
     isCharterOnly: true,
   },
 }
@@ -451,12 +410,12 @@ export const MODEL_LIST = Object.values(BUS_MODELS)
   .filter((m) => !HIDDEN_MAKERS.has(m.maker))
   .sort((a, b) => (CLASS_ORDER[a.cls] - CLASS_ORDER[b.cls]) || a.priceNew - b.priceNew)
 
-/** Chassis models permanently removed from all markets and vehicle lists per user request. */
+/** Chassis models permanently removed from all markets and vehicle lists. */
 export const REMOVED_CHASSIS_MODEL_IDS = new Set([
   'bb917',
   'bb917sleep',
   'bb917hybrid',
-  // Replaced by the single BharatBenz Maxi-cab (bb1017_maxi).
+  'bb1017_maxi',
   'bb1017_33',
   'bb1017_39',
   'bb1017_24slp',
