@@ -281,6 +281,34 @@ export function MarketPage() {
           </select>
           {!selectedBrand && <span className="warn small">Pick a brand to order, lease or attach</span>}
         </label>
+        <span
+          className="flex"
+          style={{ alignItems: 'center', gap: 4, fontSize: 13 }}
+          title="Which vehicles the used, lease and attach boards offer. Switching a kind off removes it now; switching it on brings it with the next market refresh."
+        >
+          <span className="dim">Offer:</span>
+          {([
+            ['bus', 'Bus'],
+            ['charter', 'Charter'],
+            ['cargo', 'Cargo'],
+          ] as const).map(([kind, label]) => {
+            const mix = s.config?.marketMix ?? { bus: true, charter: true, cargo: true }
+            const on = mix[kind] !== false
+            const cargoClosed = kind === 'cargo' && !s.company.dedicatedCargoSubsidiary
+            return (
+              <button
+                key={kind}
+                type="button"
+                className={`small ${on ? 'primary' : ''}`}
+                aria-pressed={on}
+                title={cargoClosed ? 'Cargo vehicles also need the cargo subsidiary to be open.' : undefined}
+                onClick={() => g.setMarketMix({ ...mix, [kind]: !on })}
+              >
+                {on ? '✓ ' : ''}{label}
+              </button>
+            )
+          })}
+        </span>
       </PageHeader>
 
       <Panel

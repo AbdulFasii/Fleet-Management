@@ -392,7 +392,19 @@ export const BUS_MODELS: Record<string, BusModel> = {
     isCharterOnly: true,
   },
 
-  // 5. BharatBenz 1017 (Midi coach variants)
+  // 5. BharatBenz 1017 Maxi-cab: the one midi charter coach on sale.
+  bb1017_maxi: {
+    id: 'bb1017_maxi', name: 'Maxi-cab', maker: 'BharatBenz',
+    cls: 'CHARTER', priceNew: L(39), seats: 36,
+    layout: { kind: 'semi', cols: '2+2', rows: 9 },
+    mileage: 4.7, electric: false, ac: true, sleeper: false,
+    comfort: 7.1, leadTimeDays: 20, fareIndex: 0.55, maintCostIndex: 0.89,
+    launchedYear: 2018, cargoCapKg: 1250, cargoVolumeCbm: 8.2,
+    isCharterOnly: true,
+  },
+
+  // Older 1017 variants: no longer offered (see REMOVED_CHASSIS_MODEL_IDS); kept so coaches
+  // already in a fleet keep working.
   bb1017_33: {
     id: 'bb1017_33', name: '1017 33S Semi-Sleeper', maker: 'BharatBenz',
     cls: 'CHARTER', priceNew: L(38), seats: 33,
@@ -444,6 +456,10 @@ export const REMOVED_CHASSIS_MODEL_IDS = new Set([
   'bb917',
   'bb917sleep',
   'bb917hybrid',
+  // Replaced by the single BharatBenz Maxi-cab (bb1017_maxi).
+  'bb1017_33',
+  'bb1017_39',
+  'bb1017_24slp',
 ])
 
 /** Discontinued / legacy — not sold new; still rare on used / lease / attach. */

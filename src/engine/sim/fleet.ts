@@ -10,7 +10,7 @@ import { nextId, makeRegistration } from '../core/ids'
 import { daysInMonth, fromCivil, toCivil } from '../core/calendar'
 import { fmtCompact, rs, type Money } from '../core/money'
 import { rngFor, rInt, rPick, rChance, rJitter, type Rng } from '../core/rng'
-import type { Bus, BusModel, Condition, GameState, UsedListing, ID, Loan, DepreciationMethod } from '../types'
+import type { Bus, BusModel, Condition, GameState, UsedListing, ID, Loan, DepreciationMethod, MarketKind, MarketMix } from '../types'
 import { canAfford, assetCashValue, capitalIn, capitalOut, spend } from './finance'
 import { createLoan } from './banking'
 import { LOAN_PRODUCTS } from '../data/loanProducts'
@@ -302,11 +302,41 @@ function pickMarketModels(rng: Rng, pool: BusModel[], n: number): BusModel[] {
 
 /* ------------------------------ markets ------------------------------ */
 
+/** Line coach, charter coach or cargo vehicle: the three kinds a market board can offer. */
+export function marketKindOf(modelId: string): MarketKind {
+  if (isCargoModel(modelId)) return 'cargo'
+  return isCharterModel(modelId) ? 'charter' : 'bus'
+}
+
+/** Whether the player's market settings let this model onto the used, lease and attach boards. */
+export function marketKindAllowed(s: GameState, modelId: string): boolean {
+  const mix = s.config?.marketMix
+  return !mix || mix[marketKindOf(modelId)] !== false
+}
+
+/**
+ * Change which kinds the boards offer. Kinds switched off leave the boards now; kinds switched
+ * on arrive with the next market refresh (cargo straight away, as its listing is a single truck).
+ */
+export function setMarketMix(s: GameState, mix: MarketMix): string | null {
+  if (!mix.bus && !mix.charter && !mix.cargo) return 'Keep at least one kind of vehicle on the market.'
+  if (!s.config) return 'No settings to change.'
+  s.config.marketMix = { ...mix }
+  const keep = <T extends { modelId: string }>(list: T[]) => list.filter((l) => marketKindAllowed(s, l.modelId))
+  s.usedMarket = keep(s.usedMarket)
+  s.leaseOffers = keep(s.leaseOffers)
+  s.attachOffers = keep(s.attachOffers ?? [])
+  if (mix.cargo && s.company.dedicatedCargoSubsidiary) syncCargoListings(s)
+  return null
+}
+
 export function refreshMarkets(s: GameState): void {
   const rng = rngFor(s.seed, 'market', s.day)
   const cargoOn = Boolean(s.company.dedicatedCargoSubsidiary)
   const secondaryPoolBase = MODEL_LIST.filter(
-    (m) => !m.electric && !isCargoModel(m) && m.maker !== 'Olectra' && !REMOVED_CHASSIS_MODEL_IDS.has(m.id),
+    (m) =>
+      !m.electric && !isCargoModel(m) && m.maker !== 'Olectra' && !REMOVED_CHASSIS_MODEL_IDS.has(m.id)
+      && marketKindAllowed(s, m.id),
   )
   const usedPool = secondaryPoolBase.filter((m) => !VOLVO_9600_IDS.has(m.id))
   const leasePool = secondaryPoolBase
@@ -437,12 +467,12 @@ export function refreshMarkets(s: GameState): void {
     })
   }
   s.marketRefreshDay = s.day + BAL.marketRefreshDays
-  if (cargoOn) appendCargoOffers(s, rng)
+  if (cargoOn && s.config?.marketMix?.cargo !== false) appendCargoOffers(s, rng)
 }
 
 /** Put one truck on each weekly list, or take it off when the subsidiary is closed. */
 export function syncCargoListings(s: GameState): void {
-  if (!s.company.dedicatedCargoSubsidiary) {
+  if (!s.company.dedicatedCargoSubsidiary || s.config?.marketMix?.cargo === false) {
     s.usedMarket = s.usedMarket.filter((l) => !isCargoModel(l.modelId))
     s.leaseOffers = s.leaseOffers.filter((l) => !isCargoModel(l.modelId))
     s.attachOffers = (s.attachOffers ?? []).filter((l) => !isCargoModel(l.modelId))

@@ -3,7 +3,7 @@
  * selling a package of buses (6 to 24 coaches) at a discount with full details.
  */
 import { BAL } from '../data/balance'
-import { BUS_MODELS, MODEL_LIST, coachKind, coachSpec, modelTitle } from '../data/busModels'
+import { BUS_MODELS, MODEL_LIST, REMOVED_CHASSIS_MODEL_IDS, coachKind, coachSpec, modelTitle } from '../data/busModels'
 import { SMALL_OPERATORS } from '../data/names'
 import { toCivil } from '../core/calendar'
 import { fmtCompact, type Money } from '../core/money'
@@ -98,7 +98,9 @@ function sizeLot(
   const discount = shape.discount[0] + rng() * (shape.discount[1] - shape.discount[0])
   const floor = Math.min(Math.round(budget * D.lotFloorShare), D.lotFloorCap)
 
-  const availableModels = MODEL_LIST.filter((m) => !m.electric && year - ageBand[0] >= m.launchedYear)
+  const availableModels = MODEL_LIST.filter(
+    (m) => !m.electric && !REMOVED_CHASSIS_MODEL_IDS.has(m.id) && year - ageBand[0] >= m.launchedYear,
+  )
   if (availableModels.length === 0) return null
 
   // Roll desired variety (1, 2, or 3 layouts):

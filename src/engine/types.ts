@@ -463,6 +463,9 @@ export type BrandFittings = Record<string, boolean | undefined>
 
 export type ServiceTier = 'economy' | 'standard' | 'premium' | 'gold'
 
+export type MarketKind = 'bus' | 'charter' | 'cargo'
+export type MarketMix = Record<MarketKind, boolean>
+
 export type FuelPartner = 'indianoil' | 'bpcl' | 'hpcl' | 'none'
 
 export interface FuelContract {
@@ -1537,6 +1540,11 @@ export type FestivalBonusTier = 'full' | 'half' | 'gift' | 'skip'
 export interface PlayerConfig {
   /** fleet table highlights odometer at or above this km */
   odoHighlightKm: number
+  /**
+   * Which vehicle kinds the used, lease and attach boards offer. Missing = all of them.
+   * Cargo also needs the cargo subsidiary to be open.
+   */
+  marketMix?: MarketMix
   /** Auto-pay insurance, fitness, road tax and route permits when due (cash + OD). Default on. */
   autoRenewDocs?: boolean
   /** Eco-driving bonus to drivers: better mileage and tyre life. */

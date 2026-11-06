@@ -290,6 +290,8 @@ interface GameStore {
   setBusDuty: (busId: ID, duty: BusDuty) => void
   buildAppTier: (tier: 1 | 2 | 3) => void
   setMarketingBudget: (monthly: number) => void
+  /** Which vehicle kinds the used, lease and attach boards offer. */
+  setMarketMix: (mix: { bus: boolean; charter: boolean; cargo: boolean }) => boolean
   decide: (decisionId: ID, optionId: string) => void
   markInboxRead: (id: ID) => void
   /** Dismiss the victory scorecard and keep playing. */
@@ -2076,6 +2078,7 @@ export const useGame = create<GameStore>()(
     appointSpareDriver: (staffId) => get().intent((s) => staffing.appointSpareDriver(s, staffId)),
     setBusDuty: (busId, duty) => get().intent((s) => cover.setBusDuty(s, busId, duty)),
     buildAppTier: (tier) => get().intent((s) => channels.buildAppTier(s, tier)),
+    setMarketMix: (mix) => get().intent((s) => fleet.setMarketMix(s, mix)),
     setMarketingBudget: (monthly) => get().intent((s) => {
       channels.setMarketingBudget(s, monthly)
       return null
