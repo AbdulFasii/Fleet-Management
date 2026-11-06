@@ -138,12 +138,6 @@ export interface BrandPicPickerProps {
   ownerKey?: string
   kind?: ImageKind
   allowOfflineFallback?: boolean
-  /**
-   * Grow to the height of the space it sits in (up to `fillMaxHeight`), for a picture column
-   * beside taller content. The whole picture still shows; nothing is cropped.
-   */
-  fill?: boolean
-  fillMaxHeight?: number
 }
 
 export function BrandPicPicker({
@@ -154,21 +148,16 @@ export function BrandPicPicker({
   ownerKey = 'general',
   kind = 'branding',
   allowOfflineFallback = false,
-  fill = false,
-  fillMaxHeight = 260,
 }: BrandPicPickerProps) {
-  const maxH = fill ? fillMaxHeight : 160
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', ...(fill ? { height: '100%', maxHeight: maxH } : {}) }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
       <div
         style={{
-          width: value ? 'fit-content' : '100%',
-          maxWidth: '100%',
-          minHeight: value ? undefined : 90,
-          maxHeight: maxH,
-          ...(fill && value ? { height: '100%' } : {}),
+          width: '100%',
+          minHeight: 120,
+          maxHeight: 280,
           borderRadius: 6,
           border: '1px solid var(--border)',
           background: 'var(--bg3)',
@@ -191,9 +180,9 @@ export function BrandPicPicker({
               alt="Brand or design pic"
               style={{
                 maxWidth: '100%',
-                maxHeight: maxH,
+                maxHeight: 280,
                 width: 'auto',
-                height: fill ? '100%' : 'auto',
+                height: 'auto',
                 display: 'block',
                 objectFit: 'contain',
               }}
