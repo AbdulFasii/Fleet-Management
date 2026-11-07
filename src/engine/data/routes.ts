@@ -378,7 +378,22 @@ if (ROUTES['try-dgl']) {
   }
 }
 
+// `var`: route tables below call canonicalRouteId while this module is still initialising.
+// eslint-disable-next-line no-var
+var canonicalCache: Map<string, string> | undefined
+
+/** Canonical id of a corridor (memoised: the sim asks for it millions of times a day). */
 export function canonicalRouteId(id: string): string {
+  const cache = (canonicalCache ??= new Map<string, string>())
+  let out = cache.get(id)
+  if (out === undefined) {
+    out = computeCanonicalRouteId(id)
+    cache.set(id, out)
+  }
+  return out
+}
+
+function computeCanonicalRouteId(id: string): string {
   if (id === 'cbe-mdu' || id === 'mdu-cbe') return 'mdu-cbe'
   if (id === 'mdu-maa' || id === 'maa-mdu') return 'maa-mdu'
   if (id === 'mdu-maa-ecr' || id === 'maa-mdu-ecr') return 'maa-mdu-ecr'
@@ -742,3 +757,6 @@ export function boardingPointsForRoute(routeId: string): number {
 }
 
 export { cityName } from './cities'
+
+// Anything cached while the tables above were still being built may be stale.
+canonicalCache = undefined

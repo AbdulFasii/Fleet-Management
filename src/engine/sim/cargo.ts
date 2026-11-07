@@ -729,9 +729,24 @@ export function findRouteDef(routeId: string): RouteDef | undefined {
 }
 
 /** Every permit record whose route id aliases to the same corridor. */
+const permitIndexCache = new WeakMap<object, { n: number; byCanon: Map<string, Permit[]> }>()
+
+/** Permits grouped by corridor; rebuilt only when permits are added or removed. */
 function permitsMatchingRoute(s: GameState, routeId: string): Permit[] {
-  const canon = canonicalRouteId(routeId)
-  return Object.values(s.permits).filter((p) => canonicalRouteId(p.routeId) === canon)
+  const list = Object.values(s.permits)
+  let idx = permitIndexCache.get(s.permits)
+  if (!idx || idx.n !== list.length) {
+    const byCanon = new Map<string, Permit[]>()
+    for (const p of list) {
+      const k = canonicalRouteId(p.routeId)
+      const arr = byCanon.get(k)
+      if (arr) arr.push(p)
+      else byCanon.set(k, [p])
+    }
+    idx = { n: list.length, byCanon }
+    permitIndexCache.set(s.permits, idx)
+  }
+  return idx.byCanon.get(canonicalRouteId(routeId)) ?? []
 }
 
 function permitCoversRoute(s: GameState, routeId: string): boolean {
@@ -1255,15 +1270,17 @@ export function cargoAutoQueuePendingOffers(s: GameState, mgrName: string): numb
   return taken
 }
 
-function countPlannedDepartures(s: GameState, laneKey: string): number {
-  let n = 0
+/** Today's planned departures per cargo lane, from one pass over the trips. */
+function plannedDeparturesByLane(s: GameState): Map<string, number> {
+  const out = new Map<string, number>()
   for (const t of Object.values(s.trips)) {
     if (t.day !== s.day || t.status === 'cancelled') continue
     const route = ROUTES[t.routeId]
     if (!route) continue
-    if (cargoLaneKey(route, t.direction) === laneKey) n++
+    const key = cargoLaneKey(route, t.direction)
+    out.set(key, (out.get(key) ?? 0) + 1)
   }
-  return n
+  return out
 }
 
 /** Pools for the Cargo tab. After the day has run, these are the books dispatch actually drew. */
@@ -1272,6 +1289,7 @@ export function cargoPoolsForView(s: GameState): CargoPoolState[] {
   if (live?.day === s.day && live.pools && Object.keys(live.pools).length > 0) {
     return Object.values(live.pools).sort((a, b) => b.parcelMarketKg + b.bulkMarketKg - (a.parcelMarketKg + a.bulkMarketKg))
   }
+  const planned = plannedDeparturesByLane(s)
   return cargoLanesForPermits(s).map((lane) => {
     const market = corridorCargoMarketKg(s, lane.route, lane.direction, s.day)
     const book = cargoBookKg(s, lane.route, lane.direction, s.day)
@@ -1290,7 +1308,7 @@ export function cargoPoolsForView(s: GameState): CargoPoolState[] {
       parcelLoadedKg: 0,
       bulkLoadedKg: 0,
       contractDueKg: due,
-      departuresPlanned: countPlannedDepartures(s, lane.laneKey),
+      departuresPlanned: planned.get(lane.laneKey) ?? 0,
       departuresServed: 0,
     }
   }).sort((a, b) => b.parcelMarketKg + b.bulkMarketKg - (a.parcelMarketKg + a.bulkMarketKg))
@@ -1423,6 +1441,7 @@ export function dailyCargoPass(s: GameState): void {
   }
 
   const pools: Record<string, CargoPoolState> = {}
+  const planned = plannedDeparturesByLane(s)
   for (const lane of cargoLanesForPermits(s)) {
     const market = corridorCargoMarketKg(s, lane.route, lane.direction, s.day)
     const book = cargoBookKg(s, lane.route, lane.direction, s.day)
@@ -1439,7 +1458,7 @@ export function dailyCargoPass(s: GameState): void {
       parcelLoadedKg: 0,
       bulkLoadedKg: 0,
       contractDueKg: due,
-      departuresPlanned: countPlannedDepartures(s, lane.laneKey),
+      departuresPlanned: planned.get(lane.laneKey) ?? 0,
       departuresServed: 0,
     }
   }
