@@ -31,7 +31,7 @@ import type { CargoContract, CargoHaulLine, CargoLaneDay, RouteDef, CargoPricing
 import { cargoManagerOnDuty, deskOf, managersOnPayroll } from '../../engine/sim/staffing'
 import { spanMeters, DESK_UNIT } from '../../engine/sim/span'
 import { Bar, Empty, M, Panel, SpanMeter, StatRow, Tabs, PageHeader } from '../bits'
-import { num, tonnes } from '../format'
+import { num, qty, tonnes } from '../format'
 
 function fillTone(pct: number): 'good' | 'warn' | 'bad' {
   if (pct >= 0.7) return 'good'
@@ -349,7 +349,7 @@ export function CargoPage() {
     <>
       <PageHeader
         title="Cargo"
-        facts={<>{subsidiary ? 'subsidiary' : 'belly parcels'} · desk {cargoMeter.demand}/{cargoMeter.capacity}</>}
+        facts={<>{subsidiary ? 'subsidiary' : 'belly parcels'} · desk {qty(cargoMeter.demand)}/{qty(cargoMeter.capacity)}</>}
         factsTip={subsidiary ? 'Freight subsidiary: trucks, B2B contracts and coach parcels' : 'Coach belly parcels only'}
       >
         <Tabs
@@ -372,7 +372,7 @@ export function CargoPage() {
           { label: 'Hauled MTD', value: `${tonnes(mtd.kg)} T`, title: `${tonnes(coachKg)} T in coaches · ${tonnes(mtd.cargoOnlyKg)} T in trucks` },
           { label: 'Fill', value: pct(fillAll), tone: fillTone(fillAll), title: `${tonnes(mtd.kg)} T of ${tonnes(mtd.capKg)} T space` },
           { label: 'Profit MTD', value: <M v={mtdProfit} />, tone: mtdProfit >= 0 ? 'good' : 'bad', title: mtdCargo > 0 ? `${pct(mtdProfit / mtdCargo)} margin` : undefined },
-          { label: 'Desk', value: onDutyMgr ? `+${Math.round(companyCargoFillRate(s) * 100)}%` : 'no manager', tone: onDutyMgr ? 'good' : 'warn', title: onDutyMgr ? `${onDutyMgr.name} (skill ${onDutyMgr.skill}) lifts booking capture` : 'Without a manager booking capture sits at the floor' },
+          { label: 'Desk capture', value: `${Math.round(companyCargoFillRate(s) * 100)}%`, tone: onDutyMgr ? 'good' : 'warn', title: onDutyMgr ? `${onDutyMgr.name} (skill ${onDutyMgr.skill}) captures ${Math.round(companyCargoFillRate(s) * 100)}% of the parcels on offer` : 'No manager on duty: booking capture sits at the floor' },
         ]}
       />
 

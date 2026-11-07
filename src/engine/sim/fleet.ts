@@ -338,9 +338,12 @@ export function refreshMarkets(s: GameState): void {
       !m.electric && !isCargoModel(m) && m.maker !== 'Olectra' && !REMOVED_CHASSIS_MODEL_IDS.has(m.id)
       && marketKindAllowed(s, m.id),
   )
-  const usedPool = secondaryPoolBase.filter((m) => !VOLVO_9600_IDS.has(m.id))
-  const leasePool = secondaryPoolBase
-  const attachPool = secondaryPoolBase
+  // Factory coaches (Volvo, Scania, …) list as-is. AL/BB only if a coach body fits — never a bare chassis.
+  const withBodyOrFactory = (pool: BusModel[], market: 'used' | 'lease' | 'attach') =>
+    pool.filter((m) => !modelSupportsBodyDesigns(m) || designsForModel(s, m, { market }).length > 0)
+  const usedPool = withBodyOrFactory(secondaryPoolBase.filter((m) => !VOLVO_9600_IDS.has(m.id)), 'used')
+  const leasePool = withBodyOrFactory(secondaryPoolBase, 'lease')
+  const attachPool = withBodyOrFactory(secondaryPoolBase, 'attach')
   const year = toCivil(s.day).y
 
   const usedN = rInt(rng, BAL.usedMarketMin, BAL.usedMarketMax)
@@ -361,12 +364,11 @@ export function refreshMarkets(s: GameState): void {
     let usedDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
       const designOpts = designsForModel(s, model, { market: 'used' })
-      if (designOpts.length > 0) {
-        const picked = rPick(rng, designOpts)
-        usedDesignId = picked.design.id
-        usedBuilderId = picked.builder.id
-        usedDesignName = picked.design.name
-      }
+      if (designOpts.length === 0) continue
+      const picked = rPick(rng, designOpts)
+      usedDesignId = picked.design.id
+      usedBuilderId = picked.builder.id
+      usedDesignName = picked.design.name
     }
     const fair = usedPrice(model.id, age, usedDesignId, s)
     // sellers ask near fair price with slight variation
@@ -408,12 +410,11 @@ export function refreshMarkets(s: GameState): void {
     let leaseDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
       const designOpts = designsForModel(s, model, { market: 'lease' })
-      if (designOpts.length > 0) {
-        const picked = rPick(rng, designOpts)
-        leaseDesignId = picked.design.id
-        leaseBuilderId = picked.builder.id
-        leaseDesignName = picked.design.name
-      }
+      if (designOpts.length === 0) continue
+      const picked = rPick(rng, designOpts)
+      leaseDesignId = picked.design.id
+      leaseBuilderId = picked.builder.id
+      leaseDesignName = picked.design.name
     }
     s.leaseOffers.push({
       id: nextId(s.ids, 'lo'),
@@ -444,12 +445,11 @@ export function refreshMarkets(s: GameState): void {
     let attachDesignName: string | undefined
     if (modelSupportsBodyDesigns(model)) {
       const designOpts = designsForModel(s, model, { market: 'attach' })
-      if (designOpts.length > 0) {
-        const picked = rPick(rng, designOpts)
-        attachDesignId = picked.design.id
-        attachBuilderId = picked.builder.id
-        attachDesignName = picked.design.name
-      }
+      if (designOpts.length === 0) continue
+      const picked = rPick(rng, designOpts)
+      attachDesignId = picked.design.id
+      attachBuilderId = picked.builder.id
+      attachDesignName = picked.design.name
     }
     s.attachOffers.push({
       id: nextId(s.ids, 'ao'),
@@ -979,6 +979,7 @@ export function endLease(s: GameState, busId: ID): string | null {
 /* ------------------------------ attach ------------------------------ */
 
 export function signAttach(s: GameState, offerId: ID, groupId?: ID): string | null {
+  if (s.company.app.tier < 3) return "Attaching other owners' buses needs the Super app."
   const need = BAL.attachMinBrandAwareness
   if (s.company.brandAwareness < need) {
     return `Attach needs brand awareness ≥ ${Math.round(need * 100)}% (now ${Math.round(s.company.brandAwareness * 100)}%). Grow trips and marketing first — buy or lease until then.`

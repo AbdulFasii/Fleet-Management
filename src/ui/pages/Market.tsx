@@ -15,6 +15,7 @@ import {
   modelTitle,
 } from '../../engine/data/busModels'
 import { BAL } from '../../engine/data/balance'
+import { APP_TIER_NAMES } from '../../engine/sim/channels'
 import { quoteLoan, availableLoanProducts } from '../../engine/sim/banking'
 import { effectiveNewPrice, worstSubsystem, usedPrice, type FinancePlan } from '../../engine/sim/fleet'
 import { fleetGroups } from '../../engine/sim/groups'
@@ -408,6 +409,7 @@ export function MarketPage() {
             {s.usedMarket.map((l) => {
               const model = BUS_MODELS[l.modelId]
               if (!model || (!subsidiary && isCargoModel(model))) return null
+              if (modelSupportsBodyDesigns(model) && !l.bodyDesignId && !l.bodyDesignName) return null
               const fair = usedPrice(l.modelId, l.ageYears, l.bodyDesignId, s)
               const title = fleetModelLabel(model, {
                 bodyBuilderId: l.bodyBuilderId,
@@ -444,7 +446,7 @@ export function MarketPage() {
                   <td>{l.inspected ? (l.accidentHistory ? <span className="bad">accident!</span> : <span className="good">clean</span>) : <span className="dim">?</span>}</td>
                   <td className="num nowrap">
                     {!l.inspected && <button className="small" onClick={() => g.inspectListing(l.id)}>inspect</button>}{' '}
-                    <button className="small" onClick={() => setBuying({ kind: 'used', id: l.id, price: l.askPrice, title: `Buy used ${title} ${l.reg}` })}>buy</button>
+                    <button className="small" disabled={!selectedBrand} title={selectedBrand ? undefined : 'Select a brand at the top first'} onClick={() => setBuying({ kind: 'used', id: l.id, price: l.askPrice, title: `Buy used ${title} ${l.reg}` })}>buy</button>
                   </td>
                 </tr>
               )
@@ -466,6 +468,7 @@ export function MarketPage() {
               {s.leaseOffers.map((o) => {
                 const m = BUS_MODELS[o.modelId]
                 if (!m || (!subsidiary && isCargoModel(m))) return null
+                if (modelSupportsBodyDesigns(m) && !o.bodyDesignId && !o.bodyDesignName) return null
                 const title = fleetModelLabel(m, {
                   bodyBuilderId: o.bodyBuilderId,
                   bodyDesignId: o.bodyDesignId,
@@ -519,7 +522,11 @@ export function MarketPage() {
           flat
           info="Zero capex. The owner keeps papers, fuel, crew, service and repairs — you pay their ticket share and carry the brand risk."
         >
-          {s.company.brandAwareness < BAL.attachMinBrandAwareness ? (
+          {s.company.app.tier < 3 ? (
+            <p className="small warn" style={{ padding: '8px 10px' }}>
+              Attaching other owners' buses unlocks with the Super app (now: {APP_TIER_NAMES[s.company.app.tier]}). Build it in the own-app panel first.
+            </p>
+          ) : s.company.brandAwareness < BAL.attachMinBrandAwareness ? (
             <p className="small warn" style={{ padding: '8px 10px' }}>
               Attach is mid-game: need brand awareness ≥ {Math.round(BAL.attachMinBrandAwareness * 100)}%
               (now {Math.round(s.company.brandAwareness * 100)}%). Until then, buy or lease coaches.
@@ -533,6 +540,7 @@ export function MarketPage() {
                   {s.attachOffers.map((o) => {
                     const m = BUS_MODELS[o.modelId]
                     if (!m || (!subsidiary && isCargoModel(m))) return null
+                    if (modelSupportsBodyDesigns(m) && !o.bodyDesignId && !o.bodyDesignName) return null
                     const title = fleetModelLabel(m, {
                       bodyBuilderId: o.bodyBuilderId,
                       bodyDesignId: o.bodyDesignId,

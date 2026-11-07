@@ -351,10 +351,10 @@ export function quoteBrandSale(s: GameState, groupId: ID, includeCoaches: boolea
   if (g.kind === 'operator') return { ...blank, error: 'An operator is not for sale: close it, or sell the brands under it one by one.' }
 
   const rating = g.ratingCount >= BAL.groupRatingMinReviews ? g.rating : s.company.rating
-  const ratingFactor = clamp(0.6 + (rating - 3) * 0.35, 0.4, 1.5)
+  const ratingFactor = clamp(0.6 + (rating - 3) * 0.3, 0.4, 1.3)
   const profit30d = brandRouteProfit30d(s, groupId)
-  // About a year of profit for the name, plus a floor for a clean badge. Routes are never part of it.
-  const raw = Math.max(0, profit30d) * 12 * 0.9 * ratingFactor * (g.primo ? 1.15 : 1) + L(1) * ratingFactor
+  // About six months of profit for the name (you keep the routes that earn it), plus a small floor for a clean badge.
+  const raw = Math.max(0, profit30d) * 6 * 0.8 * ratingFactor * (g.primo ? 1.1 : 1) + L(0.5) * ratingFactor
   const goodwill = Math.round(raw / 100_000) * 100_000
 
   const coaches: BrandSaleQuote['coaches'] = []

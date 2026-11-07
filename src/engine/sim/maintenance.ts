@@ -411,6 +411,11 @@ export function tyresDue(bus: Bus): boolean {
 }
 
 /** Leased / attached: the bus owner pays service, tyres and overhauls. We only staff. */
+/** Cabin level an attached coach's owner keeps it at, from their care (0.25 → 77, 0.85 → 95). */
+export function attachedCleanTarget(bus: Bus): number {
+  return Math.round(70 + (bus.attach?.careLevel ?? 0.5) * 30)
+}
+
 export function ownerPaysService(bus: Bus): boolean {
   return bus.ownership === 'leased' || bus.ownership === 'attached'
 }
@@ -1096,25 +1101,43 @@ export function upgradeWorkshop(s: GameState): string | null {
   return addBayAtLocation(s, locations[0].id)
 }
 
+/**
+ * Answers "could one of our staffed bays ever take this coach?" for a whole pass. The bay
+ * layout is computed once, not once per coach (that was the cost of every skipped day).
+ */
+function makeOwnBaysCheck(s: GameState): (bus: Bus) => boolean {
+  const anyStaffed = (s.workshop.bays ?? 0) > 0 && staffedWorkshopBays(s) > 0
+  if (!anyStaffed) return () => false
+  const locations = getWorkshopLocations(s)
+  const byId = new Map(locations.map((l) => [l.id, l]))
+  const staffed = computeBayAllocations(s).filter((a) => a.staffed)
+  return (bus) => {
+    if (bus.outsideGarage) return false
+    return staffed.some((a) => {
+      const loc = byId.get(a.locationId)
+      return loc ? isBusAllowedAtLocation(loc, bus) : true
+    })
+  }
+}
+
 function managerAutoMaint(s: GameState): void {
   const mgr = fleetManagerOnDuty(s)
   if (!mgr) return
 
-  // Must have at least one bay opened OR mechanics assigned to automate workshop operations
-  const hasBayOrEmployees = (s.workshop.bays > 0) || ((s.workshop.mechanicIds ?? []).some(Boolean))
-  if (!hasBayOrEmployees) return
+  // With no bays of our own the manager still keeps every coach on schedule, booking outside garages.
 
   // Workshop manager only books emergency deep clean for buses WITHOUT an assigned conductor
+  const conductedBuses = new Set<string>()
+  for (const st of Object.values(s.staff)) if (st.role === 'conductor' && st.busId) conductedBuses.add(st.busId)
   for (const b of Object.values(s.buses)) {
     if (b.status !== 'active') continue
-    const hasConductor = Object.values(s.staff).some(
-      (st) => st.role === 'conductor' && st.busId === b.id,
-    )
+    const hasConductor = conductedBuses.has(b.id)
     if (!hasConductor && (b.busCleanliness ?? 100) < 50) {
       deepCleanBus(s, b.id, 95)
     }
   }
 
+  const ownBaysCanServe = makeOwnBaysCheck(s)
   let freeBays = freeStaffedBays(s)
   const cap = Math.floor(deskCapacity(s, 'workshop'))
   let booked = 0
@@ -1133,6 +1156,12 @@ function managerAutoMaint(s: GameState): void {
     if (booked >= cap) break
     if (bus.status !== 'active') continue
 
+    // Own bays take the job whenever they could ever serve this coach (wait for a free bay).
+    // Otherwise (no bays, none staffed, brand/location not allowed, or sent outside) it goes to an outside garage.
+    const own = ownBaysCanServe(bus)
+    const outside = !own
+    const slot = own ? freeBays > 0 && inOwnWorkshop(s, bus) : true
+
     // 1. General Service check (Minor A-Service 25k, Major B-Service 100k, Annual Overhaul 250k / 365d)
     // Scheduled coaches are deferred on festival dates.
     const isDue25k = serviceDueKm(bus) > dueLead
@@ -1140,28 +1169,22 @@ function managerAutoMaint(s: GameState): void {
     const isDue250k = overhaulDueInfo(s, bus).isDue
     if ((isDue25k || isDue100k || isDue250k) && !serviceDeferredForBus(s, bus)) {
       const tier = determineDueServiceTier(s, bus)
-      if (s.workshop.bays > 0) {
-        // In-house workshop bays owned: service internally on our bays.
-        // Never send outside to a commercial garage. If all bays are busy today,
-        // the coach waits for our bay to free up.
-        if (freeBays > 0 && inOwnWorkshop(s, bus)) {
-          if (!serviceBus(s, bus.id, tier, { outside: false })) {
-            freeBays--
-            booked++
-            continue
-          }
-        }
-      } else {
-        // No in-house bays built: automate general service from third party (outside garage)
-        if (!serviceBus(s, bus.id, tier, { outside: true })) {
+      if (own) {
+        // Our bay can serve this coach: service internally. If all bays are busy today,
+        // the coach waits for a bay to free up rather than going to a commercial garage.
+        if (slot && !serviceBus(s, bus.id, tier, { outside: false })) {
+          freeBays--
           booked++
           continue
         }
+      } else if (!serviceBus(s, bus.id, tier, { outside: true })) {
+        booked++
+        continue
       }
     }
 
-    // 2. Tyres check (in-house bay)
-    if (freeBays > 0 && inOwnWorkshop(s, bus)) {
+    // 2. Tyres check (own bay, or outside garage when we have none for this coach)
+    if (slot) {
       const rawTyres = axleTyresDue(bus)
       // Also fit early when the remaining life drops under the player's km threshold.
       const tyreInfo = {
@@ -1174,28 +1197,28 @@ function managerAutoMaint(s: GameState): void {
           const frontBrand = bus.frontBrand ?? defaultBrand
           const rearBrand = bus.rearBrand ?? defaultBrand
           if (frontBrand === rearBrand && (frontBrand as string) !== 'retread') {
-            if (!replaceTyres(s, bus.id, 'both', frontBrand, { outside: false })) { freeBays--; booked++; continue }
+            if (!replaceTyres(s, bus.id, 'both', frontBrand, { outside })) { if (own) freeBays--; booked++; continue }
           } else {
-            if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside: false })) { freeBays--; booked++; continue }
+            if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside })) { if (own) freeBays--; booked++; continue }
           }
         } else if (tyreInfo.frontDue) {
           const frontBrand = bus.frontBrand ?? defaultBrand
-          if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside: false })) { freeBays--; booked++; continue }
+          if (!replaceTyres(s, bus.id, 'front', frontBrand, { outside })) { if (own) freeBays--; booked++; continue }
         } else if (tyreInfo.rearDue) {
           const rearBrand = bus.rearBrand ?? defaultBrand
-          if (!replaceTyres(s, bus.id, 'rear', rearBrand, { outside: false })) { freeBays--; booked++; continue }
+          if (!replaceTyres(s, bus.id, 'rear', rearBrand, { outside })) { if (own) freeBays--; booked++; continue }
         }
       }
     }
 
-    // 3. Subsystem overhaul check (in-house bay)
-    if (freeBays > 0 && inOwnWorkshop(s, bus)) {
+    // 3. Subsystem overhaul check (own bay, or outside garage)
+    if (slot) {
       const worst = worstSubsystem(bus.condition)
       const neglected = serviceDueKm(bus) > 0 || worst < neglectBelow
       if (neglected && worst < repairAt) {
         let sub = SUBSYSTEMS[0]
         for (const x of SUBSYSTEMS) if (bus.condition[x] < bus.condition[sub]) sub = x
-        if (!repairSubsystem(s, bus.id, sub)) { freeBays--; booked++; continue }
+        if (!repairSubsystem(s, bus.id, sub)) { if (own) freeBays--; booked++; continue }
       }
     }
   }
@@ -1592,6 +1615,8 @@ export function dailyMaintenancePass(s: GameState): void {
         for (const sub of SUBSYSTEMS) {
           if (bus.condition[sub] < cap) bus.condition[sub] = Math.min(cap, bus.condition[sub] + 0.6)
         }
+        const cleanTarget = attachedCleanTarget(bus)
+        if ((bus.busCleanliness ?? 85) < cleanTarget) bus.busCleanliness = cleanTarget
         if (serviceDueKm(bus) > 0 && bus.attach.careLevel > 0.4) applyScheduledService(s, bus, determineDueServiceTier(s, bus))
         if (tyresDue(bus)) {
           bus.frontTyreKm = 0

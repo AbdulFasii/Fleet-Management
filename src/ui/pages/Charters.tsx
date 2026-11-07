@@ -4,6 +4,7 @@ import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { fmtDate, fmtDateShort } from '../../engine/core/calendar'
 import { fmtCompact } from '../../engine/core/money'
 import { Bar, BusLink, CoachCell, Empty, M, PageHeader, Panel, StatRow, Tabs } from '../bits'
+import { qty } from '../format'
 import { BUS_MODELS, coachKind, isCharterModel, modelTitle } from '../../engine/data/busModels'
 import { CHARTER_CATEGORIES } from '../../engine/data/charterRoutes'
 import {
@@ -475,7 +476,7 @@ export function ChartersPage() {
               </div>
               {mgr && (
                 <div className="muted" title="Contracts the desk can supervise at once">
-                  Desk load {span.demand}/{span.capacity} contracts
+                  Desk load {qty(span.demand)}/{qty(span.capacity)} contracts
                 </div>
               )}
             </div>

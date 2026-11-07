@@ -43,6 +43,7 @@ import { accountantOnDuty, deskOf, managersOnPayroll, staffedWorkshopBays } from
 import { spanMeters } from '../../engine/sim/span'
 import type { Bus, MechanicTrade, Ownership, ServiceTierId, Staff, TyreAxle, TyreBrand, WorkshopLocation, ID } from '../../engine/types'
 import { Bar, BusLink, CoachCell, Empty, GroupBadge, KV, M, Modal, PageHeader, Panel, StatRow, Tabs } from '../bits'
+import { qty } from '../format'
 
 const TRADE_LABEL: Record<MechanicTrade, string> = {
   engine_gearbox: 'Engine/Gearbox',
@@ -335,7 +336,7 @@ export function WorkshopPage() {
       <PageHeader
         title="Workshop"
         facts={<>{s.workshop.bays === 0 ? 'no bays' : `${staffed}/${s.workshop.bays} bays staffed · -${Math.round(disc * 100)}% cost · ${Math.round(speed * 100)}% faster`}</>}
-        factsTip={s.workshop.bays === 0 ? 'No own bays: outside garage rates apply' : `Foreman span ${wsSpan.demand}/${wsSpan.capacity} bays (${Math.round(wsSpan.coverage * 100)}%)`}
+        factsTip={s.workshop.bays === 0 ? 'No own bays: outside garage rates apply' : `Foreman span ${qty(wsSpan.demand)}/${qty(wsSpan.capacity)} bays (${Math.round(wsSpan.coverage * 100)}%)`}
       >
         <Tabs
           inline

@@ -24,7 +24,7 @@ import { crewStandardPenalty } from './brandPolicy'
 import { rankSafetyBonus } from './careers'
 import { recordTripGrievanceOrCompliment } from './crm'
 import { allocateCargoForTrip, cargoLaneKey, makeCorridorCargoPool, recordCargoLane, type CargoDepartureRef, type CorridorCargoPool } from './cargo'
-import { ownerPaysService, conductorCleanlinessTarget } from './maintenance'
+import { ownerPaysService, conductorCleanlinessTarget, attachedCleanTarget } from './maintenance'
 import { hybridClassStats } from './seatmap'
 import { fileAccidentClaim } from './insurance'
 import { applyOutboundDelayToPair, buildPairIndex, cancelPairedReturn, clearTripBookings } from './pairing'
@@ -128,8 +128,10 @@ function resolveTripCrew(
     notes.push(`${spare.name} (spare) covered duty for the trip`)
   }
 
-  // 4. If still short, fall back to ineligible posted drivers (triggers CMVR block / warnings)
+  // 4. If still short, fall back to ineligible posted drivers (triggers CMVR block / warnings).
+  //    A driver on leave is not at the depot at all — never put them on the trip.
   for (const d of ineligiblePosted) {
+    if (!driverOnDuty(s, d)) continue
     if (drivers.length < driversNeeded) {
       drivers.push(d)
       if (driverRestIllegal(d, s.day)) notes.push(`${d.name} on illegal consecutive duty`)
@@ -882,6 +884,10 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       if (bus.busCleanliness === undefined) bus.busCleanliness = 85
       const cleanLoss = Math.round(5 + (route.km / 200) * 1.5 + (pax / cap) * 3)
       bus.busCleanliness = Math.max(0, bus.busCleanliness - cleanLoss)
+
+      // Attached coaches: the owner cleans between runs, so the cabin averages near full
+      // (a careful owner ~95, a careless one ~77) at no cost to us.
+      if (attached) bus.busCleanliness = Math.max(bus.busCleanliness, attachedCleanTarget(bus))
 
       // Terminus turnaround cleaning (supervised by assigned conductor)
       const condSkill = crew.conductor ? crew.conductor.skill : 0
