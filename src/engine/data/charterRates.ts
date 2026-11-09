@@ -79,7 +79,9 @@ export const CHARTER_DEMAND = {
   /** With no charter coach yet a few people still ask. */
   noFleetFactor: 0.5,
   /** More coaches, more word of mouth — square-root growth, capped. */
-  fleetFactorMax: 4,
+  fleetFactorMax: 6,
+  /** Share of the weight a tour keeps even when none of our charter coaches fit it (0–1). */
+  fleetFitFloor: 0.15,
   /** Request volume by month (Jan..Dec): weddings Nov–Feb and Apr–May, Sabarimala Nov–Jan, school tours Dec–Feb, monsoon lull. */
   monthFactor: [1.3, 1.3, 0.9, 1.15, 1.2, 0.7, 0.7, 0.8, 0.9, 1.1, 1.3, 1.4],
   /** Tours in their own peak months are this much likelier to be the one asked for. */
@@ -88,7 +90,7 @@ export const CHARTER_DEMAND = {
   baseHalfWeightKm: 150,
   /** Pending requests allowed: this many plus two per charter coach, capped. */
   pendingBase: 4,
-  pendingMax: 20,
+  pendingMax: 30,
   /** Days a client waits for an answer (never past the day before the tour). */
   answerDays: 4,
   /** Share of requests that are last-minute (1–6 days out). */

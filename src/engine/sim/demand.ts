@@ -488,7 +488,6 @@ function chassisClassAttr(model: BusModel, route: RouteDef): number {
   }
 
   if (model.electric) {
-    if (route.hours <= 5.5) return 1.08 // EV novelty on day hop
     if (route.hours >= 10) return 0.94 // range caution on marathon
   }
 
@@ -582,19 +581,25 @@ export function channelWeights(s: GameState, sch: Schedule, ctx?: BookingCtx): R
   }
   if (flags.abhibus) w.abhibus = 0.48
 
+  w.counter = flags.counter ? 0.14 + 0.1 * c.brandAwareness : 0
+
   if (flags.ownapp && c.app.tier > 0) {
     let tierMult = 1
     if (c.app.tier >= 2) tierMult *= 1.15
     if (c.app.tier >= 3) tierMult *= 1.15
     const parity = Math.max(1, BAL.appMauForParity)
-    w.ownapp = Math.min(BAL.appMaxChannelWeight, (c.app.mau / parity) * tierMult)
+    // The cap is relative to the RedBus baseline, so the app can never outweigh RedBus
+    // however large its MAU. With k = 0.6 the displaced RedBus (1 / (1 + 0.55 × 0.6) ≈ 0.75)
+    // still stays above the app's 0.6, so RedBus keeps the largest share.
+    const base = w.redbus > 0 ? w.redbus : 1
+    w.ownapp = Math.min(BAL.appMaxShareOfRedbus * base, (c.app.mau / parity) * tierMult)
     if (w.ownapp > 0 && BAL.appDisplaceRedbus > 0) {
-      const displace = 1 / (1 + BAL.appDisplaceRedbus * Math.min(BAL.appMaxChannelWeight, w.ownapp))
+      const displace = 1 / (1 + BAL.appDisplaceRedbus * (w.ownapp / base))
       w.redbus *= displace
       w.abhibus *= displace
+      w.counter *= displace
     }
   }
-  w.counter = flags.counter ? 0.14 + 0.1 * c.brandAwareness : 0
   return w
 }
 

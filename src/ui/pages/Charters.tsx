@@ -55,6 +55,7 @@ export function ChartersPage() {
   const stats = s.charterStats ?? { totalContracts: 0, totalRevenue: 0, totalProfit: 0, avgRating: 4.8 }
   const fleet = getCharterFleet(s)
   const freeFleet = fleet.filter((b) => !isBusBusyOnCharter(s, b.id))
+  /** Idle line coaches the player may dedicate to charters (the only way one joins the charter fleet). */
   const lineBuses = Object.values(s.buses).filter(
     (b) => b.duty !== 'charter' && b.status === 'active' && !b.scheduleId && !isCharterModel(b.modelId),
   )
@@ -65,16 +66,16 @@ export function ChartersPage() {
     g.acceptCharterInquiry(id, busId)
   }
 
-  const candidateFleet = [...fleet, ...lineBuses]
+  const candidateFleet = fleet
 
   const eligible = (inq: CharterContract) =>
-    candidateFleet.filter((b) => canBusTakeContract(b, inq, undefined, true).ok && !isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay) && !charterDriverShortfall(s, b, inq))
+    candidateFleet.filter((b) => canBusTakeContract(b, inq).ok && !isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay) && !charterDriverShortfall(s, b, inq))
 
   /** Why no coach fits: the first blocking reason per coach, so the player knows what to fix. */
   const blockers = (inq: CharterContract) =>
     candidateFleet
       .map((b) => {
-        const check = canBusTakeContract(b, inq, undefined, true)
+        const check = canBusTakeContract(b, inq)
         if (!check.ok) return `${b.reg}: ${check.reason}`
         if (isBusBusyOnCharter(s, b.id, inq.startDay, inq.endDay)) return `${b.reg}: booked on those dates`
         const noDriver = charterDriverShortfall(s, b, inq)
@@ -246,7 +247,7 @@ export function ChartersPage() {
                                 <div>
                                   <div className="muted">Why no coach fits</div>
                                   {candidateFleet.length === 0
-                                    ? <div className="dim">No coaches in depot or charter fleet. Dedicate one or purchase in Market.</div>
+                                    ? <div className="dim">No coaches dedicated to charter duty. Dedicate one or purchase in Market.</div>
                                     : blockers(inq).map((r) => <div key={r} className="warn">{r}</div>)}
                                 </div>
                               )}

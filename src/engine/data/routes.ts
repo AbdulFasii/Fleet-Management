@@ -159,11 +159,7 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     // —— Chennai hub, open from day 1 ——
     // Freight follows each corridor's passenger demand, per direction.
     R('maa-blr', 350, 7, 950, 0.8, 0.7, false, 1800, 2.4, 0, 'The IT hop. Strong rail competition; evening semis do well.'),
-    R('maa-pdy', 165, 4, 450, 0.7, 0.15, false, 400, 1.6, 0, 'Weekend leisure shuttle. Multiple day trips per bus.'),
-    R('maa-tir', 150, 3, 480, 0.65, 0.25, false, 800, 1.8, 0, 'Pilgrim day-and-evening run. Weekends and Brahmotsavam explode.'),
-    R('maa-nlr', 175, 4, 420, 0.6, 0.35, false, 700, 1.7, 0, 'Andhra day shuttle up NH16. Multiple turns; thin sleeper demand.'),
     R('maa-try', 330, 6, 750, 0.75, 0.55, false, 0, 2.1, 0, 'Rock Fort corridor. Day seaters and evening semis both work.'),
-    R('maa-slm', 340, 5, 720, 0.7, 0.5, false, 0, 2.0, 0, 'NH44 industrial hop. Steady weekday traffic, thin sleeper demand.'),
     R('maa-mdu', 460, 8, 1000, 0.8, 0.65, false, 0, 2.3, 0, 'Temple-town overnight via Trichy. Big festival swings.'),
     R('maa-mdu-ecr', 480, 9, 1000, 0.75, 0.4, false, 0, 2.1, 0, 'ECR overnight via Puducherry and Thanjavur. Coastal leisure, festivals.', ['maa', 'mdu']),
     R('maa-rmd', 490, 10, 1050, 0.65, 0.35, false, 0, 2.0, 0, 'Deep-south coastal overnight via Thanjavur. Pilgrim traffic toward Rameswaram.'),
@@ -187,19 +183,15 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('maa-mum', 1340, 24, 2400, 0.5, 0.55, true, 3200, 2.1, 20, 'West-coast prestige haul. Rail eats the middle; premium sleepers win.'),
 
     // —— Tamil Nadu to Kerala ——
-    R('cbe-koc', 190, 4, 650, 0.75, 0.6, false, 1600, 2.1, 0, 'Industrial and trade shuttle via Palakkad gap. High turnover and cargo.'),
-    R('cbe-clt', 180, 5, 600, 0.65, 0.5, false, 1600, 2.0, 0, 'Western TN to Malabar connection via Palakkad. Steady day and evening runs.'),
     R('cbe-trv', 380, 9, 1050, 0.7, 0.6, false, 2000, 2.1, 5, 'Overnight connector traversing central Kerala down to the capital.'),
     R('mdu-koc', 260, 8, 750, 0.6, 0.3, true, 1800, 1.8, 5, 'Spice route crossing Bodimettu ghat. Scenic mountain haul; heavy tourist flow.'),
     R('mdu-trv', 305, 7, 800, 0.7, 0.55, false, 1800, 2.0, 0, 'Southern corridor via Tirunelveli and Nagercoil. Pilgrim and trader traffic.'),
-    R('ten-trv', 160, 3, 450, 0.65, 0.6, false, 1400, 1.9, 0, 'Cross-border southern express via Nagercoil. Quick turnaround day service.'),
     R('slm-koc', 355, 8, 950, 0.65, 0.5, false, 2000, 2.1, 5, 'NH544 overnight connecting TN industrial hub to Cochin port.'),
 
     // —— Tamil Nadu to Karnataka ——
     R('mdu-mys', 485, 9, 1200, 0.65, 0.25, true, 1600, 2.0, 5, 'Temple-to-palace overnight via Dindigul. Weekends and festivals.'),
     R('blr-cbe', 365, 7, 900, 0.85, 0.6, false, 1800, 2.3, 0, 'Premier industry and tech corridor. Heavy passenger and parcel volume.'),
     R('blr-try', 340, 7, 850, 0.75, 0.5, false, 1800, 2.2, 0, 'Central TN link via Salem and Namakkal. Students and tech workers.'),
-    R('blr-slm', 200, 4, 550, 0.7, 0.45, false, 1600, 2.2, 0, 'Rapid 4-lane NH44 day hopper. High frequency business transit.'),
     R('blr-ten', 585, 11, 1350, 0.75, 0.5, false, 2000, 2.3, 5, 'Deep-south sleeper via Salem and Madurai bypass. Two drivers.'),
     R('blr-kkm', 665, 13, 1450, 0.7, 0.5, false, 2000, 2.3, 5, 'Direct NH44 cape terminus run. Long haul tourist and pilgrim sleepers.'),
     R('mys-cbe', 200, 7, 550, 0.6, 0.2, true, 1600, 1.8, 0, 'Dhimbam hairpins via Chamarajanagar. Scenic, slow ghat speeds.'),
@@ -224,11 +216,8 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
 
     // —— Northern & Western Corridors ——
     R('del-jai', 275, 6, 650, 0.9, 0.65, false, 1800, 2.5, 5, 'Pink City tourist and commercial expressway corridor. High competition.'),
-    R('del-ixc', 250, 5, 600, 0.9, 0.7, false, 1600, 2.4, 5, 'GT Road high-frequency executive shuttle. Day seats and evening luxury.'),
     R('del-lko', 535, 9, 1200, 0.85, 0.7, false, 2200, 2.6, 10, 'Yamuna & Agra-Lucknow expressway overnight sleeper. Fast tarmac.'),
-    R('del-agr', 230, 4, 500, 0.8, 0.7, false, 1400, 2.6, 5, 'Taj Mahal expressway shuttle. Tourist day-trippers and corporate hops.'),
     R('mum-amd', 530, 11, 1300, 0.85, 0.75, false, 2400, 2.4, 15, 'Western trade spine along NH48. High commercial freight and corporate sleepers.'),
-    R('mum-pnq', 150, 5, 550, 0.95, 0.6, true, 0, 3.2, 10, 'Expressway shuttle. Volume game if you expand west.'),
     R('blr-mum', 985, 19, 1950, 0.65, 0.6, true, 3000, 2.1, 20, 'Marathon haul. Premium sleepers and two drivers.'),
 
     // —— South → North Prestige Marathons ——
@@ -245,27 +234,20 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('hyd-tir', 560, 11, 1250, 0.8, 0.45, false, 1800, 2.1, 0, 'Pilgrim spine via Kurnool. Round-the-clock demand, festival peaks.'),
     R('hyd-pnq', 560, 11, 1300, 0.8, 0.55, false, 2400, 2.3, 5, 'Deccan IT corridor along NH65. High techie and student weekend migration.'),
     R('hyd-mum', 710, 14, 1650, 0.75, 0.6, false, 2800, 2.3, 10, 'Trade highway via Solapur. Parcels and sleepers; two drivers.'),
-    R('hyd-kno', 215, 4, 480, 0.75, 0.45, false, 1200, 2.1, 0, 'NH44 express connector from Hyderabad into the Rayalaseema heartland.'),
     R('vga-viz', 350, 7, 800, 0.8, 0.65, false, 0, 2.1, 0, 'Coastal Andhra NH16 via Rajahmundry. Day seaters, night sleepers.'),
 
     // Kerala & Coastal Karnataka corridors
     R('koc-mlr', 420, 9, 1150, 0.75, 0.5, true, 1800, 2.0, 5, 'Coastal NH66 to South Canara. Trade and student volume.'),
     R('trv-clt', 390, 9, 1050, 0.8, 0.65, false, 0, 2.0, 0, 'Kerala premier North-South spine connecting Travancore to Malabar via Kochi.'),
-    R('trv-koc', 210, 5, 550, 0.85, 0.65, false, 0, 2.1, 0, 'NH66 capital-to-Kochi express. Year-round commuters and executives.'),
     R('mlr-goa', 365, 8, 950, 0.65, 0.3, true, 1800, 2.0, 5, 'Scenic Konkan coast via Udupi and Karwar. Tourists and beachgoers.'),
 
     // Karnataka, Tamil Nadu & Puducherry mid-hauls
     R('blr-pdy', 310, 7, 750, 0.75, 0.3, false, 1400, 2.0, 0, 'Weekend getaway. Friday night and Sunday evening surges.'),
     R('blr-hbl', 410, 8, 900, 0.8, 0.5, false, 0, 2.2, 0, 'North Karnataka NH48 lifeline. Corporate and student traffic.'),
-    R('hbl-goa', 155, 4, 420, 0.65, 0.15, true, 1200, 1.8, 0, 'Western Ghats connector descending Anmod Ghat to the Goan coast.'),
-    R('mdu-cbe', 215, 5, 520, 0.7, 0.4, false, 0, 2.0, 0, 'Madurai to Western TN via Dindigul. Merchants and students.'),
-    R('try-cbe', 210, 4, 500, 0.7, 0.45, false, 0, 2.0, 0, 'Central Tamil Nadu textile and industrial hop along NH81 via Karur.'),
 
     // Popular Dindigul corridors
     R('maa-dgl', 420, 8, 850, 0.75, 0.55, false, 0, 2.2, 0, 'NH45 via Trichy to the lock city. Merchants, students and farm trade.'),
     R('blr-dgl', 375, 8, 850, 0.75, 0.45, false, 1600, 2.2, 0, 'NH44 via Salem and Karur. Dindigul trade and Kodaikanal tourism.'),
-    R('cbe-dgl', 165, 4, 420, 0.7, 0.35, false, 0, 2.0, 0, 'Western TN run via Pollachi and Palani. Textile and temple traffic.'),
-    R('try-dgl', 100, 2, 280, 0.7, 0.5, false, 0, 2.0, 0, 'Central TN NH83 hop. Daytime merchants and students.'),
 
     // —— Round-to-100: night hauls ——
     R('maa-hpt', 520, 10, 1150, 0.70, 0.40, false, 1400, 2.1, 5, 'To the Hampi heritage and steel belt via Tirupati and Kadapa.'),
@@ -289,6 +271,25 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('maa-pnq', 1180, 19, 2200, 0.55, 0.6, false, 3000, 2.2, 20, 'NH48 ultra via Bengaluru and Kolhapur. Students and IT staff.'),
     R('pnq-nag', 710, 12, 1550, 0.75, 0.45, false, 0, 2.4, 10, 'Samruddhi expressway run. Students, government and trade volume.'),
     R('viz-ccu', 880, 17, 1850, 0.70, 0.50, false, 2200, 2.1, 15, 'NH16 trunk via Bhubaneswar. Business, students and coastal holidays.'),
+    // —— Replaces the day hops: mid-haul, night haul, marathon and long marathon ——
+    R('koc-mys', 400, 7, 900, 0.7, 0.4, false, 1400, 2.1, 0, 'Malabar to Mysuru through the Gundlupet gap. Tourist and trade flows.'),
+    R('cbe-pdy', 390, 7, 880, 0.7, 0.4, false, 900, 2.0, 0, 'Western TN to the coast via Salem and Villupuram. Pilgrim and student traffic.'),
+    R('blr-nlr', 500, 9, 1150, 0.7, 0.4, false, 1600, 2.1, 0, 'Bengaluru to Nellore via Chittoor. Overnight sleepers into Andhra.'),
+    R('mdu-pdy', 420, 8, 950, 0.7, 0.35, false, 800, 2.0, 0, 'Madurai to the coast via Trichy and Villupuram. Temple and beach traffic.'),
+    R('hbl-mys', 500, 9, 1100, 0.6, 0.2, true, 1400, 1.9, 0, 'North Karnataka to Mysuru over the ghats. Overnight sleeper route.'),
+    R('hyd-mys', 720, 13, 1500, 0.65, 0.35, false, 2000, 2.0, 5, 'Hyderabad to Mysuru via Bengaluru. Two drivers; tourist and IT sleepers.'),
+    R('vga-cbe', 740, 13, 1550, 0.6, 0.35, false, 1600, 2.0, 0, 'Andhra to Coimbatore via Chennai. Two drivers; textile and trade sleepers.'),
+    R('pnq-hbl', 500, 9, 1050, 0.65, 0.3, false, 1600, 2.1, 5, 'Pune to Hubli on NH48. Night haul for students and traders.'),
+    R('mys-viz', 1100, 20, 2200, 0.5, 0.25, false, 2600, 2.1, 15, 'Ultra run from Mysuru to the Vizag coast. Multi-coach rotation; premium sleepers.'),
+    R('mlr-trv', 640, 12, 1400, 0.6, 0.3, true, 1800, 2.0, 10, 'Coastal Karnataka to the capital via Kannur and Kozhikode. Two drivers; Onam peaks.'),
+    R('blr-smg', 280, 6, 650, 0.6, 0.15, true, 900, 1.9, 0, 'Bengaluru to the Malnad gateway on NH206 and NH48. Day-and-evening runs; Jog and temple traffic.'),
+    R('jai-ixc', 520, 9, 1100, 0.7, 0.5, false, 1500, 2.1, 0, 'Jaipur to Chandigarh through Delhi NCR. Overnight sleepers for traders and students.'),
+    R('amd-jai', 670, 12, 1400, 0.65, 0.45, false, 1800, 2.0, 5, 'Gujarat to Rajasthan on NH48. Two drivers; trade and pilgrim sleepers.'),
+    R('bhp-del', 750, 13, 1550, 0.6, 0.5, false, 2000, 2.0, 5, 'Central India to the capital via Gwalior and Agra. Two drivers; government and student sleepers.'),
+    R('hyd-rpr', 780, 14, 1600, 0.6, 0.35, false, 2000, 2.0, 5, 'Telangana to Chhattisgarh via Nagpur. Two drivers; business and migrant sleepers.'),
+    R('viz-nag', 890, 15, 1800, 0.55, 0.45, false, 2200, 2.1, 10, 'East coast to Vidarbha across the Eastern Ghats. Two drivers; port and trade sleepers.'),
+    R('amd-del', 920, 15, 1850, 0.55, 0.55, false, 2300, 2.1, 10, 'Western marathon from Ahmedabad to Delhi via Jaipur. Two drivers; premium sleepers.'),
+    R('lko-ccu', 1000, 18, 2000, 0.5, 0.6, false, 2500, 2.1, 15, 'Gangetic plain marathon from Lucknow to Kolkata. Multi-coach rotation; premium sleepers.'),
   ].map((r) => [r.id, r]),
 )
 
@@ -540,6 +541,9 @@ const VIA_CORRIDORS: [string, string, string[]][] = [
   ['blr', 'qln', ['slm', 'cbe', 'tcr', 'koc']],
   ['maa', 'pnq', ['blr', 'hbl', 'bgm', 'klp']],
   ['viz', 'ccu', ['bbs']],
+  ['jai', 'ixc', ['del']],
+  ['hyd', 'rpr', ['nag']],
+  ['amd', 'del', ['jai']],
 ]
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`)
@@ -584,14 +588,13 @@ export function routeViaLabel(routeId: string): string | null {
 
 /* ------------------------------ haul headlines ----------------------------- */
 
-export type HaulStyle = 'day' | 'mid' | 'overnight' | 'marathon' | 'ultra'
+export type HaulStyle = 'mid' | 'overnight' | 'marathon' | 'ultra'
 
 export function haulStyleOfHours(hours: number): HaulStyle {
   const h = displayRouteHours(hours)
   if (h > 16) return 'ultra'
   if (h >= 10) return 'marathon'
   if (h >= 8) return 'overnight'
-  if (h < 6) return 'day'
   return 'mid'
 }
 
@@ -605,7 +608,6 @@ export function haulStyle(r: RouteDef): HaulStyle {
  * corridor profiles, tooltips and the Routes filter all read from here.
  */
 export const HAUL_WINDOWS: Record<HaulStyle, [number, number][]> = {
-  day: [[8, 12], [18, 22]],
   mid: [[18, 24]],
   overnight: [[20, 23.5]],
   marathon: [[18, 23.5]],
@@ -639,7 +641,7 @@ export function haulTitle(r: RouteDef): string {
     case 'marathon': return 'Marathon night haul'
     case 'overnight': return 'Night haul'
     case 'mid': return 'Mid-haul'
-    default: return 'Day hop'
+    default: return 'Mid-haul'
   }
 }
 
@@ -666,7 +668,7 @@ export function haulBriefFor(style: HaulStyle, hours?: number): string {
     case 'mid':
       return `Mid-haul${on}. ${win} is the money window. A hybrid coach (berths plus rear cabin) works fine.`
     default:
-      return `Day hop${on}. ${win}. Seaters carry these.`
+      return `Mid-haul${on}. ${win} is the money window. A hybrid coach (berths plus rear cabin) works fine.`
   }
 }
 
@@ -735,7 +737,6 @@ export function routeMatchesCategory(route: RouteDef, cat: RouteCategory): boole
 export function routeMatchesHours(route: RouteDef, filter: string): boolean {
   if (filter === 'all') return true
   const h = displayRouteHours(route.hours)
-  if (filter === '<6') return h < 6
   if (filter === '6-8') return h >= 6 && h < 8
   if (filter === '8-10') return h >= 8 && h < 10
   if (filter === '10-16' || filter === '>10') return h >= 10 && h <= 16

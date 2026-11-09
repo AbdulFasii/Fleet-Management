@@ -30,7 +30,7 @@ import * as charterSim from '../engine/sim/charter'
 import { setCorridorStance as applyCorridorStance } from '../engine/sim/rivalIntelligence'
 import { pushLog } from '../engine/sim/log'
 import { retainDay } from '../engine/sim/retain'
-import { BUS_MODELS, RETIRED_MODEL_MAP, canonicalizeLayoutKey, layoutKey, isCargoModel } from '../engine/data/busModels'
+import { BUS_MODELS, RETIRED_MODEL_MAP, canonicalizeLayoutKey, layoutKey, isCargoModel, isCharterModel } from '../engine/data/busModels'
 import { ROUTES, ROUTE_LIST, RIVALS, routeName } from '../engine/data/routes'
 import { cityName } from '../engine/data/cities'
 import { RIVALS_DATA, seedRouteShare } from '../engine/data/rivals'
@@ -795,6 +795,9 @@ function migrate(raw: unknown): GameState | null {
     console.error('migrate: generateTrips failed', err)
   }
   staffing.migrateStaffRoles(s)
+  for (const b of Object.values(s.buses ?? {})) {
+    if (b.duty !== 'charter' && !b.scheduleId && isCharterModel(b.modelId)) b.duty = 'charter'
+  }
   if (!s.company.deskAssistants) s.company.deskAssistants = {}
   if (s.version < 2) {
     for (const st of Object.values(s.staff ?? {})) {

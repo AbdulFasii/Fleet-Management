@@ -45,11 +45,7 @@ const S = (departures: number, parcelKgPerBus: number): CorridorSupply => ({ dep
 export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   // —— Chennai hub, short and mid ——
   'maa-blr': S(350, 360),
-  'maa-pdy': S(40, 150),
-  'maa-tir': S(35, 140),
-  'maa-nlr': S(25, 170),
   'maa-try': S(120, 260),
-  'maa-slm': S(90, 280),
   'maa-mdu': S(260, 300), // flowers and textiles both ways
   'maa-mdu-ecr': S(40, 200),
   'maa-rmd': S(35, 180),
@@ -73,19 +69,15 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'maa-mum': S(15, 220),
 
   // —— Tamil Nadu to Kerala ——
-  'cbe-koc': S(60, 300),
-  'cbe-clt': S(35, 240),
   'cbe-trv': S(40, 240),
   'mdu-koc': S(30, 200),
   'mdu-trv': S(35, 220),
-  'ten-trv': S(25, 160),
   'slm-koc': S(35, 240),
 
   // —— Tamil Nadu to Karnataka ——
   'mdu-mys': S(15, 180),
   'blr-cbe': S(180, 360),
   'blr-try': S(90, 260),
-  'blr-slm': S(60, 260),
   'blr-ten': S(70, 240),
   'blr-kkm': S(35, 200),
   'mys-cbe': S(15, 180),
@@ -110,11 +102,8 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
 
   // —— Northern and western corridors ——
   'del-jai': S(220, 320),
-  'del-ixc': S(200, 300),
   'del-lko': S(150, 320),
-  'del-agr': S(80, 220),
   'mum-amd': S(220, 380),
-  'mum-pnq': S(350, 300),
   'blr-mum': S(60, 300),
 
   // —— South to north marathons ——
@@ -130,27 +119,20 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'hyd-tir': S(90, 220),
   'hyd-pnq': S(150, 320),
   'hyd-mum': S(110, 340),
-  'hyd-kno': S(60, 220),
   'vga-viz': S(160, 300),
 
   // —— Kerala and coastal Karnataka ——
   'koc-mlr': S(40, 260),
   'trv-clt': S(50, 240),
-  'trv-koc': S(70, 220),
   'mlr-goa': S(30, 200),
 
   // —— Karnataka, Tamil Nadu and Puducherry mid-hauls ——
   'blr-pdy': S(45, 180),
   'blr-hbl': S(150, 300),
-  'hbl-goa': S(25, 160),
-  'mdu-cbe': S(60, 260),
-  'try-cbe': S(40, 240),
 
   // —— Dindigul corridors (flowers, locks, farm produce) ——
   'maa-dgl': S(60, 280),
   'blr-dgl': S(40, 260),
-  'cbe-dgl': S(25, 200),
-  'try-dgl': S(15, 160),
 
   // —— Round-to-100 corridors ——
   'maa-hpt': S(30, 240),
@@ -170,6 +152,14 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'maa-pnq': S(15, 260),
   'pnq-nag': S(40, 260),
   'viz-ccu': S(20, 240),
+  'blr-smg': S(40, 240),
+  'jai-ixc': S(35, 260),
+  'amd-jai': S(40, 280),
+  'bhp-del': S(25, 260),
+  'hyd-rpr': S(20, 240),
+  'viz-nag': S(20, 240),
+  'amd-del': S(30, 280),
+  'lko-ccu': S(20, 260),
 }
 
 /** Fallback for a route missing from the table: a thin tier-2 link. */

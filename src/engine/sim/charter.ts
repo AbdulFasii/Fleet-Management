@@ -9,7 +9,7 @@ import type {
   Staff,
 } from '../types'
 import { CHARTER_ROUTES, type CharterRouteDef } from '../data/charterRoutes'
-import { BUS_MODELS, isCargoModel, isCharterModel } from '../data/busModels'
+import { BUS_MODELS, isCharterModel } from '../data/busModels'
 import { CITIES } from '../data/cities'
 import { BAL } from '../data/balance'
 import { CHARTER_DEMAND, CHARTER_DETENTION_SHARE, CHARTER_MIN_KM_PER_DAY, capCharterPrice, charterRatePerKm } from '../data/charterRates'
@@ -380,10 +380,18 @@ export function generateCharterInquiries(s: GameState): void {
   // Clients near our base find us first; tours in their own season are asked for more.
   const base = cfg.operatingBaseCityId
   const month = toCivil(s.day).m
+  // Tours the coaches we own can actually take are asked for more often: a route's weight follows
+  // the share of our charter coaches that meet its seat count (with a floor, so big tours still come).
+  const seatList = charterFleet.map((b) => BUS_MODELS[b.modelId]?.seats ?? 0)
+  const fleetFit = (r: CharterRouteDef) => {
+    if (seatList.length === 0) return 1
+    const share = seatList.filter((seats) => seats >= r.minSeats).length / seatList.length
+    return D.fleetFitFloor + (1 - D.fleetFitFloor) * share
+  }
   const routeWeight = (r: CharterRouteDef) => {
     const d = cityRoadKm(base, r.originCityId)
     const near = 1 / (1 + (d / D.baseHalfWeightKm) ** 2)
-    return near * (r.peakMonths.includes(month) ? D.peakRouteWeight : 1)
+    return near * (r.peakMonths.includes(month) ? D.peakRouteWeight : 1) * fleetFit(r)
   }
 
   const count = rPoisson(rng, charterRequestRate(s))
@@ -488,9 +496,9 @@ export function canBusTakeContract(
   bus: Bus,
   contract: CharterContract,
   day?: number,
-  allowIdleLineCoach = false,
 ): { ok: boolean; reason?: string } {
-  if (bus.duty !== 'charter' && (!allowIdleLineCoach || bus.scheduleId || isCargoModel(bus.modelId))) {
+  // Only coaches the player dedicated to charter duty; idle line coaches are never pulled in.
+  if (bus.duty !== 'charter') {
     return { ok: false, reason: 'Bus must be dedicated to charter duty' }
   }
   if (bus.status !== 'active') return { ok: false, reason: `Bus status is ${bus.status}` }
@@ -522,11 +530,7 @@ export function acceptCharterInquiry(s: GameState, inquiryId: ID, busId: ID): st
   const bus = s.buses[busId]
   if (!bus) return 'Bus not found.'
 
-  if (bus.duty !== 'charter' && !bus.scheduleId && bus.status === 'active' && !isCargoModel(bus.modelId)) {
-    bus.duty = 'charter'
-  }
-
-  const check = canBusTakeContract(bus, inq, undefined, true)
+  const check = canBusTakeContract(bus, inq)
   if (!check.ok) return check.reason ?? 'Cannot assign bus'
 
   if (isBusBusyOnCharter(s, busId, inq.startDay, inq.endDay)) {
@@ -874,20 +878,17 @@ export function autoAssignChartersWithDetails(s: GameState): AutoAssignDetails {
   const inquiries = [...s.charterInquiries]
 
   const dedicated = getCharterFleet(s)
-  const idleDepotCoaches = Object.values(s.buses ?? {}).filter(
-    (b) => b.duty !== 'charter' && b.status === 'active' && !b.scheduleId && !isCargoModel(b.modelId),
-  )
-  const candidateFleet = [...dedicated, ...idleDepotCoaches]
+  const candidateFleet = dedicated
 
   if (candidateFleet.length === 0) {
-    return { assigned: 0, bidsLost: 0, inquiriesProcessed: 0, reason: 'No coaches available in depot or charter fleet. Free a coach from route schedule or buy one.' }
+    return { assigned: 0, bidsLost: 0, inquiriesProcessed: 0, reason: 'No coaches dedicated to charter duty. Dedicate one on the Fleet page or buy one.' }
   }
 
   const blockerReasons = new Set<string>()
 
   for (const inq of inquiries) {
     const eligibleBuses = candidateFleet.filter((bus) => {
-      const check = canBusTakeContract(bus, inq, undefined, true)
+      const check = canBusTakeContract(bus, inq)
       if (!check.ok) {
         if (check.reason) blockerReasons.add(check.reason)
         return false

@@ -20,12 +20,20 @@ export interface UploadGameImageParams {
   kind: ImageKind
   ownerKey: string
   fileName?: string
+  /** Small copy stored beside the original, for cards; the original stays the stored link. */
+  thumbnail?: Blob
 }
 
 export interface UploadGameImageResult {
   id: string
   url: string
   record?: GameImageRecord
+}
+
+/** Where the small copy of an uploaded image lives, or null when the link is not one of ours. */
+export function thumbUrlFor(url: string): string | null {
+  const m = url.match(/^(.*\/[0-9a-f-]{36})\.[a-z0-9]+(\?.*)?$/i)
+  return m ? `${m[1]}_thumb.jpg${m[2] ?? ''}` : null
 }
 
 /** Sanitize ownerKey for safe use in storage path (e.g. "group:grp_1" -> "group_grp_1"). */
@@ -94,6 +102,7 @@ export async function uploadGameImage({
   kind,
   ownerKey,
   fileName,
+  thumbnail,
 }: UploadGameImageParams): Promise<UploadGameImageResult> {
   if (!isCloudImagesConfigured()) {
     throw new Error('Cloud image storage is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.local.')
@@ -123,6 +132,14 @@ export async function uploadGameImage({
 
   if (uploadErr) {
     throw new Error(`Storage upload failed: ${uploadErr.message}`)
+  }
+
+  // Small copy for cards. Cards fall back to the original if this is missing.
+  if (thumbnail) {
+    const { error: thumbErr } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(`${safeOwner}/${kind}/${id}_thumb.jpg`, thumbnail, { contentType: 'image/jpeg', upsert: true })
+    if (thumbErr) console.warn('thumbnail upload failed:', thumbErr.message)
   }
 
   // Get public URL

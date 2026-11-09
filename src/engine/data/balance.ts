@@ -156,9 +156,15 @@ export const BAL = {
   appOrganicTierMult: [0, 1, 1.15, 1.3],
   /** MAU at which raw own-app weight ≈ RedBus baseline (1.0) before tier bonuses. */
   appMauForParity: 35_000,
-  /** Soft ceiling on own-app channel weight (can exceed RedBus so mix can pass ~50%). */
-  appMaxChannelWeight: 3.0,
-  /** Growing own-app pulls listing share off RedBus (0 = no cannibalization). */
+  /**
+   * Own-app weight can never exceed this share of the RedBus baseline, so RedBus stays
+   * the largest channel at every tier. Must stay below ~0.7 (see channelWeights).
+   */
+  appMaxShareOfRedbus: 0.6,
+  /**
+   * Growing own-app draws listing share from RedBus, AbhiBus and counter alike, in
+   * proportion (0 = no cannibalization). Applied as 1 / (1 + k × appShare).
+   */
   appDisplaceRedbus: 0.55,
 
   /* ---------------- fare composition ---------------- */
@@ -463,8 +469,7 @@ export const BAL = {
   depDensity: {
     overnight: [[18, 23.5, 1.00], [16, 18, 0.46], [23.5, 25, 0.30], [5, 10, 0.34], [10, 16, 0.26], [1, 5, 0.06]],
     mid: [[17.5, 23, 0.95], [6, 10.5, 0.72], [14, 17.5, 0.58], [10.5, 14, 0.30], [23, 30, 0.10]],
-    day: [[5.5, 10, 1.00], [15.5, 20.5, 0.94], [10, 15.5, 0.40], [20.5, 23, 0.32], [23, 29.5, 0.07]],
-  } as Record<'overnight' | 'mid' | 'day', [number, number, number][]>,
+  } as Record<'overnight' | 'mid', [number, number, number][]>,
   ratingBase: 3.5, // market-average operator rating
   brandAwarenessMax: 1.35,
   /** Attach partners only after brand is known on the corridor (mid-game). */
@@ -1531,17 +1536,14 @@ export function getDirectionalOccupancyRange(
     maxLf = maxLf * scale
   }
 
-  // Coach class adjustments. The bands describe a sleeper market; a seat
-  // trails a berth only once the trip runs past a day hop (6h+). On a short
-  // hop the seat is the right product and keeps the full band.
-  const dayHop = route.hours < BAL.layoutDuration.shortMax
+  // Coach class adjustments. The bands describe a sleeper market; a seat trails a berth on every corridor (all are 6h+).
   if (cls === 'AC_SLEEPER_PREM') {
     minLf = Math.min(1.0, minLf + 0.03)
     maxLf = Math.min(1.0, maxLf + 0.03)
-  } else if (cls === 'AC_SEMI' && !dayHop) {
+  } else if (cls === 'AC_SEMI') {
     minLf = minLf * 0.90
     maxLf = maxLf * 0.90
-  } else if ((cls === 'AC_SEMI_PREM' || cls === 'E_AC_SEMI') && !dayHop) {
+  } else if (cls === 'AC_SEMI_PREM' || cls === 'E_AC_SEMI') {
     minLf = minLf * 0.95
     maxLf = maxLf * 0.95
   } else if (cls === 'AC_HYBRID') {

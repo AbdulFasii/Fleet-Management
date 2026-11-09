@@ -74,12 +74,10 @@ export function festivalPreSoldShare(route: RouteDef, direction: 'AB' | 'BA', de
 
 /* ------------------------------ haul length ------------------------------ */
 
-export type HaulKind = 'day' | 'mid' | 'overnight'
+export type HaulKind = 'mid' | 'overnight'
 export function haulKind(hours: number): HaulKind {
   const h = displayRouteHours(hours)
-  if (h >= 8) return 'overnight'
-  if (h < 6) return 'day'
-  return 'mid'
+  return h >= 8 ? 'overnight' : 'mid'
 }
 
 export type DurationCategory = 'short' | 'mid' | 'overnight' | 'long'
@@ -146,7 +144,6 @@ export interface DepartureTimeFit {
 /**
  * Departure-clock appeal based on route haul duration. The prime windows come
  * from HAUL_WINDOWS (routes.ts) so tooltips and the model never disagree:
- * - Day hop: 08:00-12:00 and 18:00-22:00 (~1.20x). Dead of night is low (~0.32x).
  * - Mid-haul: 18:00-00:00 (~1.18x), morning is moderate (~0.78x), midday/night lower.
  * - Night haul 20:00-23:30, marathon 18:00-23:30, ultra 16:00-22:00 (~1.20x, +0.05 for sleepers).
  *   Morning daytime (05:30-12:00) burns the whole working day in transit (~0.35x).
@@ -228,11 +225,11 @@ export function classHourAppeal(cls: BusClassId, depHour: number, depMin: number
   const f = BAL.classHourFit
   const h = depHour + (depMin === 30 ? 0.5 : 0)
   const hw = haulWeights(hours)
-  // "Night" for coach-type fit follows the band's prime window; day hops keep 19:00 - 23:30.
+  // "Night" for coach-type fit follows the band's prime window.
   const style = haulStyleOfHours(hours)
   const wins = HAUL_WINDOWS[style]
-  const nightFrom = style === 'day' ? 19 : Math.min(...wins.map((w) => w[0]))
-  const nightTo = style === 'day' ? 23.5 : Math.min(23.5, Math.max(...wins.map((w) => w[1])))
+  const nightFrom = Math.min(...wins.map((w) => w[0]))
+  const nightTo = Math.min(23.5, Math.max(...wins.map((w) => w[1])))
   if (familyOf(cls) === 'sleeper') {
     // A 16h run leaving at 15:00 still sleeps; a 4h noon hop never does.
     const pull = 1 - 0.75 * hw.long
@@ -431,14 +428,6 @@ export function corridorProfile(seed: number, route: RouteDef): CorridorProfile 
       if (far.length) peaksMin.push(rPick(rng, far))
     }
     widthH = 1.35 + rng() * 1.0 // broad evening hump — peak still wins
-  } else if (kind === 'day') {
-    const morning = winBand(wins[0]!)
-    const evening = winBand(wins[1]!)
-    const mode = rng()
-    if (mode < 0.28) peaksMin = [rPick(rng, morning)]
-    else if (mode < 0.56) peaksMin = [rPick(rng, evening)]
-    else peaksMin = [rPick(rng, morning), rPick(rng, evening)]
-    widthH = 1.4 + rng() * 1.1
   } else {
     const band = winBand(wins[0]!)
     const p1 = rPick(rng, band)

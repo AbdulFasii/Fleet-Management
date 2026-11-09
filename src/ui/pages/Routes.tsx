@@ -359,7 +359,6 @@ export function RoutesPage() {
               onChange={(e) => setHoursFilter(e.target.value)}
               style={{ fontSize: 11, padding: '2px 6px' }}
               title={[
-                haulBriefFor('day'),
                 haulBriefFor('mid'),
                 haulBriefFor('overnight'),
                 haulBriefFor('marathon'),
@@ -367,7 +366,6 @@ export function RoutesPage() {
               ].join('\n\n')}
             >
               <option value="all">All Durations</option>
-              <option value="<6" title={haulBriefFor('day')}>Day hop (&lt; 6 hrs)</option>
               <option value="6-8" title={haulBriefFor('mid')}>Mid-haul (6 – 8 hrs)</option>
               <option value="8-10" title={haulBriefFor('overnight')}>Night haul (8 – 10 hrs)</option>
               <option value="10-16" title={haulBriefFor('marathon')}>Marathon night haul (10 – 16 hrs)</option>

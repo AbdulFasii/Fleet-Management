@@ -151,7 +151,7 @@ export function ChannelMixPanel() {
   return (
     <Panel
       title="Channel mix (booked seats, recent)"
-      info="Build tiers and set the marketing budget under Settings. Growing MAU can push own-app share well past 40% as it pulls traffic off RedBus."
+      info="Build tiers and set the marketing budget under Settings. Growing MAU pulls traffic off RedBus, AbhiBus and agents alike, but own-app share stays below RedBus."
     >
       <KV rows={[
         ['RedBus', <><Bar value={mix.redbus / mixTotal} width={12} /> {Math.round((mix.redbus / mixTotal) * 100)}% <span className="dim small">({(s.world.redbusCommissionBps / 100).toFixed(0)}% comm, T+5)</span></>],

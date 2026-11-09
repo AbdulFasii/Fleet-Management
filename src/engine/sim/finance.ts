@@ -205,6 +205,40 @@ export function routeStatsForPeriod(s: GameState, days: number | null): Record<s
   return out
 }
 
+/**
+ * Brand totals (trips, pax-km, seat-km, revenue, cost) over a trailing window, summed from the
+ * per-day brand history. `days === null` is lifetime: the folded corridor totals.
+ * Brands with no activity in the window are left out.
+ */
+export function brandStatsForPeriod(s: GameState, days: number | null): Record<string, RouteLayoutStats> {
+  const out: Record<string, RouteLayoutStats> = {}
+  const add = (key: string, lay: RouteLayoutStats) => {
+    const a = (out[key] ??= emptyLayout())
+    a.revenue += lay.revenue
+    a.cost += lay.cost
+    a.trips += lay.trips
+    a.paxKm += lay.paxKm
+    a.seatKm += lay.seatKm
+  }
+  if (days === null) {
+    for (const st of Object.values(s.routeStats ?? {})) {
+      for (const [key, lay] of Object.entries(st.byBrand ?? {})) add(key, lay)
+    }
+  } else {
+    const cut = s.day - days
+    for (const hist of Object.values(s.routeHistory ?? {})) {
+      for (const d of hist) {
+        if (d.day <= cut || d.day > s.day) continue
+        for (const [key, lay] of Object.entries(d.byBrand ?? {})) add(key, lay)
+      }
+    }
+  }
+  for (const [key, lay] of Object.entries(out)) {
+    if (lay.trips === 0 && lay.revenue === 0 && lay.cost === 0 && lay.seatKm === 0) delete out[key]
+  }
+  return out
+}
+
 /** Fleet-wide seat fill over a trailing window (1 = today only). Null if no operated seat-km. */
 export function fleetOccupancy(s: GameState, days: number): number | null {
   const stats = routeStatsForPeriod(s, days)

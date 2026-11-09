@@ -6,7 +6,7 @@ import {
 import { useDeferredGameState } from '../../store/gameStore'
 import { routeName, canonicalRouteId, ROUTES } from '../../engine/data/routes'
 import { BAL } from '../../engine/data/balance'
-import { routeStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '../../engine/sim/finance'
+import { routeStatsForPeriod, brandStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '../../engine/sim/finance'
 import { getSeasonalStatsForPeriod } from '../../engine/sim/festival'
 import { toRupees } from '../../engine/core/money'
 import type { RouteLayoutStats, RouteStats, BusGroup } from '../../engine/types'
@@ -133,6 +133,8 @@ export function AnalyticsPage() {
   const s = useDeferredGameState()!
   const [period, setPeriod] = useState<PeriodId>('lifetime')
   const periodDef = PERIODS.find((p) => p.id === period) ?? PERIODS[0]!
+  // The brand table has its own period, so it can differ from the route report.
+  const [brandPeriod, setBrandPeriod] = useState<PeriodId>('lifetime')
 
   const savedRouteSort = readSort('analytics-routes', 'profit')
   const [routeSortKey, setRouteSortKey] = useState<RouteSortKey>(
@@ -552,6 +554,13 @@ export function AnalyticsPage() {
     }))
   }, [s.world.shareHistory, shareRoute])
 
+  /** Brand totals for this table's own period; null means lifetime (the coaches' life totals below). */
+  const brandPeriodDef = PERIODS.find((p) => p.id === brandPeriod) ?? PERIODS[0]!
+  const brandWindow = useMemo(
+    () => (brandPeriodDef.days === null ? null : brandStatsForPeriod(s, brandPeriodDef.days)),
+    [s, brandPeriodDef.days],
+  )
+
   const brandEconomicsRows = useMemo(() => {
     type BrandEconRow = {
       id: string
@@ -622,6 +631,7 @@ export function AnalyticsPage() {
     for (const b of Object.values(s.buses)) {
       const row = rowFor(b.groupId)
       row.buses += 1
+      if (brandWindow) continue // money comes from the period window below
       row.trips += b.lifeTrips
       row.revenue += b.lifeRevenue
       row.cost += b.lifeCost
@@ -632,14 +642,26 @@ export function AnalyticsPage() {
       rowFor(sch.groupId).services += 1
     }
 
-    // Lifetime load factor from corridor brand splits (pax-km / seat-km).
-    for (const st of Object.values(s.routeStats ?? {})) {
-      const brands = st.byBrand
-      if (!brands) continue
-      for (const [brandKey, b] of Object.entries(brands)) {
+    if (brandWindow) {
+      for (const [brandKey, b] of Object.entries(brandWindow)) {
         const row = rowFor(brandKey)
+        row.trips += b.trips
         row.paxKm += b.paxKm
         row.seatKm += b.seatKm
+        row.revenue += b.revenue
+        row.cost += b.cost
+        row.profit += b.revenue - b.cost
+      }
+    } else {
+      // Lifetime load factor from corridor brand splits (pax-km / seat-km).
+      for (const st of Object.values(s.routeStats ?? {})) {
+        const brands = st.byBrand
+        if (!brands) continue
+        for (const [brandKey, b] of Object.entries(brands)) {
+          const row = rowFor(brandKey)
+          row.paxKm += b.paxKm
+          row.seatKm += b.seatKm
+        }
       }
     }
 
@@ -698,7 +720,7 @@ export function AnalyticsPage() {
     }
     walk('', 0)
     return ordered
-  }, [s.buses, s.schedules, s.groups, s.company.rating, s.routeStats, s])
+  }, [s.buses, s.schedules, s.groups, s.company.rating, s.routeStats, s, brandWindow])
 
   const brandTotals = useMemo(() => {
     let buses = 0
@@ -834,9 +856,22 @@ export function AnalyticsPage() {
       <section id="brands" className="analytics-section">
         <h2 className="section-title">Brands</h2>
         <Panel
-          title="Subsidiary Brand Economics (Lifetime)"
+          title={brandPeriodDef.id === 'lifetime' ? 'Subsidiary Brand Economics (Lifetime)' : `Subsidiary Brand Economics (${brandPeriodDef.label})`}
           flat
-          info="Lifetime asset view: aggregates coach life revenue and costs by subsidiary brand, joined with active schedule counts and brand ratings. For period windows use the Route economics brand filter below (fed by routeHistory.byBrand)."
+          right={
+            <select
+              value={brandPeriod}
+              onChange={(e) => setBrandPeriod(e.target.value as PeriodId)}
+              style={{ fontSize: 11, padding: '2px 6px' }}
+              aria-label="Brand economics period"
+              title="Period for the revenue, cost, trips and occupancy columns. Buses and services are current counts."
+            >
+              {PERIODS.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+          }
+          info="Revenue, cost, trips and occupancy cover the selected period. Lifetime uses each coach's life totals. Buses and services are current counts, and ratings are current."
         >
           <table className="data">
             <thead>

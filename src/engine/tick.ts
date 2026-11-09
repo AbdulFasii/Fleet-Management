@@ -36,6 +36,7 @@ import { dailyBrandPass, monthlyBrandPass } from './sim/brandPolicy'
 import { dailyRouteLifePass } from './sim/routeLife'
 import { BAL } from './data/balance'
 import { rs } from './core/money'
+import { isCharterModel } from './data/busModels'
 
 /**
  * One simulated day as a sequence of stages. Each `yield` sits between two passes, so a caller
@@ -46,6 +47,10 @@ import { rs } from './core/money'
 export function* advanceDaySteps(s: GameState): Generator<void, void, void> {
   if (s.gameOver) return
   pruneRetiredRoutes(s)
+  // Charter-only models are always on charter duty (older saves kept some on 'line').
+  for (const b of Object.values(s.buses)) {
+    if (b.duty !== 'charter' && !b.scheduleId && isCharterModel(b.modelId)) b.duty = 'charter'
+  }
   s.day += 1
 
   // 1. world rolls
