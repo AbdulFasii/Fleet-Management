@@ -104,12 +104,22 @@ export function computeBayAllocations(s: GameState): BayAllocation[] {
   }
 
   // Allocate in-shop jobs to eligible staffed bays
+  // A bay at a location dedicated to this brand comes before an all-brands bay (e.g. home).
   for (const bus of jobs) {
-    const alloc = allocations.find((a) => {
-      if (!a.staffed || a.job) return false
+    let alloc: BayAllocation | undefined
+    let bestRank = Infinity
+    for (const a of allocations) {
+      if (!a.staffed || a.job) continue
       const loc = locations.find((l) => l.id === a.locationId)
-      return loc ? isBusAllowedAtLocation(loc, bus) : true
-    })
+      if (loc && !isBusAllowedAtLocation(loc, bus)) continue
+      const dedicated = Boolean(loc && loc.groupIds?.length && bus.groupId && loc.groupIds.includes(bus.groupId))
+      const rank = dedicated ? 0 : 1
+      if (rank < bestRank) {
+        alloc = a
+        bestRank = rank
+        if (rank === 0) break
+      }
+    }
     if (alloc) {
       alloc.job = bus
     }

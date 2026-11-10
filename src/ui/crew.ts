@@ -2,11 +2,28 @@ import { BAL } from '../engine/data/balance'
 import { ROUTES } from '../engine/data/routes'
 import { isCargoModel, modelNeedsHp } from '../engine/data/busModels'
 import { spareConductorBench, spareDriverBench } from '../engine/sim/staffing'
-import type { Bus, GameState, Staff, StaffRole } from '../engine/types'
+import type { Bus, CharterContract, GameState, Staff, StaffRole } from '../engine/types'
 
 export const CREW_ROLES: StaffRole[] = ['driver', 'conductor']
 
+/** A coach on charter duty with no line schedule: crew is set by the tour, not by a route. */
+export function isCharterDutyBus(bus: Bus): boolean {
+  return bus.duty === 'charter' && !bus.scheduleId
+}
+
+/** The live or booked tour on this coach, if any. */
+export function charterTourOn(s: GameState, bus: Bus): CharterContract | undefined {
+  return (s.charterContracts ?? []).find(
+    (c) => c.busId === bus.id && (c.status === 'active' || c.status === 'booked'),
+  )
+}
+
 export function crewLimit(s: GameState, bus: Bus, role: StaffRole): number {
+  if (isCharterDutyBus(bus)) {
+    // Charter coaches never carry a conductor; the tour's driver is picked from the charter pool.
+    if (role === 'driver') return charterTourOn(s, bus) ? 1 : 0
+    return 0
+  }
   if (isCargoModel(bus.modelId)) {
     if (role === 'conductor') return 0
   }
@@ -41,8 +58,21 @@ export function canCrewBus(bus: Bus): boolean {
   return bus.ownership === 'owned' || bus.ownership === 'leased'
 }
 
+/** Crew actually on a bus: a charter coach's driver is the one on its tour contract. */
+export function crewCountOn(s: GameState, bus: Bus, role: StaffRole): number {
+  if (isCharterDutyBus(bus) && role === 'driver') {
+    const tour = charterTourOn(s, bus)
+    return tour?.driverId ? 1 : 0
+  }
+  return crewOnBus(s, bus.id, role).length
+}
+
 export function crewShort(s: GameState, bus: Bus): string | null {
   if (bus.ownership === 'attached') return null
+  if (isCharterDutyBus(bus)) {
+    const tour = charterTourOn(s, bus)
+    return tour && !tour.driverId ? 'no driver on tour' : null
+  }
   if (!bus.scheduleId) return 'unscheduled'
   const isCargo = isCargoModel(bus.modelId)
   const sch = bus.scheduleId ? s.schedules[bus.scheduleId] : undefined

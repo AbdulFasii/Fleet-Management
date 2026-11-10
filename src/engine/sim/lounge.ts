@@ -220,6 +220,18 @@ export function loungesHaveCctv(s: GameState): boolean {
   return (s.company.lounges ?? []).some((l) => loungeAmenityIds(l, cfg).includes('cctv'))
 }
 
+/** Stable 0–1 value for a lounge's location name (same name, same site every game). */
+function localityOf(name: string): number {
+  let h = 0
+  for (const ch of name.toLowerCase()) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return (h % 1000) / 1000
+}
+
+/** Boarding catchment weight, 0.6–1.3: how many of the city's passengers a site draws. */
+function catchmentOf(name: string): number {
+  return 0.6 + 0.7 * localityOf(name)
+}
+
 /**
  * Daily Lounge Pass:
  * Runs once every game day in advanceDay.
@@ -253,14 +265,21 @@ export function dailyLoungePass(s: GameState): void {
     if (isAc) paxByCity[originCity].acPax += sold
   }
 
+  // Each lounge sits in its own boarding catchment: lounges in one city split its passengers.
+  const catchmentTotal: Record<string, number> = {}
+  for (const l of lounges) catchmentTotal[l.cityId] = (catchmentTotal[l.cityId] ?? 0) + catchmentOf(l.locationName)
+
   // 2. Process each lounge
   for (const lounge of lounges) {
     const tierDef = getLoungeTierDef(lounge.tier)
     const pkg = loungePackageOf(lounge, pConfig)
     const cityPax = paxByCity[lounge.cityId] ?? { total: 0, acPax: 0 }
+    const locality = localityOf(lounge.locationName)
 
     // Consider access policy (AC tickets only vs all passengers)
-    const eligiblePax = pConfig.accessPolicy === 'ac_only' ? cityPax.acPax : cityPax.total
+    const cityEligible = pConfig.accessPolicy === 'ac_only' ? cityPax.acPax : cityPax.total
+    const share = catchmentOf(lounge.locationName) / Math.max(1, catchmentTotal[lounge.cityId] ?? 1)
+    const eligiblePax = Math.round(cityEligible * share)
 
     // Capture rate: Express ~40%, Premium ~65%, Business ~80% of departing passengers, plus amenities
     const captureRate = (lounge.tier === 'business' ? 0.80 : lounge.tier === 'premium' ? 0.65 : 0.40) + pkg.capture
@@ -288,7 +307,8 @@ export function dailyLoungePass(s: GameState): void {
     }
 
     // Fixed Daily Expenses (Rent, Electricity, Staff Wages)
-    const dailyRent = tierDef.dailyRent
+    // Local rent varies by site (0.8×–1.3× the tier base), so no two lounges read the same.
+    const dailyRent = Math.round(tierDef.dailyRent * (0.8 + 0.5 * locality))
     const dailyElectric = tierDef.dailyElectricity
     const dailyStaffWage = tierDef.dailyStaffWage
     const totalOpex = dailyRent + dailyElectric + dailyStaffWage + compBevCost + extraPolicyOpex

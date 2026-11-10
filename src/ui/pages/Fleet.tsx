@@ -12,7 +12,7 @@ import { ownerPaysService, serviceDueKm, axleTyresDue } from '../../engine/sim/m
 import { fleetGroups } from '../../engine/sim/groups'
 import { BAL } from '../../engine/data/balance'
 import type { Bus } from '../../engine/types'
-import { canCrewBus, crewLimit, crewOnBus, crewShort } from '../crew'
+import { canCrewBus, crewCountOn, crewLimit, crewOnBus, crewShort } from '../crew'
 import { Bar, DataTable, M, Panel, ratingTone, GroupBadge, type Col, PageHeader } from '../bits'
 import { BrandOptions } from '../BrandOptions'
 
@@ -372,8 +372,8 @@ export function FleetPage() {
         if (!canCrewBus(b)) return <span className="warn">—</span>
         const need = crewLimit(s, b, 'driver')
         const needCond = crewLimit(s, b, 'conductor')
-        const drv = crewOnBus(s, b.id, 'driver').length
-        const cond = crewOnBus(s, b.id, 'conductor').length
+        const drv = crewCountOn(s, b, 'driver')
+        const cond = crewCountOn(s, b, 'conductor')
         const short = crewShort(s, b)
         const drvMismatch = drv !== need
         const condMismatch = cond !== needCond

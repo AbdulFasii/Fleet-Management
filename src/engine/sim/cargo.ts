@@ -500,13 +500,14 @@ export function emptyCargoLaneDay(): CargoLaneDay {
     fuel: 0,
     toll: 0,
     bata: 0,
+    wear: 0,
   }
 }
 
 const CARGO_LANE_ADD = [
   'trips', 'cargoOnlyTrips', 'kg', 'cargoOnlyKg', 'capKg', 'revenue',
   'contractKg', 'spotKg', 'walkupKg', 'contractRevenue', 'spotRevenue', 'walkupRevenue',
-  'loading', 'unloading', 'liability', 'shortfall', 'fuel', 'toll', 'bata',
+  'loading', 'unloading', 'liability', 'shortfall', 'fuel', 'toll', 'bata', 'wear',
 ] as const
 
 /** Add one departure (or a shortfall) onto the corridor's kept daily history. */
@@ -524,7 +525,7 @@ export function recordCargoLane(
   if (patch.bookKg) lane.bookKg = patch.bookKg
   for (const key of CARGO_LANE_ADD) {
     const v = patch[key]
-    if (typeof v === 'number' && v) lane[key] += v
+    if (typeof v === 'number' && v) lane[key] = (lane[key] ?? 0) + v
   }
 }
 

@@ -114,7 +114,9 @@ console.log('Testing Passenger Waiting Areas & Lounge Operations...')
 
   assert.ok(lounge.yesterdayPax > 0, 'Waiting passengers should be captured')
   assert.ok(lounge.yesterdaySnackRevenue > 0, 'Snack sales revenue generated')
-  assert.equal(lounge.yesterdayRentExpense, LOUNGE_TIERS.express.dailyRent, 'Rent deducted')
+  // Rent varies by site (0.8×–1.3× the tier base), so check the band rather than the exact base.
+  const baseRent = LOUNGE_TIERS.express.dailyRent
+  assert.ok(lounge.yesterdayRentExpense >= Math.round(baseRent * 0.8) && lounge.yesterdayRentExpense <= Math.round(baseRent * 1.3), 'Rent deducted within site band')
   assert.equal(lounge.yesterdayElectricExpense, LOUNGE_TIERS.express.dailyElectricity, 'Electricity deducted')
   assert.equal(lounge.yesterdayStaffExpense, LOUNGE_TIERS.express.dailyStaffWage, 'Staff wage deducted')
   assert.ok(lounge.lifetimePax > 0, 'Lifetime pax incremented')

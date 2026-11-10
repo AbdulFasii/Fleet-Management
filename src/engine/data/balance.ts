@@ -125,6 +125,8 @@ export const BAL = {
    * a courier desk. (Was 0.36, tuned when the parcel default was ₹2.50.)
    */
   cargoTruckRateVsParcel: 0.90,
+  /** Tyre and service wear per km on a cargo run (~₹10/km on a 9-12 m coach). */
+  cargoWearPerKm: rs(10),
   cargoTruckRateCapRs: 1.25,
   /** Signed contracts land just under the posted rate (volume discount). */
   cargoContractRateLo: 0.86,

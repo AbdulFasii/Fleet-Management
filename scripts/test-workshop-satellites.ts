@@ -147,15 +147,20 @@ const filler2: Bus = { ...busA, id: 'f2', reg: 'TN 01 FF 0002', status: 'worksho
 s.buses['f1'] = filler1
 s.buses['f2'] = filler2
 
-// Both HQ bays are now occupied by f1 and f2.
-// Only the satellite bay (blr) is free.
-// busA has grp_brand_a -> allowed at blr satellite!
-// busX has grp_brand_x -> NOT allowed at blr satellite!
-assert.strictEqual(inOwnWorkshop(s, busA), true, 'busA with allowed brand CAN use satellite bay')
+// Brand A is dedicated to the blr satellite, so its two fillers take that bay first and
+// the all-brands HQ bays stay open. Brand X (not allowed at the satellite) still fits at HQ.
+assert.strictEqual(inOwnWorkshop(s, busX), true, 'busX fits in the open HQ bays')
+// Fill the HQ too: now nothing is left for brand X, but the satellite stays closed to it.
+const filler3: Bus = { ...busA, id: 'f3', reg: 'TN 01 FF 0003', status: 'workshop', groupId: 'grp_brand_x' }
+const filler4: Bus = { ...busA, id: 'f4', reg: 'TN 01 FF 0004', status: 'workshop', groupId: 'grp_brand_x' }
+s.buses['f3'] = filler3
+s.buses['f4'] = filler4
 assert.strictEqual(inOwnWorkshop(s, busX), false, 'busX with non-allowed brand CANNOT use satellite bay')
+assert.strictEqual(inOwnWorkshop(s, busA), false, 'busA has no free bay left once the satellite is taken by its own fillers')
 
+// Every bay is taken, so neither brand is routed to a mechanic.
 const busAMech = findMechanicForBus(s, busA)
-assert.strictEqual(busAMech?.id, 'm3', 'busA should be routed to mechanic m3 at satellite')
+assert.strictEqual(busAMech, undefined, 'busA has no free bay, so no mechanic')
 
 const busXMech = findMechanicForBus(s, busX)
 assert.strictEqual(busXMech, undefined, 'busX has no eligible bay and receives undefined mechanic')

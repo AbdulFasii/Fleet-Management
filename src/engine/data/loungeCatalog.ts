@@ -14,7 +14,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyElectricity: rs(200), // ~₹6,000 / mo
     dailyStaffWage: rs(500), // Front desk attendant (flat cut, ~₹15,000 / mo)
     avgSnackSpend: rs(22), // Tea, filter coffee, biscuits, packaged water
-    snackMargin: 0.50, // 50% net profit margin on snack counter
+    snackMargin: 0.35, // 35% net margin on the snack counter (after stock, waste and card fees)
     demandBoostPct: 0.0075, // +0.75% passenger booking conversion (halved from +1.5%)
     maxDailyPaxCapacity: 150,
     desc: 'Compact air-conditioned boarding waiting room with cushioned seats, mobile charging stations, water dispenser, and snack counter. Ideal for high-turnover pickup points.',
@@ -37,7 +37,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyElectricity: rs(550), // ~₹16,500 / mo
     dailyStaffWage: rs(1_100), // 2 staff: desk attendant + hospitality (~₹33,000 / mo)
     avgSnackSpend: rs(38), // Espresso, fresh juices, packaged sandwiches, snacks
-    snackMargin: 0.52, // 52% margin
+    snackMargin: 0.30, // 30% margin
     demandBoostPct: 0.015, // +1.5% passenger booking conversion (halved from +3.0%)
     maxDailyPaxCapacity: 400,
     desc: 'Spacious 1,500 sq. ft. lounge featuring recliners, cafe counter, cloakroom, and dedicated Tour & Charter Booking Office. Unlocks private charter operations from this city.',
@@ -61,7 +61,7 @@ export const LOUNGE_TIERS: Record<LoungeTier, LoungeTierDef> = {
     dailyElectricity: rs(1_200), // ~₹36,000 / mo
     dailyStaffWage: rs(2_200), // 3 staff: concierge, cafe manager & security (~₹66,000 / mo)
     avgSnackSpend: rs(65), // Full gourmet cafe menu, snacks, energy drinks, paid luggage cloaking
-    snackMargin: 0.55, // 55% margin
+    snackMargin: 0.28, // 28% margin
     demandBoostPct: 0.025, // +2.5% passenger booking conversion (halved from +5.0%)
     maxDailyPaxCapacity: 900,
     desc: 'Flagship executive transit lounge with leather recliners, quiet work pods, shower suite, cafe dining, and 24/7 security. Unlocks maximum passenger conversion and charter inquiries.',

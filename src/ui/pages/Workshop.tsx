@@ -1203,18 +1203,22 @@ function BrandChecks({ groups, value, onChange }: {
   value: ID[]
   onChange: (v: ID[]) => void
 }) {
+  // An empty selection means "all brands". Ticking every brand is the same thing, shown as "All" ticked.
+  const ids = groups.map((g) => g.id)
+  const selected = value.length === 0 ? ids : value
+  const allOn = ids.length > 0 && ids.every((id) => selected.includes(id))
   return (
     <div className="stack10">
-      <label className="row gap6" style={{ cursor: 'pointer' }}>
-        <input type="checkbox" checked={value.length === 0} onChange={(e) => { if (e.target.checked) onChange([]) }} />
+      <label className="row gap6" style={{ cursor: allOn ? 'default' : 'pointer' }} title={allOn ? 'Untick a brand below to narrow the list' : undefined}>
+        <input type="checkbox" checked={allOn} disabled={allOn} onChange={(e) => { if (e.target.checked) onChange(ids) }} />
         <b className="bold">All brands</b>
       </label>
       {groups.map((grp) => (
         <label key={grp.id} className="row gap6" style={{ cursor: 'pointer' }}>
           <input
             type="checkbox"
-            checked={value.includes(grp.id)}
-            onChange={(e) => onChange(e.target.checked ? [...value, grp.id] : value.filter((id) => id !== grp.id))}
+            checked={selected.includes(grp.id)}
+            onChange={(e) => onChange(e.target.checked ? [...selected, grp.id] : selected.filter((id) => id !== grp.id))}
           />
           <GroupBadge group={grp} />
           <span>{grp.name}</span>

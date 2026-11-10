@@ -842,6 +842,8 @@ export interface CargoLaneDay {
   fuel: Money
   toll: Money
   bata: Money
+  /** Tyre and service wear on the run, per km. */
+  wear: Money
 }
 
 export interface RouteDayStats {

@@ -82,7 +82,7 @@ function addLane(into: CargoLaneDay, lane: CargoLaneDay): void {
 }
 
 function laneVehicleCost(lane: CargoLaneDay): number {
-  return lane.fuel + lane.toll + lane.bata
+  return lane.fuel + lane.toll + lane.bata + (lane.wear ?? 0)
 }
 
 function laneLoadingCost(lane: CargoLaneDay): number {
@@ -93,7 +93,12 @@ function laneContribution(lane: CargoLaneDay): number {
   return lane.revenue - laneLoadingCost(lane) - lane.liability - lane.shortfall - laneVehicleCost(lane)
 }
 
-type CorridorSortKey = 'corridor' | 'trips' | 'cap' | 'hauled' | 'fill' | 'yield' | 'revenue' | 'profit'
+/** Profit as a share of freight revenue (0 when nothing was billed). */
+function laneMargin(lane: CargoLaneDay): number {
+  return lane.revenue > 0 ? laneContribution(lane) / lane.revenue : 0
+}
+
+type CorridorSortKey = 'corridor' | 'trips' | 'cap' | 'hauled' | 'fill' | 'yield' | 'revenue' | 'profit' | 'margin'
 
 type CorridorRow = CargoLaneDay & { label: string; corridorKey: string; route: RouteDef }
 
@@ -115,6 +120,7 @@ function corridorSortValue(row: CorridorRow, key: CorridorSortKey): number | str
     case 'yield': return corridorYield(row)
     case 'revenue': return row.revenue
     case 'profit': return laneContribution(row)
+    case 'margin': return laneMargin(row)
   }
 }
 
@@ -427,17 +433,24 @@ export function CargoPage() {
           <Panel title="This month" flat>
             <table className="data">
               <thead>
-                <tr><th /><th className="num">Hauled</th><th className="num">Amount</th></tr>
+                <tr><th /><th className="num">Hauled</th><th className="num">Amount</th><th className="num">Share</th></tr>
               </thead>
               <tbody>
-                <tr><td>Corporate contracts</td><td className="num">{tonnes(mtd.contractKg)} T</td><td className="num"><M v={mtd.contractRevenue} /></td></tr>
-                <tr><td>Spot parcels</td><td className="num">{tonnes(mtd.spotKg)} T</td><td className="num"><M v={mtd.spotRevenue} /></td></tr>
-                <tr><td>Counter walk-ins</td><td className="num">{tonnes(mtd.walkupKg)} T</td><td className="num"><M v={mtd.walkupRevenue} /></td></tr>
-                <tr className="total"><td><b>Revenue</b></td><td className="num"><b>{tonnes(mtd.kg)} T</b></td><td className="num good"><b><M v={mtd.revenue} /></b></td></tr>
-                <tr><td title={`₹${(BAL.cargoLoadingPaisePerKg / 100).toFixed(2)}/kg loading · ₹${(BAL.cargoUnloadingPaisePerKg / 100).toFixed(2)}/kg unloading`}>Loading and unloading</td><td /><td className="num warn">-<M v={handling} /></td></tr>
-                <tr><td title="Claims for damaged goods and fees for promised kilograms not moved">Claims and shortfall</td><td /><td className={`num ${mtd.liability + mtd.shortfall > 0 ? 'bad' : ''}`}>-<M v={mtd.liability + mtd.shortfall} /></td></tr>
-                <tr><td title="Coach belly parcels ride free">Truck fuel, toll, bata</td><td /><td className="num warn">-<M v={laneVehicleCost(mtd)} /></td></tr>
-                <tr className="total"><td><b>Profit</b></td><td /><td className={`num ${mtdProfit >= 0 ? 'good' : 'bad'}`}><b><M v={mtdProfit} /></b></td></tr>
+                {(() => {
+                  const share = (v: number) => (mtd.revenue > 0 ? pct(v / mtd.revenue) : '—')
+                  return (
+                    <>
+                      <tr><td>Corporate contracts</td><td className="num">{tonnes(mtd.contractKg)} T</td><td className="num"><M v={mtd.contractRevenue} /></td><td className="num muted">{share(mtd.contractRevenue)}</td></tr>
+                      <tr><td>Spot parcels</td><td className="num">{tonnes(mtd.spotKg)} T</td><td className="num"><M v={mtd.spotRevenue} /></td><td className="num muted">{share(mtd.spotRevenue)}</td></tr>
+                      <tr><td>Counter walk-ins</td><td className="num">{tonnes(mtd.walkupKg)} T</td><td className="num"><M v={mtd.walkupRevenue} /></td><td className="num muted">{share(mtd.walkupRevenue)}</td></tr>
+                      <tr className="total"><td><b>Revenue</b></td><td className="num"><b>{tonnes(mtd.kg)} T</b></td><td className="num good"><b><M v={mtd.revenue} /></b></td><td className="num" /></tr>
+                      <tr><td title={`₹${(BAL.cargoLoadingPaisePerKg / 100).toFixed(2)}/kg loading · ₹${(BAL.cargoUnloadingPaisePerKg / 100).toFixed(2)}/kg unloading`}>Loading and unloading</td><td /><td className="num warn">-<M v={handling} /></td><td className="num muted">{share(handling)}</td></tr>
+                      <tr><td title="Claims for damaged goods and fees for promised kilograms not moved">Claims and shortfall</td><td /><td className={`num ${mtd.liability + mtd.shortfall > 0 ? 'bad' : ''}`}>-<M v={mtd.liability + mtd.shortfall} /></td><td className="num muted">{share(mtd.liability + mtd.shortfall)}</td></tr>
+                      <tr><td title="Tyre and service wear, plus fuel, tolls and driver bata on truck runs. Coach belly parcels ride free.">Truck running costs</td><td /><td className="num warn">-<M v={laneVehicleCost(mtd)} /></td><td className="num muted">{share(laneVehicleCost(mtd))}</td></tr>
+                      <tr className="total"><td><b>Profit</b></td><td /><td className={`num ${mtdProfit >= 0 ? 'good' : 'bad'}`}><b><M v={mtdProfit} /></b></td><td className={`num ${mtdProfit >= 0 ? 'good' : 'bad'}`}><b>{mtd.revenue > 0 ? pct(mtdProfit / mtd.revenue) : '—'}</b></td></tr>
+                    </>
+                  )
+                })()}
               </tbody>
             </table>
           </Panel>
@@ -474,6 +487,7 @@ export function CargoPage() {
                       ['yield', '₹/kg'],
                       ['revenue', 'Revenue'],
                       ['profit', 'Profit'],
+                      ['margin', 'Margin'],
                     ] as const).map(([key, label]) => (
                       <th key={key} className={`${key === 'corridor' ? '' : 'num'} ${sortKey === key ? 'sorted' : ''}`} onClick={() => applySort(key)} title="Sort">
                         {label}{sortKey === key ? (sortDesc ? ' ▾' : ' ▴') : ''}
@@ -498,11 +512,15 @@ export function CargoPage() {
                         </td>
                         <td className="num">{c.trips}</td>
                         <td className="num">{tonnes(c.capKg)} T</td>
-                        <td className="num"><b>{tonnes(c.kg)} T</b></td>
+                        <td className="num" title={`${tonnes(c.kg - c.cargoOnlyKg)} T in coaches · ${tonnes(c.cargoOnlyKg)} T in trucks`}>
+                          <b>{tonnes(c.kg)} T</b>
+                          <div className="muted small">{tonnes(c.kg - c.cargoOnlyKg)} coach · {tonnes(c.cargoOnlyKg)} truck</div>
+                        </td>
                         <td className="num nowrap"><Bar value={fill} width={6} tone="auto" /> <span className={fillTone(fill)}>{pct(fill)}</span></td>
                         <td className="num">{rate > 0 ? rate.toFixed(2) : '—'}</td>
                         <td className="num"><M v={c.revenue} /></td>
                         <td className={`num ${profit >= 0 ? 'good' : 'bad'}`}><b><M v={profit} /></b></td>
+                        <td className={`num ${laneMargin(c) >= 0 ? '' : 'bad'}`} title="Profit as a share of freight revenue">{c.revenue > 0 ? pct(laneMargin(c)) : '—'}</td>
                         <td className="num">
                           {licensed ? (
                             daysLeft <= 45 ? (
@@ -530,6 +548,7 @@ export function CargoPage() {
                     <td className="num">{corridorYield(history.total) > 0 ? corridorYield(history.total).toFixed(2) : '—'}</td>
                     <td className="num"><M v={history.total.revenue} /></td>
                     <td className={`num ${laneContribution(history.total) >= 0 ? 'good' : 'bad'}`}><M v={laneContribution(history.total)} /></td>
+                    <td className="num">{history.total.revenue > 0 ? pct(laneMargin(history.total)) : '—'}</td>
                     <td />
                   </tr>
                 </tbody>

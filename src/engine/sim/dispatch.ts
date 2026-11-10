@@ -542,6 +542,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
     let fuelCost = 0
     let tollCost = 0
     let bata = 0
+    let wearCost = 0
     let fuelNote = ''
     if (!attached) {
       if (model.electric) {
@@ -616,6 +617,10 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
       spend(s, 'fuel', fuelCost, refs)
       tollCost = Math.round(route.km * route.tollPerKm)
       spend(s, 'toll', tollCost, refs)
+      if (isCargo) {
+        wearCost = Math.round(route.km * BAL.cargoWearPerKm)
+        if (wearCost > 0) spend(s, 'maintenance', wearCost, { ...refs, note: 'Cargo run tyre & service wear' })
+      }
       if (route.interstate) spend(s, 'border_tax', route.borderTaxPerTrip, refs)
       const driversOnTrip = crew.drivers.filter((d) => driverOnDuty(s, d))
       const conductorOnTrip = crew.conductor && driverOnDuty(s, crew.conductor) ? crew.conductor : undefined
@@ -1104,6 +1109,7 @@ export function dispatchPass(s: GameState): { departed: number; pax: number; sea
         fuel: isCargo ? fuelCost : 0,
         toll: isCargo ? tollCost : 0,
         bata: isCargo ? bata : 0,
+        wear: isCargo ? wearCost : 0,
       })
     }
 

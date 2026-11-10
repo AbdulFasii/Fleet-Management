@@ -29,7 +29,7 @@ if (realPaxPerDay('maa-goa') >= realPaxPerDay('maa-blr') / 10) fail('Chennai–G
 if (realPaxPerDay('blr-maa') !== realPaxPerDay('maa-blr')) fail('alias blr-maa must match maa-blr')
 
 console.log(`routes checked: ${Object.keys(ROUTES).length}, table rows used: ${rows.size}`)
-const sample = ['maa-blr', 'blr-hyd', 'maa-mdu', 'mum-pnq', 'maa-goa', 'try-dgl']
+const sample = ['maa-blr', 'blr-hyd', 'maa-mdu', 'mum-idr', 'maa-goa', 'mys-viz']
 for (const id of sample) {
   console.log(`  ${id.padEnd(8)} pax/day ${String(realPaxPerDay(id)).padStart(6)}  parcel kg/day ${String(realParcelKgPerDay(id)).padStart(7)}`)
   if (ROUTES[id]!.baseDemand !== realPaxPerDay(id)) fail(`${id} route baseDemand is not wired to the supply table`)

@@ -5,6 +5,7 @@ import { useGameActions, useDeferredGameState } from '../../store/gameStore'
 import { Panel, Modal, StatRow, Empty, PageHeader } from '../bits'
 import { fmtCompact } from '../../engine/core/money'
 import { CITIES, cityName } from '../../engine/data/cities'
+import { ROUTE_LIST } from '../../engine/data/routes'
 import {
   LOUNGE_AMENITIES,
   LOUNGE_AMENITY_PRESETS,
@@ -20,6 +21,23 @@ import {
 } from '../../engine/data/loungeCatalog'
 import { getLoungeSchedulesHandled } from '../../engine/sim/lounge'
 import type { LoungeAmenityId, LoungeSeating, LoungeTier, PassengerLounge } from '../../engine/types'
+
+/** Routes touching each city, counted once from the static corridor table. */
+const ROUTES_BY_CITY: Record<string, number> = {}
+for (const r of ROUTE_LIST) {
+  ROUTES_BY_CITY[r.from] = (ROUTES_BY_CITY[r.from] ?? 0) + 1
+  ROUTES_BY_CITY[r.to] = (ROUTES_BY_CITY[r.to] ?? 0) + 1
+}
+
+function LoungeKpi({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'good' | 'bad' }) {
+  return (
+    <div style={{ padding: '6px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, minWidth: 0 }} title={hint}>
+      <div className="dim" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</div>
+      <div className={tone} style={{ fontWeight: 700, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>{value}</div>
+      {hint && <div className="dim" style={{ fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hint}</div>}
+    </div>
+  )
+}
 
 const signed = (n: number, d = 2) => `${n > 0 ? '+' : ''}${n.toFixed(d)}`
 
@@ -217,7 +235,7 @@ export function LoungesPage() {
           </button>
         </Panel>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
           {lounges.map((lounge) => {
             const tierDef = getLoungeTierDef(lounge.tier)
             const schedules = getLoungeSchedulesHandled(s, lounge.cityId)
@@ -233,128 +251,52 @@ export function LoungesPage() {
                   border: '1px solid var(--border)',
                   borderRadius: 8,
                   background: 'var(--panel-alt, #151a21)',
-                  padding: 16,
+                  padding: 12,
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  gap: 12,
+                  gap: 10,
                 }}
               >
-                <div>
-                  {/* Top Bar: Location & Badges */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{lounge.locationName}</div>
-                      <div className="small dim" style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                        <span>{cName}</span>
-                        <span>·</span>
-                        <span>Opened {fmtDate(lounge.openedDay)}</span>
-                      </div>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lounge.locationName}</div>
+                      <div className="small dim">{cName} · opened {fmtDate(lounge.openedDay)}</div>
                     </div>
-                    <span
-                      className={`pill small ${
-                        lounge.tier === 'business' ? 'good' : lounge.tier === 'premium' ? 'primary' : 'dim'
-                      }`}
-                      style={{ fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }}
-                      title={tierDef.label}
-                    >
+                    <span className={`pill small ${lounge.tier === 'business' ? 'good' : lounge.tier === 'premium' ? 'primary' : 'dim'}`} style={{ fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title={tierDef.label}>
                       {tierName}
                     </span>
                   </div>
 
-                  {/* Highlights & Features */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 6,
-                      margin: '8px 0 12px 0',
-                    }}
-                  >
+                  <div className="row gap6 wrap small">
                     <span className="pill small dim">{pkgOf.seats} seats</span>
                     <span className="pill small dim">{tierDef.sqft} sq ft</span>
                     {lounge.tier !== 'express' && (
-                      <span className="pill small primary" title="This lounge branch unlocks charter inquiries from this city!">
-                        Tour & Charter Branch
-                      </span>
+                      <span className="pill small primary" title="This lounge branch unlocks charter inquiries from this city">Charter branch</span>
                     )}
                   </div>
 
-                  {/* Schedules Handled Today */}
-                  <div
-                    style={{
-                      padding: '8px 10px',
-                      background: 'var(--bg3)',
-                      borderRadius: 6,
-                      fontSize: '0.82rem',
-                      marginBottom: 10,
-                      border: '1px solid var(--border)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, marginBottom: 4 }}>
-                      <span>Schedules Handled</span>
-                      <span className="good">{schedules.total} Daily Departures/Arrivals</span>
-                    </div>
-                    <div className="dim small" style={{ fontSize: '0.78rem' }}>
-                      {schedules.routeNames.length > 0
-                        ? schedules.routeNames.slice(0, 3).join(' · ') + (schedules.routeNames.length > 3 ? ` +${schedules.routeNames.length - 3} more` : '')
-                        : 'No direct schedules registered in this city yet.'}
-                    </div>
+                  <div className="small" title={schedules.routeNames.join(' · ') || undefined} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span className="dim">Handles </span>
+                    <b className="good">{schedules.total}</b>
+                    <span className="dim"> daily departures and arrivals{schedules.routeNames.length > 0 ? ` · ${schedules.routeNames.slice(0, 2).join(' · ')}` : ''}</span>
                   </div>
 
-                  {/* Daily Throughput & P&L Card */}
-                  <div
-                    style={{
-                      padding: '10px 12px',
-                      background: 'var(--bg)',
-                      borderRadius: 6,
-                      fontSize: '0.83rem',
-                      border: '1px solid var(--border)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span className="dim">Yesterday Waiting Passengers:</span>
-                      <b>{lounge.yesterdayPax} pax <span className="dim">({Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% cap)</span></b>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span className="dim">Snack & Drink Net Margin:</span>
-                      <b className="good">+{fmtCompact(lounge.yesterdaySnackRevenue)} / day</b>
-                    </div>
-
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span className="dim">Fixed Daily Opex (Rent, Power, Wages):</span>
-                      <span className="bad">−{fmtCompact(lounge.yesterdayRentExpense + lounge.yesterdayElectricExpense + lounge.yesterdayStaffExpense)} / day</span>
-                    </div>
-
-                    <div
-                      style={{
-                        borderTop: '1px solid var(--border)',
-                        paddingTop: 6,
-                        marginTop: 2,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <span>Daily Net Margin:</span>
-                      <span className={isProfitable ? 'good' : 'bad'}>
-                        {isProfitable ? '+' : ''}{fmtCompact(lounge.yesterdayNetProfit)} / day
-                      </span>
-                    </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <LoungeKpi label="Waiting pax" value={`${lounge.yesterdayPax}`} hint={`${Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% of ${pkgOf.capacity} seats`} />
+                    <LoungeKpi label="Snack margin" value={`+${fmtCompact(lounge.yesterdaySnackRevenue)}`} tone="good" hint="per day" />
+                    <LoungeKpi label="Opex" value={`−${fmtCompact(lounge.yesterdayRentExpense + lounge.yesterdayElectricExpense + lounge.yesterdayStaffExpense)}`} tone="bad" hint="rent, power, staff" />
+                    <LoungeKpi label="Net" value={`${isProfitable ? '+' : ''}${fmtCompact(lounge.yesterdayNetProfit)}`} tone={isProfitable ? 'good' : 'bad'} hint="per day" />
                   </div>
 
-                  {/* Lifetime Stats */}
-                  <div className="dim small" style={{ marginTop: 8, fontSize: '0.75rem', textAlign: 'right' }}>
-                    Lifetime: {lounge.lifetimePax.toLocaleString('en-IN')} pax hosted · {fmtCompact(lounge.lifetimeRevenue)} snack sales
+                  <div className="dim small" style={{ fontSize: '0.75rem' }}>
+                    Lifetime {lounge.lifetimePax.toLocaleString('en-IN')} pax · {fmtCompact(lounge.lifetimeRevenue)} snacks
                   </div>
                 </div>
 
                 {/* Card Actions */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
                   <button className="small dim" onClick={() => setClosingLounge(lounge)}>
                     Close…
                   </button>
@@ -409,7 +351,7 @@ export function LoungesPage() {
                   <span className="muted">City</span>
                   <select value={selectedCity} onChange={(e) => handleCityChange(e.target.value)}>
                     {Object.values(CITIES).map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.state})</option>
+                      <option key={c.id} value={c.id}>{c.name} ({c.state}) · {ROUTES_BY_CITY[c.id] ?? 0} routes</option>
                     ))}
                   </select>
                 </label>

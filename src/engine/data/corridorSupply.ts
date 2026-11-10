@@ -160,6 +160,16 @@ export const CORRIDOR_SUPPLY: Record<string, CorridorSupply> = {
   'viz-nag': S(20, 240),
   'amd-del': S(30, 280),
   'lko-ccu': S(20, 260),
+  'koc-mys': S(22, 240),
+  'cbe-pdy': S(20, 230),
+  'blr-nlr': S(22, 240),
+  'mdu-pdy': S(22, 230),
+  'hbl-mys': S(18, 220),
+  'hyd-mys': S(24, 250),
+  'vga-cbe': S(20, 240),
+  'pnq-hbl': S(20, 240),
+  'mys-viz': S(22, 260),
+  'mlr-trv': S(20, 230),
 }
 
 /** Fallback for a route missing from the table: a thin tier-2 link. */
