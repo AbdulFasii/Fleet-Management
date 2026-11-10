@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGame, useGameActions, useDeferredGameState } from '../../store/gameStore'
 import {  } from '../../engine/data/balance'
-import { ROUTES, routeName, cityName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel } from '../../engine/data/routes'
+import { ROUTES, routeName, cityName, canonicalRouteId, isOvernight, haulTitle, routeViaLabel, haulStyleOfHours, type HaulStyle } from '../../engine/data/routes'
 import { BUS_MODELS, coachKind, coachKindClass, isCargoModel, modelTitleById } from '../../engine/data/busModels'
 import { enabledChannelLabels } from '../../engine/data/channels'
 import { getScheduleDefaults, scheduleIsCargo, scheduleOccLf } from '../../engine/sim/schedules'
@@ -1256,6 +1256,7 @@ export function SchedulesPage() {
   const activeBrandList = useMemo(() => fleetGroups(s), [s.groups])
   const [creating, setCreating] = useState(false)
   const [railSearch, setRailSearch] = useState('')
+  const [railHaul, setRailHaul] = useState<'all' | HaulStyle>('all')
   const [openSchId, setOpenSchId] = useState<string | null>(focusSchId)
 
   const brandFilter = uiPrefs.fleetGroupId
@@ -1419,6 +1420,9 @@ export function SchedulesPage() {
         return sm.services > 0
       })
     }
+    if (railHaul !== 'all') {
+      ids = ids.filter((rid) => ROUTES[rid] && haulStyleOfHours(ROUTES[rid].hours) === railHaul)
+    }
     if (railSearch.trim()) {
       const q = railSearch.toLowerCase()
       ids = ids.filter((rid) => routeName(rid).toLowerCase().includes(q))
@@ -1505,15 +1509,31 @@ export function SchedulesPage() {
               <BrandOptions s={s} brands={activeBrandList} />
               <option value="none">Unassigned</option>
             </select>
-            <input
-              type="text"
-              className="sched-rail-search"
-              placeholder="Filter routes..."
-              value={railSearch}
-              onChange={(e) => setRailSearch(e.target.value)}
-            />
+            <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+              <select
+                value={railHaul}
+                onChange={(e) => setRailHaul(e.target.value as 'all' | HaulStyle)}
+                aria-label="Filter routes by travel hours"
+                title="Filter by scheduled travel time"
+                style={{ width: '44%', minWidth: 0, boxSizing: 'border-box', padding: '4px 6px', fontSize: 12 }}
+              >
+                <option value="all">All times</option>
+                <option value="mid">Mid 6–8 h</option>
+                <option value="overnight">Night 8–10 h</option>
+                <option value="marathon">Marathon 10–16 h</option>
+                <option value="ultra">Ultra &gt;16 h</option>
+              </select>
+              <input
+                type="text"
+                className="sched-rail-search"
+                placeholder="Filter routes..."
+                value={railSearch}
+                onChange={(e) => setRailSearch(e.target.value)}
+                style={{ flex: 1, minWidth: 0, marginBottom: 0 }}
+              />
+            </div>
             {filteredRoutes.length === 0 && (
-              <span className="empty" title="No routes match this brand filter.">No routes match this brand.</span>
+              <span className="empty" title="No routes match these filters.">No routes match these filters.</span>
             )}
             {filteredRoutes.map((rid) => {
               const sm = summaries[rid]

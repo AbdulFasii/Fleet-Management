@@ -4,7 +4,7 @@ import {
   Area, AreaChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis
 } from 'recharts'
 import { useDeferredGameState } from '../../store/gameStore'
-import { routeName, canonicalRouteId, ROUTES } from '../../engine/data/routes'
+import { routeName, canonicalRouteId, ROUTES, haulStyleOfHours, type HaulStyle } from '../../engine/data/routes'
 import { BAL } from '../../engine/data/balance'
 import { routeStatsForPeriod, brandStatsForPeriod, UNASSIGNED_BRAND_KEY, brandKeyForService } from '../../engine/sim/finance'
 import { getSeasonalStatsForPeriod } from '../../engine/sim/festival'
@@ -156,6 +156,7 @@ export function AnalyticsPage() {
   const [showLayouts, setShowLayouts] = useState(false)
   const [showBrands, setShowBrands] = useState(false)
   const [routeBrandFilter, setRouteBrandFilter] = useState<'all' | 'none' | string>('all')
+  const [routeHaulFilter, setRouteHaulFilter] = useState<'all' | HaulStyle>('all')
 
   const sortedRouteRows = useMemo(() => {
     const rows = [...routeRows]
@@ -368,7 +369,7 @@ export function AnalyticsPage() {
     return out
   }, [s, periodDef.days])
 
-  const displayedRouteRows = useMemo(() => {
+  const brandedRouteRows = useMemo(() => {
     if (!routeBrandFilterKey) return sortedRouteRows
     const rows: RouteRow[] = []
     // Only corridors this brand actually operates (has a schedule), not every
@@ -425,6 +426,15 @@ export function AnalyticsPage() {
     })
     return rows
   }, [sortedRouteRows, routeBrandStats, routeBrandFilterKey, routeSortKey, routeSortDesc, s.schedules])
+
+  // Travel-hours filter: a route's band comes from its scheduled hours (same bands as the Routes page).
+  const displayedRouteRows = useMemo(() => {
+    if (routeHaulFilter === 'all') return brandedRouteRows
+    return brandedRouteRows.filter((r) => {
+      const route = ROUTES[r.rid]
+      return route ? haulStyleOfHours(route.hours) === routeHaulFilter : false
+    })
+  }, [brandedRouteRows, routeHaulFilter])
 
   const tableRouteTotals = useMemo(() => {
     let trips = 0
@@ -996,6 +1006,18 @@ export function AnalyticsPage() {
             /> subsidiaries
           </label>
           <select
+            value={routeHaulFilter}
+            onChange={(e) => setRouteHaulFilter(e.target.value as 'all' | HaulStyle)}
+            aria-label="Filter routes by travel hours"
+            title="Filter by scheduled travel time"
+          >
+            <option value="all">All Durations</option>
+            <option value="mid">Mid-haul (6 – 8 hrs)</option>
+            <option value="overnight">Night haul (8 – 10 hrs)</option>
+            <option value="marathon">Marathon night haul (10 – 16 hrs)</option>
+            <option value="ultra">Ultra marathon (&gt; 16 hrs)</option>
+          </select>
+          <select
             value={routeBrandFilter}
             onChange={(e) => setRouteBrandFilter(e.target.value)}
             aria-label="Filter routes by brand"
@@ -1045,8 +1067,8 @@ export function AnalyticsPage() {
             {displayedRouteRows.length === 0 && (
               <tr>
                 <td colSpan={showUnit ? 11 : 7} className="dim">
-                  {routeBrandFilterKey
-                    ? 'No routes match this brand filter for the selected period.'
+                  {routeBrandFilterKey || routeHaulFilter !== 'all'
+                    ? 'No routes match these filters for the selected period.'
                     : periodDef.days === null
                       ? 'Run some trips first.'
                       : 'No data in this window yet — period reports fill as days advance.'}
