@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { fmtDate } from '../../engine/core/calendar'
 import { Link } from 'react-router-dom'
 import { useGameActions, useDeferredGameState } from '../../store/gameStore'
@@ -27,16 +27,6 @@ const ROUTES_BY_CITY: Record<string, number> = {}
 for (const r of ROUTE_LIST) {
   ROUTES_BY_CITY[r.from] = (ROUTES_BY_CITY[r.from] ?? 0) + 1
   ROUTES_BY_CITY[r.to] = (ROUTES_BY_CITY[r.to] ?? 0) + 1
-}
-
-function LoungeKpi({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'good' | 'bad' }) {
-  return (
-    <div style={{ padding: '6px 8px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, minWidth: 0 }} title={hint}>
-      <div className="dim" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</div>
-      <div className={tone} style={{ fontWeight: 700, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>{value}</div>
-      {hint && <div className="dim" style={{ fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hint}</div>}
-    </div>
-  )
 }
 
 const signed = (n: number, d = 2) => `${n > 0 ? '+' : ''}${n.toFixed(d)}`
@@ -181,6 +171,17 @@ export function LoungesPage() {
   const totalYesterdayOpex = totalYesterdayRent + totalYesterdayElectric + totalYesterdayStaff
   const totalYesterdayProfit = totalYesterdayRevenue - totalYesterdayOpex
 
+  // One card per city, lounges in opening order.
+  const cityGroups = useMemo(() => {
+    const byCity = new Map<string, PassengerLounge[]>()
+    for (const l of lounges) {
+      const list = byCity.get(l.cityId) ?? []
+      list.push(l)
+      byCity.set(l.cityId, list)
+    }
+    return [...byCity.entries()].sort((a, b) => cityName(a[0]).localeCompare(cityName(b[0])))
+  }, [lounges])
+
   const handleOpenLounge = () => {
     const loc = customLocation.trim() || selectedCluster
     if (!loc) {
@@ -235,79 +236,78 @@ export function LoungesPage() {
           </button>
         </Panel>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
-          {lounges.map((lounge) => {
-            const tierDef = getLoungeTierDef(lounge.tier)
-            const schedules = getLoungeSchedulesHandled(s, lounge.cityId)
-            const cName = cityName(lounge.cityId)
-            const isProfitable = lounge.yesterdayNetProfit >= 0
-            const pkgOf = loungePackageOf(lounge, s.config?.passengerConfig)
-            const tierName = lounge.tier === 'business' ? 'Executive' : lounge.tier === 'premium' ? 'Premium' : 'Express'
-
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(460px, 1fr))', gap: 12 }}>
+          {cityGroups.map(([cityId, group]) => {
+            const schedules = getLoungeSchedulesHandled(s, cityId)
+            const cityNet = group.reduce((a, l) => a + l.yesterdayNetProfit, 0)
+            const cityPax = group.reduce((a, l) => a + l.yesterdayPax, 0)
             return (
               <div
-                key={lounge.id}
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  background: 'var(--panel-alt, #151a21)',
-                  padding: 12,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                }}
+                key={cityId}
+                style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'var(--panel-alt, #151a21)', padding: 10, minWidth: 0 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lounge.locationName}</div>
-                      <div className="small dim">{cName} · opened {fmtDate(lounge.openedDay)}</div>
-                    </div>
-                    <span className={`pill small ${lounge.tier === 'business' ? 'good' : lounge.tier === 'premium' ? 'primary' : 'dim'}`} style={{ fontWeight: 600, whiteSpace: 'nowrap', flexShrink: 0 }} title={tierDef.label}>
-                      {tierName}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <b style={{ fontSize: '1rem' }}>{cityName(cityId)}</b>
+                    <span className="dim small">
+                      {' '}· {group.length} lounge{group.length === 1 ? '' : 's'} · {ROUTES_BY_CITY[cityId] ?? 0} routes · handles <b className="good">{schedules.total}</b> departures/arrivals
                     </span>
                   </div>
-
-                  <div className="row gap6 wrap small">
-                    <span className="pill small dim">{pkgOf.seats} seats</span>
-                    <span className="pill small dim">{tierDef.sqft} sq ft</span>
-                    {lounge.tier !== 'express' && (
-                      <span className="pill small primary" title="This lounge branch unlocks charter inquiries from this city">Charter branch</span>
-                    )}
-                  </div>
-
-                  <div className="small" title={schedules.routeNames.join(' · ') || undefined} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    <span className="dim">Handles </span>
-                    <b className="good">{schedules.total}</b>
-                    <span className="dim"> daily departures and arrivals{schedules.routeNames.length > 0 ? ` · ${schedules.routeNames.slice(0, 2).join(' · ')}` : ''}</span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                    <LoungeKpi label="Waiting pax" value={`${lounge.yesterdayPax}`} hint={`${Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% of ${pkgOf.capacity.toLocaleString('en-IN')} a day`} />
-                    <LoungeKpi label="Snack margin" value={`+${fmtCompact(lounge.yesterdaySnackRevenue)}`} tone="good" hint="per day" />
-                    <LoungeKpi label="Opex" value={`−${fmtCompact(lounge.yesterdayRentExpense + lounge.yesterdayElectricExpense + lounge.yesterdayStaffExpense)}`} tone="bad" hint="rent, power, staff" />
-                    <LoungeKpi label="Net" value={`${isProfitable ? '+' : ''}${fmtCompact(lounge.yesterdayNetProfit)}`} tone={isProfitable ? 'good' : 'bad'} hint="per day" />
-                  </div>
-
-                  <div className="dim small" style={{ fontSize: '0.75rem' }}>
-                    Lifetime {lounge.lifetimePax.toLocaleString('en-IN')} pax · {fmtCompact(lounge.lifetimeRevenue)} snacks
-                  </div>
+                  <span className="small">
+                    <span className="dim">{cityPax.toLocaleString('en-IN')} pax/day · net </span>
+                    <b className={cityNet >= 0 ? 'good' : 'bad'}>{cityNet >= 0 ? '+' : ''}{fmtCompact(cityNet)}/day</b>
+                  </span>
                 </div>
-
-                {/* Card Actions */}
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
-                  <button className="small dim" onClick={() => setClosingLounge(lounge)}>
-                    Close…
-                  </button>
-                  <button className="small" onClick={() => startRefit(lounge)}>
-                    Refit…
-                  </button>
-                  {lounge.tier !== 'business' && (
-                    <button className="small primary" onClick={() => setUpgradingLounge(lounge)}>
-                      Upgrade…
-                    </button>
-                  )}
+                <div className="xscroll">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>Lounge</th>
+                        <th>Tier</th>
+                        <th className="num">Pax</th>
+                        <th className="num">Snacks</th>
+                        <th className="num">Opex</th>
+                        <th className="num">Net</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.map((lounge) => {
+                        const tierDef = getLoungeTierDef(lounge.tier)
+                        const pkgOf = loungePackageOf(lounge, s.config?.passengerConfig)
+                        const tierName = lounge.tier === 'business' ? 'Executive' : lounge.tier === 'premium' ? 'Premium' : 'Express'
+                        const opex = lounge.yesterdayRentExpense + lounge.yesterdayElectricExpense + lounge.yesterdayStaffExpense
+                        const isProfitable = lounge.yesterdayNetProfit >= 0
+                        return (
+                          <tr key={lounge.id}>
+                            <td style={{ maxWidth: 220 }}>
+                              <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`Opened ${fmtDate(lounge.openedDay)}`}>{lounge.locationName}</div>
+                              <div className="dim small">{pkgOf.seats} seats · {tierDef.sqft} sq ft</div>
+                            </td>
+                            <td>
+                              <span className={`pill small ${lounge.tier === 'business' ? 'good' : lounge.tier === 'premium' ? 'primary' : 'dim'}`} title={tierDef.label}>{tierName}</span>
+                              {lounge.tier !== 'express' && <span className="pill small primary" style={{ marginLeft: 4 }} title="Unlocks charter inquiries from this city">Charter</span>}
+                            </td>
+                            <td className="num" title={`${pkgOf.capacity} a day capacity`}>
+                              {lounge.yesterdayPax}
+                              <div className="dim small">{Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% of {pkgOf.capacity.toLocaleString('en-IN')}</div>
+                            </td>
+                            <td className="num good">+{fmtCompact(lounge.yesterdaySnackRevenue)}</td>
+                            <td className="num bad">−{fmtCompact(opex)}</td>
+                            <td className={`num ${isProfitable ? 'good' : 'bad'}`}><b>{isProfitable ? '+' : ''}{fmtCompact(lounge.yesterdayNetProfit)}</b></td>
+                            <td className="num nowrap">
+                              <button className="small dim" onClick={() => setClosingLounge(lounge)}>Close…</button>{' '}
+                              <button className="small" onClick={() => startRefit(lounge)}>Refit…</button>
+                              {lounge.tier !== 'business' && <>{' '}<button className="small primary" onClick={() => setUpgradingLounge(lounge)}>Upgrade…</button></>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="dim small" style={{ marginTop: 4, textAlign: 'right' }}>
+                  {group.map((l) => `${l.locationName}: ${l.lifetimePax.toLocaleString('en-IN')} pax`).join(' · ')}
                 </div>
               </div>
             )
