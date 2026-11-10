@@ -284,7 +284,7 @@ export function LoungesPage() {
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                    <LoungeKpi label="Waiting pax" value={`${lounge.yesterdayPax}`} hint={`${Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% of ${pkgOf.capacity} seats`} />
+                    <LoungeKpi label="Waiting pax" value={`${lounge.yesterdayPax}`} hint={`${Math.round((lounge.yesterdayPax / pkgOf.capacity) * 100)}% of ${pkgOf.capacity.toLocaleString('en-IN')} a day`} />
                     <LoungeKpi label="Snack margin" value={`+${fmtCompact(lounge.yesterdaySnackRevenue)}`} tone="good" hint="per day" />
                     <LoungeKpi label="Opex" value={`−${fmtCompact(lounge.yesterdayRentExpense + lounge.yesterdayElectricExpense + lounge.yesterdayStaffExpense)}`} tone="bad" hint="rent, power, staff" />
                     <LoungeKpi label="Net" value={`${isProfitable ? '+' : ''}${fmtCompact(lounge.yesterdayNetProfit)}`} tone={isProfitable ? 'good' : 'bad'} hint="per day" />
