@@ -468,8 +468,6 @@ export function RoutesPage() {
                 <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('km')}>Km {renderSortArrow('km')}</span>
                 {' · '}
                 <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('hours')}>h {renderSortArrow('hours')}</span>
-                <br />
-                <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('fare')}>Fare {renderSortArrow('fare')}</span>
               </th>
               <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('demand')}>
                 Pax/day {renderSortArrow('demand')}

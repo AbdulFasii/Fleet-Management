@@ -98,7 +98,7 @@ function laneMargin(lane: CargoLaneDay): number {
   return lane.revenue > 0 ? laneContribution(lane) / lane.revenue : 0
 }
 
-type CorridorSortKey = 'corridor' | 'trips' | 'cap' | 'hauled' | 'fill' | 'yield' | 'revenue' | 'profit' | 'margin'
+type CorridorSortKey = 'corridor' | 'trips' | 'cap' | 'hauled' | 'fill' | 'yield' | 'revenue' | 'profit' | 'margin' | 'market'
 
 type CorridorRow = CargoLaneDay & { label: string; corridorKey: string; route: RouteDef }
 
@@ -298,10 +298,33 @@ export function CargoPage() {
     return { mtd, corridors, total }
   }, [s, monthKey, laneDays])
 
-  const sortedCorridors = useMemo(
-    () => sortCorridorRows(history.corridors, sortKey, sortDesc),
-    [history.corridors, sortKey, sortDesc],
-  )
+  const todayChannels = useMemo(() => {
+    const t = emptyCargoLaneDay()
+    for (const days of Object.values(s.routeHistory ?? {})) {
+      for (const d of days ?? []) {
+        if (d.day !== s.day || !d.cargo) continue
+        for (const dir of ['AB', 'BA'] as const) {
+          const lane = d.cargo[dir]
+          if (lane) addLane(t, lane)
+        }
+      }
+    }
+    return t
+  }, [s])
+
+  const marketByRoute = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of cargoPoolsForView(s)) m.set(p.routeId, (m.get(p.routeId) ?? 0) + p.parcelMarketKg + p.bulkMarketKg)
+    return m
+  }, [s])
+
+  const sortedCorridors = useMemo(() => {
+    if (sortKey !== 'market') return sortCorridorRows(history.corridors, sortKey, sortDesc)
+    return [...history.corridors].sort((a, b) => {
+      const d = (marketByRoute.get(a.route.id) ?? 0) - (marketByRoute.get(b.route.id) ?? 0)
+      return sortDesc ? -d : d
+    })
+  }, [history.corridors, sortKey, sortDesc, marketByRoute])
 
   const contractRows = useMemo(() => {
     const led = s.company.cargoHaulDay
@@ -386,6 +409,26 @@ export function CargoPage() {
       {tab === 'today' && (
         <>
           {(() => {
+            const t = todayChannels
+            const share = (v: number) => (t.revenue > 0 ? pct(v / t.revenue) : '—')
+            return (
+              <Panel title="Today by channel" flat>
+                <table className="data">
+                  <thead>
+                    <tr><th>Channel</th><th className="num">Hauled</th><th className="num">Revenue</th><th className="num">Share</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Shop (counter walk-ins)</td><td className="num">{tonnes(t.walkupKg)} T</td><td className="num"><M v={t.walkupRevenue} /></td><td className="num muted">{share(t.walkupRevenue)}</td></tr>
+                    <tr><td>Walk-in spot parcels</td><td className="num">{tonnes(t.spotKg)} T</td><td className="num"><M v={t.spotRevenue} /></td><td className="num muted">{share(t.spotRevenue)}</td></tr>
+                    <tr><td>Contracts</td><td className="num">{tonnes(t.contractKg)} T</td><td className="num"><M v={t.contractRevenue} /></td><td className="num muted">{share(t.contractRevenue)}</td></tr>
+                    <tr className="total"><td><b>Total</b></td><td className="num">{tonnes(t.kg)} T</td><td className="num"><M v={t.revenue} /></td><td className="num">{t.revenue > 0 ? '100%' : '—'}</td></tr>
+                  </tbody>
+                </table>
+              </Panel>
+            )
+          })()}
+
+          {(() => {
             const pools = cargoPoolsForView(s)
             if (pools.length === 0) return <Panel flat><Empty text="No cargo lanes running today." /></Panel>
             const market = pools.reduce((a, p) => a + p.parcelMarketKg + p.bulkMarketKg, 0)
@@ -402,11 +445,10 @@ export function CargoPage() {
                     <thead>
                       <tr>
                         <th>Lane</th>
-                        <th className="num">Market</th>
-                        <th className="num">Booked</th>
-                        <th className="num">Contract due</th>
-                        <th className="num">Loaded</th>
-                        <th className="num">Runs</th>
+                        <th className="num" title="Kilograms booked so far today, and share of the market">Booked</th>
+                        <th className="num" title="Kilograms a contract needs moved today">Contract due</th>
+                        <th className="num" title="Kilograms already loaded onto trucks and coaches">Loaded</th>
+                        <th className="num" title="Departures run today out of planned">Trips run</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -415,11 +457,21 @@ export function CargoPage() {
                         return (
                           <tr key={p.laneKey}>
                             <td><b>{route ? cargoLegLabel(route, p.direction) : p.laneKey}</b></td>
-                            <td className="num">{tonnes(p.parcelMarketKg + p.bulkMarketKg)} T</td>
-                            <td className="num">{tonnes(p.parcelBookKg + p.bulkBookKg)} T</td>
-                            <td className="num">{p.contractDueKg > 0 ? fmtWeightShort(p.contractDueKg) : '—'}</td>
-                            <td className="num good"><b>{fmtWeightShort(p.parcelLoadedKg + p.bulkLoadedKg)}</b></td>
-                            <td className="num muted">{p.departuresServed}/{p.departuresPlanned || '—'}</td>
+                            {(() => {
+                              const mkt = p.parcelMarketKg + p.bulkMarketKg
+                              const bkd = p.parcelBookKg + p.bulkBookKg
+                              const share = mkt > 0 ? bkd / mkt : 0
+                              const loadedKg = p.parcelLoadedKg + p.bulkLoadedKg
+                              const short = p.contractDueKg > 0 && loadedKg < p.contractDueKg
+                              return (
+                                <>
+                                  <td className="num">{tonnes(bkd)} T</td>
+                                  <td className={`num ${short ? 'warn' : ''}`}>{p.contractDueKg > 0 ? fmtWeightShort(p.contractDueKg) : '—'}</td>
+                                  <td className="num good"><b>{fmtWeightShort(loadedKg)}</b></td>
+                                  <td className="num">{p.departuresServed} of {p.departuresPlanned || '—'}</td>
+                                </>
+                              )
+                            })()}
                           </tr>
                         )
                       })}
@@ -488,6 +540,7 @@ export function CargoPage() {
                       ['revenue', 'Revenue'],
                       ['profit', 'Profit'],
                       ['margin', 'Margin'],
+                      ['market', 'Market today'],
                     ] as const).map(([key, label]) => (
                       <th key={key} className={`${key === 'corridor' ? '' : 'num'} ${sortKey === key ? 'sorted' : ''}`} onClick={() => applySort(key)} title="Sort">
                         {label}{sortKey === key ? (sortDesc ? ' ▾' : ' ▴') : ''}
@@ -504,6 +557,9 @@ export function CargoPage() {
                     const licence = cargoLicence(s, c.route.id)
                     const licensed = cargoPermitActive(s, c.route.id)
                     const daysLeft = licence ? Math.max(0, licence.expiryDay - s.day) : 0
+                    const marketToday = cargoPoolsForView(s)
+                      .filter((p) => p.routeId === c.route.id)
+                      .reduce((a, p) => a + p.parcelMarketKg + p.bulkMarketKg, 0)
                     return (
                       <tr key={c.corridorKey}>
                         <td>
@@ -521,6 +577,7 @@ export function CargoPage() {
                         <td className="num"><M v={c.revenue} /></td>
                         <td className={`num ${profit >= 0 ? 'good' : 'bad'}`}><b><M v={profit} /></b></td>
                         <td className={`num ${laneMargin(c) >= 0 ? '' : 'bad'}`} title="Profit as a share of freight revenue">{c.revenue > 0 ? pct(laneMargin(c)) : '—'}</td>
+                        <td className="num">{marketToday > 0 ? `${tonnes(marketToday)} T` : '—'}</td>
                         <td className="num">
                           {licensed ? (
                             daysLeft <= 45 ? (
@@ -549,6 +606,7 @@ export function CargoPage() {
                     <td className="num"><M v={history.total.revenue} /></td>
                     <td className={`num ${laneContribution(history.total) >= 0 ? 'good' : 'bad'}`}><M v={laneContribution(history.total)} /></td>
                     <td className="num">{history.total.revenue > 0 ? pct(laneMargin(history.total)) : '—'}</td>
+                    <td className="num">{tonnes(cargoPoolsForView(s).reduce((a, p) => a + p.parcelMarketKg + p.bulkMarketKg, 0))} T</td>
                     <td />
                   </tr>
                 </tbody>
@@ -571,17 +629,40 @@ export function CargoPage() {
               {activeContracts.length === 0 ? (
                 <Empty text="No contracts signed." />
               ) : (
+                <>
+                  {(() => {
+                    const tally = { onTrack: 0, behind: 0, renew: 0, noTruck: 0 }
+                    for (const g of contractGroups) {
+                      const left = Math.min(...g.rows.map((r) => Math.max(0, r.c.expiresDay - s.day)))
+                      if (g.rows[0]?.cargoBuses === 0) tally.noTruck++
+                      else if (g.totals.shortfallMtd > 0) tally.behind++
+                      else if (left <= 14) tally.renew++
+                      else tally.onTrack++
+                    }
+                    const chip = (n: number, label: string, cls: string) => (
+                      <span className={`pill small ${cls}`} style={{ marginRight: 6 }}>{n} {label}</span>
+                    )
+                    return (
+                      <div className="muted" style={{ marginBottom: 8 }}>
+                        Lanes: {chip(tally.onTrack, 'on track', 'good')}
+                        {chip(tally.behind, 'behind', 'bad')}
+                        {chip(tally.renew, 'renew soon', 'warn')}
+                        {chip(tally.noTruck, 'no truck', 'bad')}
+                      </div>
+                    )
+                  })()}
                 <div className="xscroll">
                   <table className="data">
                     <thead>
                       <tr>
                         <th>Lane</th>
-                        <th className="num" title="Promised per operating day">Quota/day</th>
-                        <th className="num" title="Moved today vs promised">Today</th>
-                        <th className="num">Month</th>
-                        <th className="num" title="Promised kilograms not moved this month">Short</th>
-                        <th className="num" title="About 30 days of freight revenue">Run-rate</th>
-                        <th className="num">Left</th>
+                        <th>Status</th>
+                        <th className="num" title="Kilograms promised per operating day">Daily quota</th>
+                        <th className="num" title="Kilograms moved today, and share of the quota">Moved today</th>
+                        <th className="num" title="Kilograms moved so far this month">Moved this month</th>
+                        <th className="num" title="Promised kilograms not moved this month">Shortfall</th>
+                        <th className="num" title="Estimated freight revenue for 30 days">Est. 30-day value</th>
+                        <th className="num" title="Days until the earliest contract on this lane expires">Days left</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -589,26 +670,37 @@ export function CargoPage() {
                         const noTruck = group.rows[0]?.cargoBuses === 0
                         const fillToday = group.totals.promised > 0 ? group.totals.hauledToday / group.totals.promised : 0
                         const daysLeft = Math.min(...group.rows.map((r) => Math.max(0, r.c.expiresDay - s.day)))
+                        const status = noTruck
+                          ? { text: 'No truck', cls: 'bad', tip: 'No bus is assigned to this lane today' }
+                          : group.totals.shortfallMtd > 0
+                          ? { text: 'Behind', cls: 'bad', tip: 'Shipments are below quota this month' }
+                          : daysLeft <= 14
+                          ? { text: 'Renew soon', cls: 'warn', tip: 'Contract ends within 14 days' }
+                          : { text: 'On track', cls: 'good', tip: 'Meeting quota' }
                         return (
                           <tr key={group.laneKey}>
                             <td>
                               <b>{group.label}</b>
-                              {noTruck && <span className="bad ml8">no truck today</span>}
                               <div className="muted">{group.rows.map((r) => r.c.partner).join(' · ')}</div>
                             </td>
+                            <td title={status.tip}><span className={status.cls}>{status.text}</span></td>
                             <td className="num" title={fmtWeight(group.totals.promised)}>{fmtWeightShort(group.totals.promised)}</td>
                             <td className={`num ${group.totals.shortToday > 0 ? 'warn' : 'good'}`} title={`${fmtWeight(group.totals.hauledToday)} of ${fmtWeight(group.totals.promised)}`}>
                               {fmtWeightShort(group.totals.hauledToday)} <span className="muted">{Math.round(fillToday * 100)}%</span>
+                              <div style={{ height: 4, background: 'var(--bg3)', borderRadius: 2, marginTop: 3 }}>
+                                <div style={{ height: 4, width: `${Math.min(100, Math.round(fillToday * 100))}%`, background: fillToday >= 1 ? 'var(--good, #4a4)' : 'var(--warn, #c90)', borderRadius: 2 }} />
+                              </div>
                             </td>
                             <td className="num">{fmtWeightShort(group.totals.hauledMtd)}</td>
                             <td className={`num ${group.totals.shortfallMtd > 0 ? 'bad' : 'dim'}`}>{group.totals.shortfallMtd > 0 ? fmtWeightShort(group.totals.shortfallMtd) : '—'}</td>
                             <td className="num"><M v={group.totals.monthFull} /></td>
-                            <td className={`num ${daysLeft <= 14 ? 'warn' : ''}`}>{daysLeft}d</td>
+                            <td className={`num ${daysLeft <= 14 ? 'warn' : ''}`}>{daysLeft} days</td>
                           </tr>
                         )
                       })}
                       <tr className="total">
                         <td><b>All</b> <span className="muted">{activeContracts.length} deals · {contractGroups.length} lanes</span></td>
+                        <td />
                         <td className="num">{fmtWeightShort(contractTotals.promised)}</td>
                         <td className={`num ${contractTotals.shortToday > 0 ? 'warn' : 'good'}`}>{fmtWeightShort(contractTotals.hauledToday)}</td>
                         <td className="num">{fmtWeightShort(contractTotals.hauledMtd)}</td>
@@ -619,6 +711,7 @@ export function CargoPage() {
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </Panel>
 
