@@ -274,7 +274,7 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('pnq-nag', 710, 12, 1550, 0.75, 0.45, false, 0, 2.4, 10, 'Samruddhi expressway run. Students, government and trade volume.'),
     R('viz-ccu', 880, 17, 1850, 0.70, 0.50, false, 2200, 2.1, 15, 'NH16 trunk via Bhubaneswar. Business, students and coastal holidays.'),
     // —— Replaces the day hops: mid-haul, night haul, marathon and long marathon ——
-    R('koc-mys', 450, 9, 900, 0.7, 0.4, false, 1400, 2.1, 0, 'Malabar to Mysuru via Kannur and the Gundlupet gap. Tourist and trade flows.'),
+    R('koc-mys', 450, 9, 1100, 0.7, 0.4, false, 1400, 2.1, 0, 'Malabar to Mysuru via Kannur and the Gundlupet gap. Tourist and trade flows.'),
     R('cbe-pdy', 390, 7, 880, 0.7, 0.4, false, 900, 2.0, 0, 'Western TN to the coast via Salem and Villupuram. Pilgrim and student traffic.'),
     R('blr-nlr', 500, 9, 1150, 0.7, 0.4, false, 1600, 2.1, 0, 'Bengaluru to Nellore via Chittoor. Overnight sleepers into Andhra.'),
     R('mdu-pdy', 420, 8, 950, 0.7, 0.35, false, 800, 2.0, 0, 'Madurai to the coast via Trichy and Villupuram. Temple and beach traffic.'),
