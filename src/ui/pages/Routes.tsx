@@ -6,9 +6,7 @@ import {
   RIVALS,
   routeName,
   displayRouteHours,
-  getRouteCategory,
   haulTitle,
-  haulBrief,
   haulBriefFor,
   routeViaLabel,
   routeViaNames,
@@ -22,10 +20,8 @@ import { calculateRoutePlayerShare } from '../../engine/sim/rivals'
 import { getCorridorStance, isTripFrontRun, personalityOf, rivalMemory } from '../../engine/sim/rivalIntelligence'
 import { BAL } from '../../engine/data/balance'
 import { fmtCompact } from '../../engine/core/money'
-import { fmtDateShort } from '../../engine/core/calendar'
 import { statesOnRoute } from '../../engine/sim/schedules'
-import { cargoContractsOnCorridor, cargoLicence, cargoPermitActive, cargoPermitFee } from '../../engine/sim/cargo'
-import { getLoungeDemandBoost } from '../../engine/sim/lounge'
+import { cargoPermitActive } from '../../engine/sim/cargo'
 import { cityName } from '../../engine/data/cities'
 import type { GameState, Permit, CorridorStance, RouteDef } from '../../engine/types'
 import { Empty, M, Modal, Panel, PageHeader, GroupBadge } from '../bits'
@@ -45,7 +41,6 @@ export function RoutesPage() {
   const s = useDeferredGameState()!
   const g = useGameActions()
   const [confirmId, setConfirmId] = useState<string | null>(null)
-  const [confirmCargoId, setConfirmCargoId] = useState<string | null>(null)
 
   // Filters
   const [categoryFilter, setCategoryFilter] = useState<RouteCategory>('all')
@@ -469,20 +464,17 @@ export function RoutesPage() {
               <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('states')}>
                 States · papers {renderSortArrow('states')}
               </th>
-              <th>Seasonal · cargo</th>
               <th className="num nowrap">
                 <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('km')}>Km {renderSortArrow('km')}</span>
                 {' · '}
                 <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('hours')}>h {renderSortArrow('hours')}</span>
-              </th>
-              <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('fare')}>
-                Mkt fare (AC slpr) {renderSortArrow('fare')}
+                <br />
+                <span style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('fare')}>Fare {renderSortArrow('fare')}</span>
               </th>
               <th className="num" style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('demand')}>
-                Corridor pax/day {renderSortArrow('demand')}
+                Pax/day {renderSortArrow('demand')}
               </th>
               <th>Competitors & Share</th>
-              <th>Live effects</th>
               <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort('permit')}>
                 Permit {renderSortArrow('permit')}
               </th>
@@ -493,19 +485,8 @@ export function RoutesPage() {
             {sortedRoutes.map((r) => {
               const permit = getPermitForRoute(s, r.id)
               const locked = s.company.reputation < r.unlockRep
-              const closure = s.world.closures[r.id]
-              const shock = s.world.demandShock[r.id]
-              const war = s.world.priceWars[r.id]
               const rivalAction = s.world.rivalActions?.[r.id] ?? s.world.rivalActions?.[canonicalRouteId(r.id)]
-              const idx = s.world.fareIndex[r.id] ?? 1
               const schCount = Object.values(s.schedules).filter((sch) => canonicalRouteId(sch.routeId) === canonicalRouteId(r.id)).length
-              const cat = getRouteCategory(r)
-              const cargoLicenceRow = cargoLicence(s, r.id)
-              const cargoLicensed = cargoPermitActive(s, r.id)
-              const cargoFee = cargoPermitFee(r)
-              const cargoRenewalFee = cargoPermitFee(r, { renewal: true })
-              const cargoLeft = cargoLicenceRow ? cargoLicenceRow.expiryDay - s.day : 0
-              const liveCargoContracts = cargoContractsOnCorridor(s, r.id).length
 
               return (
                 <tr
@@ -526,52 +507,29 @@ export function RoutesPage() {
                       >
                         {routeName(r.id)}
                       </span>
-                      <span
-                        className="pill small"
-                        style={{ fontSize: 10, padding: '0 4px' }}
-                        title={haulBrief(r)}
-                      >
-                        {haulTitle(r)}
-                      </span>
                       {r.ghat && <span className="warn" title="Ghat sections: hairpin curves, monsoon risk"> ⛰</span>}
-                      {cat === 'interstate' ? (
-                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="Inter-state corridor (requires AITP)">⇄ Inter-State</span>
-                      ) : cat === 'south_state' ? (
-                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="South State internal corridor (State carriage)">South State</span>
-                      ) : (
-                        <span className="pill small" style={{ fontSize: 10, padding: '0 4px' }} title="Northern & Western corridor">▲ North</span>
-                      )}
                       {(() => {
                         const fromLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.from)
                         const toLounge = (s.company.lounges ?? []).find((l) => l.cityId === r.to)
                         if (!fromLounge && !toLounge) return null
+                        const title = [
+                          fromLounge && `Lounge in ${cityName(r.from)} (Tier ${fromLounge.tier})`,
+                          toLounge && `Lounge in ${cityName(r.to)} (Tier ${toLounge.tier})`,
+                        ].filter(Boolean).join(' · ')
                         return (
-                          <>
-                            {fromLounge && (
-                              <Link
-                                to="/lounges"
-                                className="pill small"
-                                style={{ fontSize: 10, padding: '0 4px', textDecoration: 'none' }}
-                                title={`Boarding Lounge in ${cityName(r.from)} (Tier ${fromLounge.tier}) — passenger waiting & snacks boost booking conversion`}
-                              >
-                                {cityName(r.from)} Lounge (T{fromLounge.tier})
-                              </Link>
-                            )}
-                            {toLounge && (
-                              <Link
-                                to="/lounges"
-                                className="pill small"
-                                style={{ fontSize: 10, padding: '0 4px', textDecoration: 'none' }}
-                                title={`Boarding Lounge in ${cityName(r.to)} (Tier ${toLounge.tier}) — return booking boost`}
-                              >
-                                {cityName(r.to)} Lounge (T{toLounge.tier})
-                              </Link>
-                            )}
-                          </>
+                          <Link to="/lounges" title={title} aria-label={title} style={{ textDecoration: 'none' }}>
+                            🛋
+                          </Link>
                         )
                       })()}
                     </div>
                     {r.notes && <div className="small faint">{r.notes}</div>}
+                    {routeViaNames(r.id).length > 0 && (
+                      <div className="small">
+                        <span className="dim">via </span>
+                        <span style={{ color: 'rgba(255, 255, 255, 0.6)' }}>{routeViaNames(r.id).join(', ')}</span>
+                      </div>
+                    )}
                   </td>
                   <td>
                     {(() => {
@@ -598,45 +556,20 @@ export function RoutesPage() {
                     {statesOnRoute(r).join(', ')}
                     <div className="dim">{r.interstate ? 'AITP' : 'State carriage'}</div>
                   </td>
-                  <td className="small">
-                    {permit?.seasonal?.status === 'active' && (
-                      <span className="good">
-                        seasonal to {fmtDateShort(permit.seasonal.expiryDay!)}
-                      </span>
-                    )}
-                    {permit?.seasonal?.status === 'applied' && (
-                      <span className="warn">seasonal applied ({s.day - permit.seasonal.appliedDay}d)</span>
-                    )}
-                    {permit?.seasonal?.status === 'expired' && (
-                      <span className="bad">seasonal expired</span>
-                    )}
-                    {!permit?.seasonal && <span className="dim">no seasonal</span>}
+                  <td className="num nowrap" style={{ verticalAlign: 'middle' }}>
                     <div>
-                    {cargoLicensed ? (
-                      <span className="good">
-                        cargo licensed
-                        {cargoLeft <= 45 && <span className="warn"> · renews in {cargoLeft}d</span>}
-                      </span>
-                    ) : cargoLicenceRow ? (
-                      <span className="bad">cargo lapsed</span>
-                    ) : permit?.status === 'active' ? (
-                      <span className="dim">no cargo · {fmtCompact(cargoFee)}/yr</span>
-                    ) : (
-                      <span className="faint">cargo needs permit</span>
-                    )}
-                    {liveCargoContracts > 0 && (
-                      <span className="dim"> · {liveCargoContracts} contract{liveCargoContracts === 1 ? '' : 's'}</span>
-                    )}
+                      {r.km} <span className="dim">·</span> <b>{displayRouteHours(r.hours)}h</b>
                     </div>
                   </td>
-                  <td className="num nowrap">
-                    {r.km} <span className="dim">·</span> <b>{displayRouteHours(r.hours)}h</b>
+                  <td className="num" style={{ verticalAlign: 'middle' }}>
+                    <div className="dim small">{r.baseDemand.toLocaleString()} pax</div>
+                    <div className="small">
+                      <span className={r.competition > 0.8 ? 'bad' : r.competition > 0.65 ? 'warn' : 'good'}>
+                        {r.competition > 0.8 ? 'brutal' : r.competition > 0.65 ? 'heavy' : 'moderate'}
+                      </span>
+                      {r.railCompetition > 0.55 && <span className="dim"> +rail</span>}
+                    </div>
                   </td>
-                  <td className="num">
-                    <M v={Math.round(r.marketFareAC * idx)} />
-                    <span className={idx > 1.05 ? 'good small' : idx < 0.95 ? 'bad small' : 'dim small'}> {idx > 1 ? '+' : ''}{Math.round((idx - 1) * 100)}%</span>
-                  </td>
-                  <td className="num">{r.baseDemand.toLocaleString()}</td>
                   <td>
                     {(() => {
                       const permit = getPermitForRoute(s, r.id)
@@ -648,30 +581,6 @@ export function RoutesPage() {
                       const pShare = hasActivePermit
                         ? (capInfo.dailySeats > 0 ? Math.max(capInfo.playerShare, share?.player ?? 0) : (share?.player ?? 0))
                         : 0
-
-                      // When player is 0%, competitors are 100%
-                      const competitorShare = Math.max(0, Math.round((100 - pShare) * 10) / 10)
-
-                      let rivalEntries = share?.byRival ? Object.entries(share.byRival) : []
-                      if (rivalEntries.length === 0) {
-                        const fallbackSeed = seedRouteShare(r.id, r.competition, RIVALS[r.id], pShare)
-                        rivalEntries = Object.entries(fallbackSeed.byRival)
-                      }
-
-                      // Compute average fare index & comfort for competitors
-                      let totalFareWeight = 0
-                      let totalComfortWeight = 0
-                      let totalWeight = 0
-                      for (const [id, val] of rivalEntries) {
-                        const rival = s.world.rivals?.[id] ?? RIVALS_DATA[id]
-                        if (rival) {
-                          totalFareWeight += rival.fareIndex * val
-                          totalComfortWeight += rival.comfort * val
-                          totalWeight += val
-                        }
-                      }
-                      const avgFare = totalWeight > 0 ? (totalFareWeight / totalWeight).toFixed(2) : '1.00'
-                      const avgComfort = totalWeight > 0 ? (totalComfortWeight / totalWeight).toFixed(1) : '7.0'
 
                       return (
                         <div>
@@ -688,14 +597,6 @@ export function RoutesPage() {
                           >
                             You {pShare}%{capInfo.dailySeats > 0 ? ` · ${capInfo.dailySeats} seats/day` : ''}
                           </div>
-                          <div className="dim small" title={`Rivals average ${avgFare}× fare, comfort ${avgComfort}`}>
-                            rivals {competitorShare}% ·{' '}
-                            <span className={r.competition > 0.8 ? 'bad' : r.competition > 0.65 ? 'warn' : 'good'}>
-                              {r.competition > 0.8 ? 'brutal' : r.competition > 0.65 ? 'heavy' : 'moderate'}
-                            </span>
-                            {r.railCompetition > 0.55 && <span> +rail</span>}
-                          </div>
-
                           {rivalAction && (
                             <div style={{ marginTop: 4 }}>
                               <button
@@ -738,39 +639,14 @@ export function RoutesPage() {
                       )
                     })()}
                   </td>
-                  <td className="small">
-                    {rivalAction && rivalAction.untilDay >= s.day && (
-                      <div className="warn font-semibold" style={{ marginBottom: 2 }}>
-                        ⚔️ {rivalAction.headline} ({rivalAction.untilDay - s.day}d)
-                      </div>
-                    )}
-                    {closure && closure.untilDay >= s.day && <div className="bad">CLOSED: {closure.reason} ({closure.untilDay - s.day}d)</div>}
-                    {war && !rivalAction && war.untilDay >= s.day && <div className="warn">price war −{Math.round(war.depth * 100)}% ({war.untilDay - s.day}d)</div>}
-                    {shock && shock.untilDay >= s.day && shock.untilDay - s.day < 400 && (
-                      <div className={shock.mult > 1 ? 'good' : 'bad'}>{shock.reason}: ×{shock.mult.toFixed(2)} ({shock.untilDay - s.day}d)</div>
-                    )}
-                    {s.world.expressways.includes(r.id) && <div className="info">expressway </div>}
-                    {(() => {
-                      const boost = getLoungeDemandBoost(s, r.id)
-                      if (boost > 1.0) {
-                        const pct = ((boost - 1.0) * 100).toFixed(1).replace(/\.0$/, '')
-                        return (
-                          <div className="good small" style={{ marginTop: 2 }}>
-                            Lounge lift: +{pct}% conversion
-                          </div>
-                        )
-                      }
-                      return null
-                    })()}
-                  </td>
-                  <td>
+                  <td style={{ verticalAlign: 'middle' }}>
                     {permit?.status === 'active' && (
-                      <span className="good">
+                      <div className="good">
                         active
                         {permit.expiryDay !== undefined && permit.expiryDay - s.day < 40 ? ` (renews ${permit.expiryDay - s.day}d)` : ''}
-                        {schCount > 0 && <span className="dim"> · {schCount} sched</span>}
-                      </span>
+                      </div>
                     )}
+                    {permit?.status === 'active' && schCount > 0 && <div className="dim">{schCount} sched</div>}
                     {permit?.status === 'applied' && <span className="warn">applied ({s.day - permit.appliedDay}d ago)</span>}
                     {!permit && (locked ? <span className="dim">rep {r.unlockRep}+ needed</span> : <span className="dim">none</span>)}
                   </td>
@@ -815,69 +691,6 @@ export function RoutesPage() {
                               onClick={() => g.applySeasonalPermit(permit.routeId || r.id)}
                             >
                               + seasonal
-                            </button>
-                          )}
-
-                          {cargoLicensed ? (
-                            <span className="flex" style={{ gap: 4 }}>
-                              {cargoLeft <= 45 && (
-                                <button
-                                  className="small"
-                                  title={`Renew cargo licence (${fmtCompact(cargoRenewalFee)} a year)`}
-                                  onClick={() => g.renewCargoPermit(r.id)}
-                                >
-                                  renew cargo
-                                </button>
-                              )}
-                              {confirmCargoId === r.id ? (
-                                <>
-                                  <button
-                                    className="small danger"
-                                    title={
-                                      liveCargoContracts > 0
-                                        ? `Surrender licence — closes ${liveCargoContracts} live contract(s) on this corridor`
-                                        : 'Surrender the cargo licence'
-                                    }
-                                    onClick={() => {
-                                      g.closeCargoPermit(r.id)
-                                      setConfirmCargoId(null)
-                                    }}
-                                  >
-                                    confirm close
-                                  </button>
-                                  <button className="small" onClick={() => setConfirmCargoId(null)}>
-                                    cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  className="small danger"
-                                  title={
-                                    liveCargoContracts > 0
-                                      ? `Surrender licence — closes ${liveCargoContracts} live contract(s) on this corridor`
-                                      : 'Surrender the cargo licence'
-                                  }
-                                  onClick={() => setConfirmCargoId(r.id)}
-                                >
-                                  close cargo
-                                </button>
-                              )}
-                            </span>
-                          ) : cargoLicenceRow ? (
-                            <button
-                              className="small"
-                              title={`Cargo licence lapsed — renew for ${fmtCompact(cargoRenewalFee)} a year`}
-                              onClick={() => g.renewCargoPermit(r.id)}
-                            >
-                              renew cargo
-                            </button>
-                          ) : (
-                            <button
-                              className="small primary"
-                              title={`Cargo licence · ${fmtCompact(cargoFee)} a year — unlocks freight contract invites in both directions`}
-                              onClick={() => g.openCargoPermit(r.id)}
-                            >
-                              + cargo
                             </button>
                           )}
 
