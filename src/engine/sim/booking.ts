@@ -334,7 +334,7 @@ function generateMarathonTrips(
   for (const leg of planMarathonLegs(sch, route, fromDay, toDay, s, physicalTrips)) {
     const line = s.buses[leg.busId]
     if (!line || line.status === 'delivery') continue
-    const runner = line.status === 'active' ? line : coveringSpare(s, leg.busId)
+    const runner = line.status === 'active' ? line : coverFor(s, busy, leg.busId)
     if (!runner || runner.status !== 'active') continue
 
     const id = tripKey(sch.id, leg.busId, leg.day, leg.dir)
@@ -697,10 +697,19 @@ function reviveTrip(
 interface BusyIndex {
   byBus: Map<ID, { id: string; start: number; end: number }[]>
   byTrip: Map<string, { busId: ID; start: number; end: number }>
+  /** Covering coach per grounded line coach, looked up once per generation pass (no bus changes state inside it). */
+  covers: Map<ID, ReturnType<typeof coveringSpare>>
+}
+
+function coverFor(s: GameState, busy: BusyIndex, lineBusId: ID): ReturnType<typeof coveringSpare> {
+  if (busy.covers.has(lineBusId)) return busy.covers.get(lineBusId)
+  const cover = coveringSpare(s, lineBusId)
+  busy.covers.set(lineBusId, cover)
+  return cover
 }
 
 function makeBusyIndex(s: GameState): BusyIndex {
-  const idx: BusyIndex = { byBus: new Map(), byTrip: new Map() }
+  const idx: BusyIndex = { byBus: new Map(), byTrip: new Map(), covers: new Map() }
   const minDay = s.day - 2
   for (const id in s.trips) {
     const t = s.trips[id]
@@ -759,7 +768,7 @@ function generateTripsForDay(
   sch.busIds.forEach((busId, k) => {
     const line = s.buses[busId]
     if (!line || line.status === 'delivery') return
-    const runner = (line.status === 'active' ? line : coveringSpare(s, busId))
+    const runner = (line.status === 'active' ? line : coverFor(s, busy, busId))
     if (!runner || runner.status !== 'active') return
 
     for (const leg of legsForDay(sch, route, d, busId, k, fest)) {

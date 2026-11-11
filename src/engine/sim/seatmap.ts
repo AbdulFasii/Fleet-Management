@@ -257,5 +257,20 @@ export function preferenceOrder(seats: TripSeat[], rand: () => number): number[]
     score[i] = seats[i]!.mult + rand() * 0.18
     order[i] = i
   }
+  if (n <= 64) {
+    // A coach has ~40 berths: a stable insertion sort (highest score first, ties keep seat order,
+    // exactly as Array.sort's stable result) beats a comparator callback per comparison.
+    for (let i = 1; i < n; i++) {
+      const idx = order[i]!
+      const sc = score[idx]!
+      let j = i - 1
+      while (j >= 0 && score[order[j]!]! < sc) {
+        order[j + 1] = order[j]!
+        j--
+      }
+      order[j + 1] = idx
+    }
+    return order
+  }
   return order.sort((a, b) => score[b]! - score[a]!)
 }

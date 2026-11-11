@@ -50,6 +50,7 @@ export const CITIES: Record<string, City> = {
   kkm: { id: 'kkm', name: 'Kanyakumari', state: 'Tamil Nadu', metro: 0.08, pickups: 2 },
   // Northern & Western hubs
   del: { id: 'del', name: 'Delhi NCR', state: 'Delhi', metro: 1.0, pickups: 7 },
+  srinagar: { id: 'srinagar', name: 'Srinagar', state: 'Jammu & Kashmir', metro: 0.5, pickups: 3 },
   jai: { id: 'jai', name: 'Jaipur', state: 'Rajasthan', metro: 0.55, pickups: 4 },
   ixc: { id: 'ixc', name: 'Chandigarh', state: 'Chandigarh', metro: 0.45, pickups: 4 },
   lko: { id: 'lko', name: 'Lucknow', state: 'Uttar Pradesh', metro: 0.6, pickups: 4 },
@@ -118,6 +119,7 @@ export const CITY_FREIGHT: Record<string, CityFreightProfile> = {
   pdy: { tier: 'commercial', shipIndex: 0.35, attractIndex: 0.45, mixBias: { fmcg: 0.40, mixed: 0.30, textiles: 0.15, hardware: 0.10, agri: 0.05 } },
   kkm: { tier: 'town', shipIndex: 0.18, attractIndex: 0.25, mixBias: { agri: 0.40, mixed: 0.30, fmcg: 0.20, textiles: 0.05, hardware: 0.05 } },
   del: { tier: 'metro', shipIndex: 1.00, attractIndex: 1.00, mixBias: { fmcg: 0.35, mixed: 0.25, textiles: 0.20, hardware: 0.15, agri: 0.05 } },
+  srinagar: { tier: 'town', shipIndex: 0.20, attractIndex: 0.30, mixBias: { hardware: 0.35, agri: 0.25, mixed: 0.20, fmcg: 0.15, textiles: 0.05 } },
   jai: { tier: 'commercial', shipIndex: 0.65, attractIndex: 0.65, mixBias: { textiles: 0.45, mixed: 0.25, hardware: 0.15, fmcg: 0.10, agri: 0.05 } },
   ixc: { tier: 'commercial', shipIndex: 0.55, attractIndex: 0.65, mixBias: { fmcg: 0.40, mixed: 0.30, hardware: 0.15, textiles: 0.10, agri: 0.05 } },
   lko: { tier: 'commercial', shipIndex: 0.60, attractIndex: 0.70, mixBias: { textiles: 0.35, fmcg: 0.30, mixed: 0.20, hardware: 0.10, agri: 0.05 } },

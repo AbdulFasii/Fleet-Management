@@ -32,10 +32,26 @@ export function hashStr(s: string): number {
 export function rngFor(seed: number, ...keys: (string | number)[]): Rng {
   let h = seed >>> 0
   for (const k of keys) {
-    h = (h ^ hashStr(String(k))) >>> 0
+    h = (h ^ keyHash(k)) >>> 0
     h = Math.imul(h, 0x9e3779b1) >>> 0
   }
   return mulberry32(h)
+}
+
+/**
+ * Stream names ('alloc', 'arrivals', 'cxl'…) and day numbers are hashed again for every trip, every
+ * day. Short keys come from a small set, so their hashes are remembered; long ids (trip ids) are
+ * almost all distinct and are hashed directly. Same values either way.
+ */
+const shortKeyHashes = new Map<string | number, number>()
+function keyHash(k: string | number): number {
+  if (typeof k === 'string' ? k.length > 12 : false) return hashStr(k as string)
+  let v = shortKeyHashes.get(k)
+  if (v === undefined) {
+    v = hashStr(String(k))
+    if (shortKeyHashes.size < 4096) shortKeyHashes.set(k, v)
+  }
+  return v
 }
 
 /** Integer in [a, b] inclusive. */

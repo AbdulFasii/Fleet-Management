@@ -585,10 +585,13 @@ export const BAL = {
    */
   layoutDuration: {
     preferences: {
-      short: { seater: 0.70, sleeper: 0.30, hybrid: 0.50 },
-      mid: { seater: 0.40, sleeper: 0.60, hybrid: 0.50 },
-      overnight: { seater: 0.30, sleeper: 0.70, hybrid: 0.50 },
-      long: { seater: 0.20, sleeper: 0.80, hybrid: 0.50 },
+      // semi: the 2+2 pushback coach. Its primary market was sub-6h hops,
+      // which are gone, so on 6-8h mid-haul it now sits between seater and
+      // sleeper instead of as a plain seater. Short/overnight/long unchanged.
+      short: { seater: 0.70, sleeper: 0.30, semi: 0.70, hybrid: 0.50 },
+      mid: { seater: 0.40, sleeper: 0.60, semi: 0.55, hybrid: 0.50 },
+      overnight: { seater: 0.30, sleeper: 0.70, semi: 0.30, hybrid: 0.50 },
+      long: { seater: 0.20, sleeper: 0.80, semi: 0.20, hybrid: 0.50 },
     },
     /**
      * Hybrid coaches carry both products, so each zone gets its own demand
@@ -638,6 +641,12 @@ export const BAL = {
     semiDay: 1.06, // 05:30-10:30 / 15:30-20:30
     semiMidday: 0.96,
     semiLateNight: 0.52, // 23:30-05:30 dead of night for seats
+    // Morning/evening shoulder on 6-8h runs. Was 0.88 (blended into the
+    // day-hop value); semis are now the morning product on these hauls.
+    semiMidHaulShoulder: 1.15,
+    // Departure-clock appeal for a semi on a 6-8h run leaving 05:30-08:30.
+    // Replaces the class-agnostic 0.78 so the semi stops taking the off-peak fill penalty.
+    semiMorningMid: 1.08,
   },
 
   /**

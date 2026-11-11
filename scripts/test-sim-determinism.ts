@@ -8,10 +8,22 @@ import { applyDecision } from '../src/engine/sim/events'
 import type { GameState } from '../src/engine/types'
 import { pathToFileURL } from 'node:url'
 
-export function buildProbeFixture(fleetTarget = 60, seed = 4242, models = ['leyacsleep2', 'volvo9400semi', 'volvo9400']): GameState {
+/** Models that can still be bought new, for fixtures beyond ~60 coaches. */
+export const LARGE_FLEET_MODELS = ['leyacsleep2', 'volvo9600s', 'volvo9600']
+const LARGE_FLEET_ROUTES = ['maa-mdu', 'maa-blr', 'blr-hyd', 'maa-cbe', 'mdu-trv', 'maa-try', 'maa-hyd', 'blr-goa', 'maa-koc', 'blr-koc',
+  'maa-trv', 'blr-mdu', 'hyd-vga', 'maa-vga', 'blr-cbe', 'maa-mys', 'blr-trv', 'hyd-cbe', 'maa-goa', 'blr-clt']
+
+/**
+ * `large` builds a genuinely big fleet: the default fixture orders models that are no longer sold
+ * new and runs out of cash near 65 coaches, so asking it for 140 or 250 silently built ~60.
+ * The default (non-large) path is unchanged, so the checked-in sim reference stays valid.
+ */
+export function buildProbeFixture(fleetTarget = 60, seed = 4242, models = ['leyacsleep2', 'volvo9400semi', 'volvo9400'], large = false): GameState {
   const s: GameState = newGame('Perf Probe', 'malik', 'maa-mdu', seed)
-  s.company.cash = 100_000_000_000
-  const ROUTE_IDS = ['maa-mdu', 'maa-blr', 'blr-hyd', 'maa-cbe', 'mdu-trv', 'maa-tir', 'maa-hyd', 'blr-goa']
+  s.company.cash = large ? 1e15 : 100_000_000_000
+  const ROUTE_IDS = large
+    ? LARGE_FLEET_ROUTES
+    : ['maa-mdu', 'maa-blr', 'blr-hyd', 'maa-cbe', 'mdu-trv', 'maa-tir', 'maa-hyd', 'blr-goa']
 
   function openPermit(routeId: string): void {
     if (s.permits[routeId]?.status === 'active') return
@@ -95,6 +107,7 @@ export function buildProbeFixture(fleetTarget = 60, seed = 4242, models = ['leya
 
   for (let day = 0; day < 60; day++) {
     settleDecisions()
+    if (large) s.company.cash = 1e15
     topUpFleet()
     advanceDay(s)
     crewFleet()

@@ -105,6 +105,8 @@ export const RIVALS: Record<string, string[]> = {
   'del-lko': ['Zingbus', 'IntrCity SmartBus', 'UPSRTC', 'FlixBus'],
   'del-agr': ['Zingbus', 'IntrCity SmartBus', 'UPSRTC'],
   'mum-amd': ['VRL', 'SRS Travels', 'IntrCity SmartBus', 'Neeta Tours'],
+  'del-srinagar': ['Zingbus', 'IntrCity SmartBus', 'FlixBus', 'RSRTC'],
+  'del-nag': ['VRL', 'Zingbus', 'National Travels', 'MSRTC'],
 
   // South to North / West / East Prestige Marathons
   'blr-nag': ['VRL', 'Orange Travels', 'KSRTC Airavat', 'Hans Travels'],
@@ -285,7 +287,8 @@ export const ROUTES: Record<string, RouteDef> = Object.fromEntries(
     R('blr-smg', 280, 6, 650, 0.6, 0.15, true, 900, 1.9, 0, 'Bengaluru to the Malnad gateway on NH206 and NH48. Day-and-evening runs; Jog and temple traffic.'),
     R('jai-ixc', 520, 9, 1100, 0.7, 0.5, false, 1500, 2.1, 0, 'Jaipur to Chandigarh through Delhi NCR. Overnight sleepers for traders and students.'),
     R('amd-jai', 670, 12, 1400, 0.65, 0.45, false, 1800, 2.0, 5, 'Gujarat to Rajasthan on NH48. Two drivers; trade and pilgrim sleepers.'),
-    R('bhp-del', 750, 13, 1550, 0.6, 0.5, false, 2000, 2.0, 5, 'Central India to the capital via Gwalior and Agra. Two drivers; government and student sleepers.'),
+    R('del-srinagar', 850, 16, 2000, 0.45, 0.10, true, 2400, 2.2, 25, 'Mountain run over Banihal. Two drivers; tourist and army-leave traffic.'),
+    R('del-nag', 1100, 20, 2100, 0.65, 0.50, false, 2600, 2.2, 15, 'Long NH44 marathon into Vidarbha. Two drivers; trade and student sleepers.'),
     R('hyd-rpr', 780, 14, 1600, 0.6, 0.35, false, 2000, 2.0, 5, 'Telangana to Chhattisgarh via Nagpur. Two drivers; business and migrant sleepers.'),
     R('viz-nag', 890, 15, 1800, 0.55, 0.45, false, 2200, 2.1, 10, 'East coast to Vidarbha across the Eastern Ghats. Two drivers; port and trade sleepers.'),
     R('amd-del', 920, 15, 1850, 0.55, 0.55, false, 2300, 2.1, 10, 'Western marathon from Ahmedabad to Delhi via Jaipur. Two drivers; premium sleepers.'),

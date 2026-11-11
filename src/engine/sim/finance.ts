@@ -129,7 +129,9 @@ const ROUTE_HISTORY_DAYS = BAL.routeHistoryDays
 export function routeDayFor(s: GameState, routeId: string, day: number): RouteDayStats {
   if (!s.routeHistory) s.routeHistory = {}
   const list = (s.routeHistory[routeId] ??= [])
-  const found = list.find((r) => r.day === day)
+  // Rows are kept in day order and today's is almost always last, so look there before scanning.
+  const last = list[list.length - 1]
+  const found = last && last.day === day ? last : list.find((r) => r.day === day)
   if (found) {
     if (!found.byLayout) found.byLayout = {}
     if (!found.byBrand) found.byBrand = {}

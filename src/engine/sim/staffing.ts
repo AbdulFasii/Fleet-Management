@@ -719,16 +719,23 @@ export function isDriverEligibleForTrip(
 }
 
 export function hasUnfilledHpDuty(s: GameState): boolean {
+  // One pass over staff to learn which buses already have an HP driver, instead of rescanning
+  // every employee for every bus (this runs on each spare-driver pick, so it was quadratic).
+  let busesWithHp: Set<string> | undefined
   for (const b of Object.values(s.buses ?? {})) {
     if (b.status !== 'active' || b.ownership === 'attached') continue
     if (!modelNeedsHp(b.modelId)) continue
     const sch = b.scheduleId ? s.schedules[b.scheduleId] : undefined
     if (!sch || !sch.active) continue
-    const drvs = Object.values(s.staff ?? {}).filter(
-      (st) => st.busId === b.id && (st.role === 'driver' || (st.role as string) === 'co_driver'),
-    )
-    const hasHp = drvs.some((st) => st.licenceClass === 'HMV_HP')
-    if (!hasHp) return true
+    if (!busesWithHp) {
+      busesWithHp = new Set()
+      for (const st of Object.values(s.staff ?? {})) {
+        if (st.busId && st.licenceClass === 'HMV_HP' && (st.role === 'driver' || (st.role as string) === 'co_driver')) {
+          busesWithHp.add(st.busId)
+        }
+      }
+    }
+    if (!busesWithHp.has(b.id)) return true
   }
   return false
 }

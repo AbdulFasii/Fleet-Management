@@ -122,6 +122,8 @@ let advanceRun = 0
 
 /** Main-thread budget per slice of a day or week advance, so the browser paints in between. */
 const ADVANCE_SLICE_MS = 10
+/** Longer slice while a multi-day skip runs: fewer yields and a faster skip, still ~25 fps. */
+const SKIP_SLICE_MS = 40
 
 /**
  * Hand control back to the browser and continue soon after. A MessageChannel task does not get
@@ -1290,6 +1292,23 @@ function migrate(raw: unknown): GameState | null {
     // as the same freight option offered twice.
     if (s.company.dedicatedCargoSubsidiary) fleet.syncCargoListings(s)
   }
+  if (fromVersion < 34) {
+    // bhp-del was retired for del-srinagar / del-nag. Drop schedules on routes
+    // that no longer exist, their open trips, and release their coaches.
+    const orphanIds = Object.values(s.schedules ?? {})
+      .filter((sch) => !ROUTES[sch.routeId])
+      .map((sch) => sch.id)
+    if (orphanIds.length) {
+      const orphanSet = new Set(orphanIds)
+      for (const t of Object.values(s.trips ?? {})) {
+        if (orphanSet.has(t.scheduleId) && t.status === 'open') delete s.trips[t.id]
+      }
+      for (const id of orphanIds) schedules.deleteSchedule(s, id)
+      s.pendingMigrationNotice =
+        `Game Updated: ${orphanIds.length} service(s) on a route that has been retired were removed and their coaches released.`
+      s.pendingMigrationInboxEntry = true
+    }
+  }
 
   // Re-quote any pending festival charter decisions with corrected profitable tariffs
   for (const d of s.decisions ?? []) {
@@ -1697,11 +1716,12 @@ export const useGame = create<GameStore>()(
           return
         }
         const sliceStart = performance.now()
+        const sliceMs = days > 1 ? SKIP_SLICE_MS : ADVANCE_SLICE_MS
         try {
           while (advanced < days && !stop) {
             if (!steps) steps = advanceDaySteps(draft)
             if (!steps.next().done) {
-              if (performance.now() - sliceStart > ADVANCE_SLICE_MS) break
+              if (performance.now() - sliceStart > sliceMs) break
               continue
             }
             // A whole day is done: the state is consistent again.
@@ -1723,7 +1743,7 @@ export const useGame = create<GameStore>()(
               // each day cost more than the day itself; the pages update once at the end.
               set({ skipProgress: { done: advanced, total: days } })
             }
-            if (performance.now() - sliceStart > ADVANCE_SLICE_MS) break
+            if (performance.now() - sliceStart > sliceMs) break
           }
         } catch (err: any) {
           console.error('advanceDay error:', err)

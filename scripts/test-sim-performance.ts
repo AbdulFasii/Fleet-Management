@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { Session } from 'node:inspector'
-import { buildProbeFixture } from './test-sim-determinism'
+import { buildProbeFixture, LARGE_FLEET_MODELS } from './test-sim-determinism'
 import { advanceDay } from '../src/engine/tick'
 import { applyDecision } from '../src/engine/sim/events'
 import { unassignBus, assignBus } from '../src/engine/sim/schedules'
@@ -38,7 +38,8 @@ const timings: { fleet: number; samples: number[]; medianMs: number }[] = []
 mkdirSync('.profiles', { recursive: true })
 
 for (const fleet of fleets) {
-  const fixture = buildProbeFixture(fleet)
+  // Timing runs build a real fleet of the requested size; the hash check keeps the original fixture.
+  const fixture = benchmark || profile ? buildProbeFixture(fleet, 4242, LARGE_FLEET_MODELS, true) : buildProbeFixture(fleet)
   if (benchmark || profile) {
     const samples: number[] = []
     const session = new Session()

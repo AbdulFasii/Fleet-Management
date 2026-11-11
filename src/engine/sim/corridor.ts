@@ -96,7 +96,20 @@ export function layoutDurationPreference(cls: BusClassId, hours: number): number
   const prefs = BAL.layoutDuration.preferences[cat]
   if (fam === 'sleeper') return prefs.sleeper
   if (fam === 'hybrid') return prefs.hybrid
+  if (fam === 'semi') return prefs.semi
   return prefs.seater
+}
+
+/** Earliest start and latest end of a haul band's prime windows (HAUL_WINDOWS is constant). */
+const primeSpans = new Map<HaulStyle, { from: number; to: number }>()
+function primeSpan(style: HaulStyle): { from: number; to: number } {
+  let span = primeSpans.get(style)
+  if (!span) {
+    const wins = HAUL_WINDOWS[style]
+    span = { from: Math.min(...wins.map((w) => w[0])), to: Math.max(...wins.map((w) => w[1])) }
+    primeSpans.set(style, span)
+  }
+  return span
 }
 
 export function haulWeights(hours: number): { short: number; mid: number; long: number } {
@@ -161,8 +174,7 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
       return { appeal: 1.20 + clsBonus, isPeak: true, isOffPeak: false }
     }
     // Shoulder: two hours before the prime window, or late night after it until 01:00
-    const primeFrom = Math.min(...HAUL_WINDOWS[style].map((w) => w[0]))
-    const primeTo = Math.max(...HAUL_WINDOWS[style].map((w) => w[1]))
+    const { from: primeFrom, to: primeTo } = primeSpan(style)
     if ((h >= primeFrom - 2 && h < primeFrom) || (h > primeTo || h <= 1.0)) {
       return { appeal: 0.95, isPeak: false, isOffPeak: false }
     }
@@ -205,7 +217,9 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
     }
     // Early morning 05:30 - 08:30 (reaches by 12:00-15:00)
     if (h >= 5.5 && h <= 8.5) {
-      return { appeal: 0.78, isPeak: false, isOffPeak: false }
+      // Semi-sleepers are the morning product on 6-8h runs; everything else keeps the commuter-run-up value.
+      const morningAppeal = cls && familyOf(cls) === 'semi' ? BAL.classHourFit.semiMorningMid : 0.78
+      return { appeal: morningAppeal, isPeak: false, isOffPeak: false }
     }
     // Late morning / Midday 08:30 - 14:00 (arrives evening)
     if (h > 8.5 && h <= 14.0) {
@@ -227,9 +241,9 @@ export function classHourAppeal(cls: BusClassId, depHour: number, depMin: number
   const hw = haulWeights(hours)
   // "Night" for coach-type fit follows the band's prime window.
   const style = haulStyleOfHours(hours)
-  const wins = HAUL_WINDOWS[style]
-  const nightFrom = Math.min(...wins.map((w) => w[0]))
-  const nightTo = Math.min(23.5, Math.max(...wins.map((w) => w[1])))
+  const span = primeSpan(style)
+  const nightFrom = span.from
+  const nightTo = Math.min(23.5, span.to)
   if (familyOf(cls) === 'sleeper') {
     // A 16h run leaving at 15:00 still sleeps; a 4h noon hop never does.
     const pull = 1 - 0.75 * hw.long
@@ -248,7 +262,7 @@ export function classHourAppeal(cls: BusClassId, depHour: number, depMin: number
   }
   if (h >= nightFrom && h <= nightTo) return f.semiNight
   if ((h >= 5.5 && h <= 10.5) || (h >= 15.5 && h <= 20.5)) {
-    return hw.short > 0.5 ? f.semiDay : blendHaul(hours, f.semiDay, 0.88, 0.72)
+    return hw.short > 0.5 ? f.semiDay : blendHaul(hours, f.semiDay, f.semiMidHaulShoulder, 0.72)
   }
   if (h >= 10.5 && h < 15.5) return f.semiMidday
   return f.semiLateNight
@@ -391,7 +405,7 @@ export function corridorProfile(seed: number, route: RouteDef): CorridorProfile 
   const fams: CoachFamily[] = ['sleeper', 'semi', 'seater']
   const famW: number[] = [
     pref.sleeper * 100,
-    pref.seater * 70,
+    pref.semi * 70,
     pref.seater * 30,
   ]
   const winner = rPickWeighted(rng, fams, famW)
