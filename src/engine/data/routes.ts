@@ -584,7 +584,7 @@ export type HaulStyle = 'mid' | 'overnight' | 'marathon' | 'ultra'
 export function haulStyleOfHours(hours: number): HaulStyle {
   const h = displayRouteHours(hours)
   if (h > 16) return 'ultra'
-  if (h >= 10) return 'marathon'
+  if (h > 10) return 'marathon'
   if (h >= 8) return 'overnight'
   return 'mid'
 }
@@ -729,8 +729,8 @@ export function routeMatchesHours(route: RouteDef, filter: string): boolean {
   if (filter === 'all') return true
   const h = displayRouteHours(route.hours)
   if (filter === '6-8') return h >= 6 && h < 8
-  if (filter === '8-10') return h >= 8 && h < 10
-  if (filter === '10-16' || filter === '>10') return h >= 10 && h <= 16
+  if (filter === '8-10') return h >= 8 && h <= 10
+  if (filter === '10-16' || filter === '>10') return h > 10 && h <= 16
   if (filter === '>16' || filter === '>18') return h > 16
   return true
 }

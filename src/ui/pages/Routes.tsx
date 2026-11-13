@@ -363,7 +363,7 @@ export function RoutesPage() {
               <option value="all">All Durations</option>
               <option value="6-8" title={haulBriefFor('mid')}>Mid-haul (6 – 8 hrs)</option>
               <option value="8-10" title={haulBriefFor('overnight')}>Night haul (8 – 10 hrs)</option>
-              <option value="10-16" title={haulBriefFor('marathon')}>Marathon night haul (10 – 16 hrs)</option>
+              <option value="10-16" title={haulBriefFor('marathon')}>Marathon night haul (10+ – 16 hrs)</option>
               <option value=">16" title={haulBriefFor('ultra')}>Ultra marathon (&gt; 16 hrs)</option>
             </select>
           </div>

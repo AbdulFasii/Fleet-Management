@@ -87,7 +87,7 @@ check(haulTitle(ROUTES['maa-pdy']!) === 'Day hop', '4h corridor reads as a day h
 check(haulTitle(ROUTES['blr-tir']!) === 'Mid-haul', '6h corridor sits on the mid-haul side')
 check(haulTitle(ROUTES['blr-maa'] ?? ROUTES['maa-blr']!) === 'Mid-haul', '7h corridor reads as a mid-haul')
 check(haulTitle(ROUTES['maa-mdu']!) === 'Night haul', '8h corridor reads as a night haul')
-check(haulTitle(ROUTES['blr-hyd']!) === 'Marathon night haul', '10h corridor starts the marathon band')
+check(haulTitle(ROUTES['blr-hyd']!) === 'Night haul', '10h corridor is still a night haul')
 check(haulTitle(ROUTES['maa-trv']!) === 'Marathon night haul', '14h corridor reads as a marathon night haul')
 check(haulStyle(ROUTES['maa-viz']!) === 'marathon', '15h coastal haul is a marathon')
 check(haulStyle(ROUTES['hyd-cbe']!) === 'marathon', '16h is still marathon (band ends at 16)')

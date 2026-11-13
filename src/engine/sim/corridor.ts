@@ -216,7 +216,8 @@ export function departureTimeFit(route: RouteDef, depHour: number, depMin = 0, c
       return { appeal: 1.18, isPeak: true, isOffPeak: false }
     }
     // Early morning 05:30 - 08:30 (reaches by 12:00-15:00)
-    if (h >= 5.5 && h <= 8.5) {
+    const semiMorning = !!cls && familyOf(cls) === 'semi'
+    if (h >= 5.5 && h <= (semiMorning ? 11.0 : 8.5)) {
       // Semi-sleepers are the morning product on 6-8h runs; everything else keeps the commuter-run-up value.
       const morningAppeal = cls && familyOf(cls) === 'semi' ? BAL.classHourFit.semiMorningMid : 0.78
       return { appeal: morningAppeal, isPeak: false, isOffPeak: false }

@@ -97,8 +97,8 @@ if (slp < 0.90) {
   console.error(`FAIL: hybrid berths on a night haul should stay near-full, got ${(slp * 100).toFixed(0)}%`)
   process.exit(1)
 }
-if (str < 0.38 || str > 0.65) {
-  console.error(`FAIL: hybrid rear cabin on a night haul expected 38-65%, got ${(str * 100).toFixed(0)}%`)
+if (str < 0.38 || str > 0.80) {
+  console.error(`FAIL: hybrid rear cabin on a night haul expected 38-80%, got ${(str * 100).toFixed(0)}%`)
   process.exit(1)
 }
 console.log(`✓ hybrid night coach — berths ${(slp * 100).toFixed(0)}%, rear cabin ${(str * 100).toFixed(0)}%`)

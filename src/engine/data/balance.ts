@@ -589,7 +589,7 @@ export const BAL = {
       // which are gone, so on 6-8h mid-haul it now sits between seater and
       // sleeper instead of as a plain seater. Short/overnight/long unchanged.
       short: { seater: 0.70, sleeper: 0.30, semi: 0.70, hybrid: 0.50 },
-      mid: { seater: 0.40, sleeper: 0.60, semi: 0.55, hybrid: 0.50 },
+      mid: { seater: 0.40, sleeper: 0.60, semi: 0.65, hybrid: 0.50 },
       overnight: { seater: 0.30, sleeper: 0.70, semi: 0.30, hybrid: 0.50 },
       long: { seater: 0.20, sleeper: 0.80, semi: 0.20, hybrid: 0.50 },
     },
@@ -607,7 +607,7 @@ export const BAL = {
     hybridZones: {
       short: { sleeper: 0.68, seater: 1.40 },
       mid: { sleeper: 1.20, seater: 1.20 },
-      overnight: { sleeper: 1.48, seater: 0.75 },
+      overnight: { sleeper: 1.60, seater: 0.95 },
       long: { sleeper: 1.60, seater: 0.50 },
     },
     shortMax: 6,
@@ -646,7 +646,7 @@ export const BAL = {
     semiMidHaulShoulder: 1.15,
     // Departure-clock appeal for a semi on a 6-8h run leaving 05:30-08:30.
     // Replaces the class-agnostic 0.78 so the semi stops taking the off-peak fill penalty.
-    semiMorningMid: 1.08,
+    semiMorningMid: 1.22,
   },
 
   /**
@@ -911,15 +911,15 @@ export const BAL = {
   officeAdminPerManager: rs(5_000), // additional office rent/workstation overhead for each manager hired and assigned to a desk
   span: {
     base: {
-      ops: 20,        // active owned + leased coaches
-      hr: 40,         // non-manager staff
-      workshop: 4,    // built bays
-      cargo: 5,       // licensed cargo lanes
-      schedule: 20,   // active schedules
-      documents: 40,  // vehicle files: coaches + route permits
-      crm: 40,        // open grievances processed per day
-      accountant: 2500, // ledger rows in the trailing 30 days
-      charter: 12,    // active charter contracts & dedicated fleet
+      ops: 30,        // active owned + leased coaches
+      hr: 60,         // non-manager staff
+      workshop: 6,    // built bays
+      cargo: 8,       // licensed cargo lanes
+      schedule: 30,   // active schedules
+      documents: 60,  // vehicle files: coaches + route permits
+      crm: 60,        // open grievances processed per day
+      accountant: 3750, // ledger rows in the trailing 30 days
+      charter: 18,    // active charter contracts & dedicated fleet
     },
     /** Each skill point away from 5 changes span by this share. */
     skillPerPoint: 0.06,       // +30% at skill 10, -18% at skill 2
@@ -930,13 +930,13 @@ export const BAL = {
     /** Coverage floor so an overstretched desk still does something. */
     minCoverage: 0.20,
     /** HR fatigue swaps per day at full coverage. */
-    hrInterventionsPerDay: 3,
+    hrInterventionsPerDay: 5,
     /** Coaches beyond the Ops span skip the proactive roster passes. */
     opsRotationSalt: 'ops-span',
     /** Cargo/Schedule/Documents processing caps per pass at full coverage. */
-    cargoLanesPerPass: 4,
-    scheduleAssignmentsPerPass: 3,
-    docRenewalsPerPass: 12,
+    cargoLanesPerPass: 6,
+    scheduleAssignmentsPerPass: 5,
+    docRenewalsPerPass: 18,
   },
   gstAcBps: 500, // 5% GST on AC tickets
   incomeTaxRate: 0.20,

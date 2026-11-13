@@ -1014,7 +1014,7 @@ export function AnalyticsPage() {
             <option value="all">All Durations</option>
             <option value="mid">Mid-haul (6 – 8 hrs)</option>
             <option value="overnight">Night haul (8 – 10 hrs)</option>
-            <option value="marathon">Marathon night haul (10 – 16 hrs)</option>
+            <option value="marathon">Marathon night haul (10+ – 16 hrs)</option>
             <option value="ultra">Ultra marathon (&gt; 16 hrs)</option>
           </select>
           <select
